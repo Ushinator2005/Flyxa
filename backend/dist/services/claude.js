@@ -764,6 +764,7 @@ function hasHighConfidenceExit(source, exitReason) {
 function applyConservativeExitDecision(result, verification, humanReview, decisiveReview, extraction, sanity) {
     const next = { ...result };
     const votes = countVotes(verification.exit_reason, humanReview.exit_reason, decisiveReview.exit_reason, extraction.exit_reason);
+    const hasSanityConfirmation = Boolean(sanity && (sanity.first_touch || sanity.stop_touched !== null || sanity.target_touched !== null));
     if (sanity?.stop_touched === true && sanity?.target_touched === false) {
         next.exit_reason = 'SL';
     }
@@ -783,6 +784,13 @@ function applyConservativeExitDecision(result, verification, humanReview, decisi
         !hasHighConfidenceExit(decisiveReview, 'TP')) {
         next.exit_reason = 'SL';
         appendWarning(next.warnings ?? (next.warnings = []), 'Exit-order signals disagreed, so the scanner used the conservative stop-first fallback.');
+    }
+    else if (next.exit_reason === 'TP' &&
+        votes.TP < 3 &&
+        votes.SL >= 1 &&
+        !hasSanityConfirmation) {
+        next.exit_reason = 'SL';
+        appendWarning(next.warnings ?? (next.warnings = []), 'TP was not confirmed by the sanity pass, so the scanner fell back to the conservative stop-first result.');
     }
     if (votes.TP > 0 && votes.SL > 0) {
         appendWarning(next.warnings ?? (next.warnings = []), 'Exit-order signals disagreed across scanner passes.');
