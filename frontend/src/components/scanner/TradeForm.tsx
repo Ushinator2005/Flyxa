@@ -1,0 +1,369 @@
+import React, { useState, useEffect } from 'react';
+import { BrainCircuit, FileText, ShieldCheck, Sparkles, Target, TrendingDown, TrendingUp } from 'lucide-react';
+import { Trade } from '../../types/index.js';
+import { formatCurrency, formatDuration } from '../../utils/calculations.js';
+import { lookupContract, FuturesContract } from '../../constants/futuresContracts.js';
+
+interface Props {
+  initialData?: Partial<Trade>;
+  aiFields?: Set<string>;
+  tradeDate: string;
+  tradeTime: string;
+  onSubmit: (data: Partial<Trade>) => void;
+  onCancel: () => void;
+  isLoading?: boolean;
+}
+
+const emotionalStates = ['Calm', 'Confident', 'Anxious', 'Revenge Trading', 'FOMO', 'Overconfident', 'Tired'];
+
+const defaultForm: Partial<Trade> = {
+  symbol: '',
+  direction: 'Long',
+  entry_price: 0,
+  exit_price: 0,
+  sl_price: 0,
+  tp_price: 0,
+  contract_size: 1,
+  point_value: 20,
+  trade_date: new Date().toISOString().split('T')[0],
+  trade_time: '09:30',
+  trade_length_seconds: 0,
+  candle_count: 0,
+  timeframe_minutes: 1,
+  emotional_state: 'Calm',
+  confidence_level: 7,
+  pre_trade_notes: '',
+  post_trade_notes: '',
+  followed_plan: true,
+};
+
+export default function TradeForm({ initialData, aiFields = new Set(), tradeDate, tradeTime, onSubmit, onCancel, isLoading }: Props) {
+  const [form, setForm] = useState<Partial<Trade>>({ ...defaultForm, ...initialData });
+  const [submitError, setSubmitError] = useState('');
+  const [matchedContract, setMatchedContract] = useState<FuturesContract | undefined>(
+    () => lookupContract(initialData?.symbol || '')
+  );
+
+  useEffect(() => {
+    if (initialData) {
+      setForm(f => ({ ...f, ...initialData }));
+      const contract = lookupContract(initialData.symbol || '');
+      setMatchedContract(contract);
+    }
+    setSubmitError('');
+  }, [initialData]);
+
+  const calcPnL = (): number => {
+    const { direction, entry_price, exit_price, contract_size, point_value } = form;
+    if (!entry_price || !exit_price || !contract_size || !point_value) return 0;
+    return direction === 'Long'
+      ? (exit_price - entry_price) * contract_size * point_value
+      : (entry_price - exit_price) * contract_size * point_value;
+  };
+
+  const calcRR = (): string => {
+    const { entry_price, sl_price, tp_price } = form;
+    if (!entry_price || !sl_price || !tp_price) return 'N/A';
+    const risk = Math.abs(entry_price - sl_price);
+    const reward = Math.abs(tp_price - entry_price);
+    if (risk === 0) return 'N/A';
+    return (reward / risk).toFixed(2);
+  };
+
+  const set = (key: keyof Trade, value: unknown) => {
+    setSubmitError('');
+    setForm(f => {
+      const next = { ...f, [key]: value };
+
+      if (key === 'tp_price' && next.exit_reason === 'TP') {
+        next.exit_price = Number(value);
+      }
+
+      if (key === 'sl_price' && next.exit_reason === 'SL') {
+        next.exit_price = Number(value);
+      }
+
+      return next;
+    });
+  };
+
+  const handleSymbolChange = (value: string) => {
+    const upper = value.toUpperCase();
+    set('symbol', upper);
+    const contract = lookupContract(upper);
+    setMatchedContract(contract);
+    if (contract) set('point_value', contract.point_value);
+  };
+
+  const hasTradeDateTime = Boolean(tradeDate && tradeTime);
+  const hasDuration = typeof form.trade_length_seconds === 'number'
+    && Number.isFinite(form.trade_length_seconds)
+    && form.trade_length_seconds > 0;
+  const requiredFieldsMessage = !hasTradeDateTime && !hasDuration
+    ? 'Trade Date/Time and Duration are required before saving.'
+    : !hasTradeDateTime
+      ? 'Trade Date/Time required before saving.'
+      : !hasDuration
+        ? 'Duration is required before saving.'
+        : '';
+  const canSubmit = Boolean(hasTradeDateTime && hasDuration && !isLoading);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!hasTradeDateTime || !hasDuration) {
+      setSubmitError(requiredFieldsMessage);
+      return;
+    }
+
+    if (form.exit_reason !== 'TP' && form.exit_reason !== 'SL') {
+      setSubmitError('Select whether TP or SL hit first before saving this trade.');
+      return;
+    }
+
+    const normalizedExitPrice = form.exit_reason === 'TP' ? form.tp_price : form.sl_price;
+    if (!normalizedExitPrice) {
+      setSubmitError('Add both stop and target levels so the trade outcome can be priced correctly.');
+      return;
+    }
+
+    onSubmit({ ...form, trade_date: tradeDate, trade_time: tradeTime, exit_price: normalizedExitPrice });
+  };
+
+  const pnl = calcPnL();
+  const rr = calcRR();
+
+  const AIBadge = ({ field }: { field: string }) => aiFields.has(field) ? (
+    <span className="inline-flex items-center gap-0.5 text-xs text-blue-400 ml-1 font-normal">
+      <Sparkles size={9} /> AI
+    </span>
+  ) : null;
+
+  const panelClass = 'rounded-2xl border border-slate-700/60 bg-[linear-gradient(180deg,rgba(2,6,23,0.34),rgba(15,23,42,0.32))] p-4 shadow-[inset_0_1px_0_rgba(148,163,184,0.05)] md:p-5';
+  const numericFieldClass = 'input-field h-11';
+  const SectionLabel = ({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) => (
+    <div className="mb-4 flex items-center gap-2">
+      <span className="rounded-xl border border-slate-700/70 bg-slate-950/70 p-2 text-slate-300">{icon}</span>
+      <div>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">{children}</p>
+      </div>
+    </div>
+  );
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+
+      {/* Symbol + Direction */}
+      <div className={panelClass}>
+        <SectionLabel icon={<Target size={16} />}>Instrument</SectionLabel>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div>
+            <label className="label">Symbol <AIBadge field="symbol" /></label>
+            <input
+              type="text"
+              className={numericFieldClass}
+              value={form.symbol || ''}
+              onChange={e => handleSymbolChange(e.target.value)}
+              placeholder="e.g. MNQM26"
+              required
+            />
+            {matchedContract && (
+              <p className="text-xs text-emerald-400 mt-1">{matchedContract.name} · ${matchedContract.point_value}/pt</p>
+            )}
+          </div>
+          <div>
+            <label className="label">Direction <AIBadge field="direction" /></label>
+            <div className="flex gap-2 h-10">
+              {(['Long', 'Short'] as const).map(d => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => set('direction', d)}
+                  className={`flex-1 rounded-lg text-sm font-semibold transition-all border flex items-center justify-center gap-1.5 ${
+                    form.direction === d
+                      ? d === 'Long'
+                        ? 'bg-emerald-600/30 border-emerald-500/50 text-emerald-400'
+                        : 'bg-red-600/30 border-red-500/50 text-red-400'
+                      : 'bg-slate-700/50 border-slate-600 text-slate-400 hover:border-slate-500'
+                  }`}
+                >
+                  {d === 'Long' ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
+                  {d}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Entry Details */}
+      <div className={panelClass}>
+        <SectionLabel icon={<ShieldCheck size={16} />}>Entry Details</SectionLabel>
+        <div className="grid grid-cols-1 gap-3">
+          <div>
+            <label className="label">Contracts</label>
+            <input
+              type="number"
+              className={numericFieldClass}
+              value={form.contract_size || 1}
+              onChange={e => set('contract_size', parseInt(e.target.value))}
+              min={1}
+              required
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Price levels */}
+      <div className={panelClass}>
+        <SectionLabel icon={<Target size={16} />}>Price Levels</SectionLabel>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div>
+            <label className="label">Entry <AIBadge field="entry_price" /></label>
+            <input type="number" className={numericFieldClass} value={form.entry_price || ''} onChange={e => set('entry_price', parseFloat(e.target.value))} step={0.25} required />
+          </div>
+          <div>
+            <label className="label">Exit</label>
+            <input type="number" className={numericFieldClass} value={form.exit_price || ''} onChange={e => set('exit_price', parseFloat(e.target.value))} step={0.25} />
+          </div>
+          <div>
+            <label className="label">Stop Loss <AIBadge field="sl_price" /></label>
+            <input type="number" className={numericFieldClass} value={form.sl_price || ''} onChange={e => set('sl_price', parseFloat(e.target.value))} step={0.25} required />
+          </div>
+          <div>
+            <label className="label">Take Profit <AIBadge field="tp_price" /></label>
+            <input type="number" className={numericFieldClass} value={form.tp_price || ''} onChange={e => set('tp_price', parseFloat(e.target.value))} step={0.25} required />
+          </div>
+        </div>
+      </div>
+
+      {/* Exit + Duration */}
+      <div className={panelClass}>
+        <SectionLabel icon={<TrendingUp size={16} />}>Outcome</SectionLabel>
+        <div className="grid grid-cols-1 gap-3 mb-4 md:grid-cols-2">
+          <div>
+            <label className="label">Exit Reason <AIBadge field="exit_reason" /></label>
+            <div className="flex gap-2 h-10">
+              {(['TP', 'SL'] as const).map(r => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => {
+                    set('exit_reason', r);
+                    if (r === 'TP' && form.tp_price) set('exit_price', form.tp_price);
+                    if (r === 'SL' && form.sl_price) set('exit_price', form.sl_price);
+                  }}
+                  className={`flex-1 rounded-lg text-sm font-semibold transition-all border ${
+                    form.exit_reason === r
+                      ? r === 'TP'
+                        ? 'bg-emerald-600/30 border-emerald-500/50 text-emerald-400'
+                        : 'bg-red-600/30 border-red-500/50 text-red-400'
+                      : 'bg-slate-700/50 border-slate-600 text-slate-400 hover:border-slate-500'
+                  }`}
+                >
+                  {r === 'TP' ? 'Take Profit' : 'Stop Loss'}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="label">Duration <AIBadge field="trade_length_seconds" /></label>
+            <div className="input-field bg-slate-700/30 cursor-default text-slate-400 flex items-center border-2 border-amber-500 shadow-[0_0_6px_rgba(245,158,11,0.5)]">
+              {form.trade_length_seconds ? formatDuration(form.trade_length_seconds) : '—'}
+              {form.candle_count ? <span className="ml-2 text-slate-500">({form.candle_count} candles)</span> : ''}
+            </div>
+          </div>
+        </div>
+
+        {/* P&L + R:R */}
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div className={`rounded-2xl border p-4 ${pnl >= 0 ? 'border-emerald-500/20 bg-[linear-gradient(180deg,rgba(16,185,129,0.12),rgba(15,23,42,0.2))]' : 'border-red-500/20 bg-[linear-gradient(180deg,rgba(239,68,68,0.12),rgba(15,23,42,0.2))]'}`}>
+            <p className="mb-1 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Calculated P&L</p>
+            <p className={`text-2xl font-bold tracking-tight ${pnl >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>{formatCurrency(pnl)}</p>
+          </div>
+          <div className="rounded-2xl border border-slate-700/60 bg-slate-950/65 p-4">
+            <p className="mb-1 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Risk : Reward</p>
+            <p className="text-2xl font-bold tracking-tight text-blue-300">{rr === 'N/A' ? 'N/A' : `1:${rr}`}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Psychology */}
+      <div className={panelClass}>
+        <SectionLabel icon={<BrainCircuit size={16} />}>Psychology</SectionLabel>
+        <div className="grid grid-cols-1 gap-3 mb-4 md:grid-cols-2">
+          <div>
+            <label className="label">Emotional State</label>
+            <select className={numericFieldClass} value={form.emotional_state || 'Calm'} onChange={e => set('emotional_state', e.target.value)}>
+              {emotionalStates.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label">Confidence ({form.confidence_level}/10)</label>
+            <input
+              type="range" min={1} max={10}
+              value={form.confidence_level || 7}
+              onChange={e => set('confidence_level', parseInt(e.target.value))}
+              className="w-full mt-2 accent-blue-500"
+            />
+            <div className="flex justify-between text-xs text-slate-600 mt-1"><span>Low</span><span>High</span></div>
+          </div>
+        </div>
+
+        <div>
+          <label className="label">Followed Trading Plan?</label>
+          <div className="flex gap-2 h-9">
+            {[true, false].map(v => (
+              <button
+                key={String(v)}
+                type="button"
+                onClick={() => set('followed_plan', v)}
+                className={`flex-1 rounded-lg text-sm font-medium transition-all border ${
+                  form.followed_plan === v
+                    ? v ? 'bg-emerald-600/30 border-emerald-500/50 text-emerald-400' : 'bg-red-600/30 border-red-500/50 text-red-400'
+                    : 'bg-slate-700/50 border-slate-600 text-slate-400'
+                }`}
+              >
+                {v ? 'Yes' : 'No'}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Notes */}
+      <div className={panelClass}>
+        <SectionLabel icon={<FileText size={16} />}>Notes</SectionLabel>
+        <div className="space-y-3">
+          <div>
+            <label className="label">Pre-Trade</label>
+            <textarea className="input-field resize-none" rows={2} value={form.pre_trade_notes || ''} onChange={e => set('pre_trade_notes', e.target.value)} placeholder="Why did you take this trade?" />
+          </div>
+          <div>
+            <label className="label">Post-Trade</label>
+            <textarea className="input-field resize-none" rows={2} value={form.post_trade_notes || ''} onChange={e => set('post_trade_notes', e.target.value)} placeholder="What happened? What did you learn?" />
+          </div>
+        </div>
+      </div>
+
+      {/* Actions */}
+      {(submitError || requiredFieldsMessage) && (
+        <p className={`text-sm ${requiredFieldsMessage ? 'text-amber-400' : 'text-red-400'}`}>
+          {submitError || requiredFieldsMessage}
+        </p>
+      )}
+      <div className="flex gap-3 border-t border-slate-800/80 pt-2">
+        <button
+          type="submit"
+          disabled={!canSubmit}
+          title={requiredFieldsMessage || undefined}
+          className="btn-primary h-12 flex-1 rounded-xl shadow-[0_14px_30px_rgba(37,99,235,0.18)] disabled:opacity-100 disabled:bg-slate-700 disabled:border disabled:border-slate-600 disabled:text-slate-400 disabled:cursor-not-allowed disabled:shadow-none"
+        >
+          {isLoading ? 'Saving...' : 'Save Trade'}
+        </button>
+        <button type="button" onClick={onCancel} className="btn-secondary h-12 rounded-xl px-5">
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
