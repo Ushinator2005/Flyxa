@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
+  CalendarDays,
   CheckCircle2,
   Heart,
   Leaf,
@@ -238,13 +239,20 @@ export default function Journal() {
     if (selected && textareaRef.current) textareaRef.current.focus();
   }, [selected?.id]);
 
+  function applyEntryUpdateLocally(entryId: string, updates: Partial<JournalEntry>) {
+    setEntries(current =>
+      current.map(entry => (entry.id === entryId ? { ...entry, ...updates } : entry))
+    );
+    setSelected(current => (current?.id === entryId ? { ...current, ...updates } : current));
+  }
+
   async function autoSave(content: string) {
     if (!selected) return;
     setSaving(true);
 
     try {
       const updated = await journalApi.update(selected.id, { content } as Record<string, unknown>);
-      setEntries(current => current.map(entry => (entry.id === selected.id ? (updated as JournalEntry) : entry)));
+      applyEntryUpdateLocally(selected.id, updated as JournalEntry);
       setSaved(true);
       window.setTimeout(() => setSaved(false), 2000);
     } catch (error) {
@@ -257,13 +265,40 @@ export default function Journal() {
   function handleContentChange(content: string) {
     if (!selected) return;
 
-    setSelected(current => (current ? { ...current, content } : current));
+    applyEntryUpdateLocally(selected.id, { content });
     setSaved(false);
 
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
       void autoSave(content);
     }, 1500);
+  }
+
+  async function handleDateChange(nextDate: string) {
+    if (!selected || !nextDate || nextDate === selected.date) return;
+
+    const duplicateEntry = entries.find(entry => entry.id !== selected.id && entry.date === nextDate);
+    if (duplicateEntry) {
+      window.alert(`There is already a journal entry for ${format(parseISO(nextDate), 'MMMM d, yyyy')}.`);
+      return;
+    }
+
+    const previousDate = selected.date;
+    applyEntryUpdateLocally(selected.id, { date: nextDate });
+    setSaving(true);
+    setSaved(false);
+
+    try {
+      const updated = await journalApi.update(selected.id, { date: nextDate } as Record<string, unknown>);
+      applyEntryUpdateLocally(selected.id, updated as JournalEntry);
+      setSaved(true);
+      window.setTimeout(() => setSaved(false), 2000);
+    } catch (error) {
+      console.error(error);
+      applyEntryUpdateLocally(selected.id, { date: previousDate });
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function createEntry() {
@@ -461,8 +496,28 @@ export default function Journal() {
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2">
-                      {saving && (
+                  <div className="flex flex-col gap-3 xl:items-end">
+                    <label className="flex flex-col gap-1.5 xl:items-end">
+                      <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                        Entry date
+                      </span>
+                      <div className="relative">
+                        <CalendarDays
+                          size={14}
+                          strokeWidth={ICON_STROKE_WIDTH}
+                          className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-500"
+                        />
+                        <input
+                          type="date"
+                          value={selected.date}
+                          onChange={event => void handleDateChange(event.target.value)}
+                          className="h-11 rounded-2xl border border-slate-700/70 bg-slate-900/85 pl-11 pr-4 text-sm text-slate-200 outline-none transition-colors focus:border-blue-500/40 focus:bg-slate-900"
+                        />
+                      </div>
+                    </label>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                    {saving && (
                       <span className="inline-flex items-center gap-2 rounded-full border border-blue-500/20 bg-blue-500/[0.08] px-4 py-2 text-sm text-blue-300">
                         <Save size={14} strokeWidth={ICON_STROKE_WIDTH} className="animate-pulse" />
                         Saving
@@ -491,6 +546,7 @@ export default function Journal() {
                       <Trash2 size={14} strokeWidth={ICON_STROKE_WIDTH} />
                       Delete
                     </button>
+                    </div>
                   </div>
                 </div>
               </div>

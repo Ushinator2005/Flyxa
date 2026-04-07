@@ -51,7 +51,7 @@ router.get('/', auth_1.authMiddleware, async (req, res, next) => {
 // POST create trade
 router.post('/', auth_1.authMiddleware, async (req, res, next) => {
     try {
-        const { symbol, direction, entry_price, sl_price, tp_price, exit_reason, contract_size, point_value, trade_date, trade_time, trade_length_seconds, candle_count, timeframe_minutes, emotional_state, confidence_level, pre_trade_notes, post_trade_notes, followed_plan, } = req.body;
+        const { symbol, screenshot_url, direction, entry_price, sl_price, tp_price, exit_reason, contract_size, point_value, trade_date, trade_time, trade_length_seconds, candle_count, timeframe_minutes, emotional_state, confidence_level, pre_trade_notes, post_trade_notes, followed_plan, } = req.body;
         if (typeof symbol !== 'string' ||
             !symbol.trim() ||
             !isTradeDirection(direction) ||
@@ -82,6 +82,7 @@ router.post('/', auth_1.authMiddleware, async (req, res, next) => {
             .insert({
             user_id: req.userId,
             symbol,
+            screenshot_url: typeof screenshot_url === 'string' ? screenshot_url : '',
             direction,
             entry_price,
             exit_price: normalizedExitPrice,

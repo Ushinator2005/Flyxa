@@ -9,6 +9,7 @@ interface Props {
   aiFields?: Set<string>;
   tradeDate: string;
   tradeTime: string;
+  showContractsField?: boolean;
   onSubmit: (data: Partial<Trade>) => void;
   onCancel: () => void;
   isLoading?: boolean;
@@ -37,7 +38,16 @@ const defaultForm: Partial<Trade> = {
   followed_plan: true,
 };
 
-export default function TradeForm({ initialData, aiFields = new Set(), tradeDate, tradeTime, onSubmit, onCancel, isLoading }: Props) {
+export default function TradeForm({
+  initialData,
+  aiFields = new Set(),
+  tradeDate,
+  tradeTime,
+  showContractsField = true,
+  onSubmit,
+  onCancel,
+  isLoading,
+}: Props) {
   const [form, setForm] = useState<Partial<Trade>>({ ...defaultForm, ...initialData });
   const [submitError, setSubmitError] = useState('');
   const [matchedContract, setMatchedContract] = useState<FuturesContract | undefined>(
@@ -196,22 +206,24 @@ export default function TradeForm({ initialData, aiFields = new Set(), tradeDate
       </div>
 
       {/* Entry Details */}
-      <div className={panelClass}>
-        <SectionLabel icon={<ShieldCheck size={16} />}>Entry Details</SectionLabel>
-        <div className="grid grid-cols-1 gap-3">
-          <div>
-            <label className="label">Contracts</label>
-            <input
-              type="number"
-              className={numericFieldClass}
-              value={form.contract_size || 1}
-              onChange={e => set('contract_size', parseInt(e.target.value))}
-              min={1}
-              required
-            />
+      {showContractsField && (
+        <div className={panelClass}>
+          <SectionLabel icon={<ShieldCheck size={16} />}>Entry Details</SectionLabel>
+          <div className="grid grid-cols-1 gap-3">
+            <div>
+              <label className="label">Contracts</label>
+              <input
+                type="number"
+                className={numericFieldClass}
+                value={form.contract_size || 1}
+                onChange={e => set('contract_size', parseInt(e.target.value))}
+                min={1}
+                required
+              />
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Price levels */}
       <div className={panelClass}>

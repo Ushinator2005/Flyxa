@@ -12,6 +12,7 @@ exports.compareTradeToPlaybook = compareTradeToPlaybook;
 exports.answerFlyxaQuestion = answerFlyxaQuestion;
 const sdk_1 = __importDefault(require("@anthropic-ai/sdk"));
 const dotenv_1 = __importDefault(require("dotenv"));
+const zlib_1 = require("zlib");
 dotenv_1.default.config();
 const anthropic = new sdk_1.default({
     apiKey: process.env.ANTHROPIC_API_KEY,
@@ -67,6 +68,209 @@ function parseJsonObject(rawText) {
     }
     return JSON.parse(jsonMatch[0]);
 }
+function paethPredictor(a, b, c) {
+    const p = a + b - c;
+    const pa = Math.abs(p - a);
+    const pb = Math.abs(p - b);
+    const pc = Math.abs(p - c);
+    if (pa <= pb && pa <= pc)
+        return a;
+    if (pb <= pc)
+        return b;
+    return c;
+}
+function decodePngImage(base64Image) {
+    const buffer = Buffer.from(base64Image, 'base64');
+    const signature = '89504e470d0a1a0a';
+    if (buffer.length < 8 || buffer.subarray(0, 8).toString('hex') !== signature) {
+        return null;
+    }
+    let width = 0;
+    let height = 0;
+    let bitDepth = 0;
+    let colorType = 0;
+    let interlaceMethod = 0;
+    const idatChunks = [];
+    let offset = 8;
+    while (offset + 8 <= buffer.length) {
+        const chunkLength = buffer.readUInt32BE(offset);
+        const chunkType = buffer.subarray(offset + 4, offset + 8).toString('ascii');
+        const chunkDataStart = offset + 8;
+        const chunkDataEnd = chunkDataStart + chunkLength;
+        if (chunkDataEnd + 4 > buffer.length) {
+            return null;
+        }
+        const chunkData = buffer.subarray(chunkDataStart, chunkDataEnd);
+        if (chunkType === 'IHDR') {
+            width = chunkData.readUInt32BE(0);
+            height = chunkData.readUInt32BE(4);
+            bitDepth = chunkData[8];
+            colorType = chunkData[9];
+            interlaceMethod = chunkData[12];
+        }
+        else if (chunkType === 'IDAT') {
+            idatChunks.push(chunkData);
+        }
+        else if (chunkType === 'IEND') {
+            break;
+        }
+        offset = chunkDataEnd + 4;
+    }
+    if (!width || !height || bitDepth !== 8 || interlaceMethod !== 0 || ![2, 6].includes(colorType) || idatChunks.length === 0) {
+        return null;
+    }
+    const bytesPerPixel = colorType === 6 ? 4 : 3;
+    const stride = width * bytesPerPixel;
+    const inflated = (0, zlib_1.inflateSync)(Buffer.concat(idatChunks));
+    if (inflated.length < height * (stride + 1)) {
+        return null;
+    }
+    const raw = Buffer.alloc(height * stride);
+    let inputOffset = 0;
+    for (let y = 0; y < height; y++) {
+        const filterType = inflated[inputOffset++];
+        const rowStart = y * stride;
+        for (let x = 0; x < stride; x++) {
+            const rawByte = inflated[inputOffset++];
+            const left = x >= bytesPerPixel ? raw[rowStart + x - bytesPerPixel] : 0;
+            const up = y > 0 ? raw[rowStart + x - stride] : 0;
+            const upLeft = y > 0 && x >= bytesPerPixel ? raw[rowStart + x - stride - bytesPerPixel] : 0;
+            let value = rawByte;
+            if (filterType === 1)
+                value = (rawByte + left) & 0xff;
+            else if (filterType === 2)
+                value = (rawByte + up) & 0xff;
+            else if (filterType === 3)
+                value = (rawByte + Math.floor((left + up) / 2)) & 0xff;
+            else if (filterType === 4)
+                value = (rawByte + paethPredictor(left, up, upLeft)) & 0xff;
+            raw[rowStart + x] = value;
+        }
+    }
+    if (colorType === 6) {
+        return {
+            width,
+            height,
+            data: new Uint8Array(raw),
+        };
+    }
+    const rgba = new Uint8Array(width * height * 4);
+    for (let i = 0, j = 0; i < raw.length; i += 3, j += 4) {
+        rgba[j] = raw[i];
+        rgba[j + 1] = raw[i + 1];
+        rgba[j + 2] = raw[i + 2];
+        rgba[j + 3] = 255;
+    }
+    return { width, height, data: rgba };
+}
+function isDarkPricePixel(r, g, b, a) {
+    return a > 180 && r < 120 && g < 120 && b < 120;
+}
+function getColumnPriceExtents(data, width, x, yStart, yEnd) {
+    const runs = [];
+    let runStart = null;
+    for (let y = yStart; y < yEnd; y++) {
+        const index = (y * width + x) * 4;
+        const r = data[index];
+        const g = data[index + 1];
+        const b = data[index + 2];
+        const a = data[index + 3];
+        const isDark = isDarkPricePixel(r, g, b, a);
+        if (isDark && runStart === null) {
+            runStart = y;
+            continue;
+        }
+        if (!isDark && runStart !== null) {
+            if (y - runStart >= 3) {
+                runs.push({ start: runStart, end: y - 1 });
+            }
+            runStart = null;
+        }
+    }
+    if (runStart !== null && yEnd - runStart >= 3) {
+        runs.push({ start: runStart, end: yEnd - 1 });
+    }
+    if (!runs.length) {
+        return null;
+    }
+    return {
+        minY: Math.min(...runs.map(run => run.start)),
+        maxY: Math.max(...runs.map(run => run.end)),
+    };
+}
+function detectDeterministicExitFromDecodedImage(image, scannerContext) {
+    const context = scannerContext;
+    if (!image ||
+        !context ||
+        context.stop_line_ratio === undefined ||
+        context.target_line_ratio === undefined ||
+        context.box_left_ratio === undefined) {
+        return null;
+    }
+    const { width, height, data } = image;
+    const inferredDirection = context.direction_hint ??
+        (context.stop_line_ratio < context.target_line_ratio ? 'Short' : 'Long');
+    const searchStartX = Math.max(0, Math.floor(width * context.box_left_ratio) + 2);
+    const searchEndX = Math.max(searchStartX + 1, Math.floor(width * 0.88));
+    const searchMinY = Math.floor(height * 0.08);
+    const searchMaxY = Math.floor(height * 0.92);
+    const stopY = Math.floor(height * context.stop_line_ratio);
+    const targetY = Math.floor(height * context.target_line_ratio);
+    const tolerance = 2;
+    let firstStopX = null;
+    let firstTargetX = null;
+    for (let x = searchStartX; x < searchEndX; x++) {
+        const columnExtents = getColumnPriceExtents(data, width, x, searchMinY, searchMaxY);
+        if (!columnExtents) {
+            continue;
+        }
+        const { minY: columnMinY, maxY: columnMaxY } = columnExtents;
+        if (inferredDirection === 'Short') {
+            if (firstStopX === null && columnMinY <= stopY + tolerance) {
+                firstStopX = x;
+            }
+            if (firstTargetX === null && columnMaxY >= targetY - tolerance) {
+                firstTargetX = x;
+            }
+        }
+        else {
+            if (firstStopX === null && columnMaxY >= stopY - tolerance) {
+                firstStopX = x;
+            }
+            if (firstTargetX === null && columnMinY <= targetY + tolerance) {
+                firstTargetX = x;
+            }
+        }
+    }
+    if (firstStopX === null && firstTargetX === null) {
+        return null;
+    }
+    if (firstStopX !== null && firstTargetX === null) {
+        return {
+            exit_reason: 'SL',
+            evidence: 'Price reached the stop-loss level before the take-profit level.',
+        };
+    }
+    if (firstTargetX !== null && firstStopX === null) {
+        return {
+            exit_reason: 'TP',
+            evidence: 'Price reached the take-profit level before the stop-loss level.',
+        };
+    }
+    if (firstStopX !== null && firstTargetX !== null) {
+        if (Math.abs(firstStopX - firstTargetX) <= 3) {
+            return null;
+        }
+        const stopFirst = firstStopX < firstTargetX;
+        return {
+            exit_reason: stopFirst ? 'SL' : 'TP',
+            evidence: stopFirst
+                ? 'Price touched the stop-loss before the take-profit.'
+                : 'Price touched the take-profit before the stop-loss.',
+        };
+    }
+    return null;
+}
 function parseNullableNumber(value) {
     if (typeof value === 'number' && Number.isFinite(value)) {
         return value;
@@ -84,9 +288,74 @@ function normalizeScannedSymbol(value) {
     if (!value) {
         return null;
     }
-    return value
-        .toUpperCase()
-        .replace(/[FGHJKMNQUVXZ]\d{1,2}$/i, '');
+    const normalized = value.toUpperCase().trim();
+    const cleaned = normalized
+        .replace(/[|:,]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    const rootCleaned = cleaned.replace(/[FGHJKMNQUVXZ]\d{1,2}$/i, '');
+    const invalidValues = new Set([
+        'UNKNOWN',
+        'UNKWN',
+        'N/A',
+        'NA',
+        'NONE',
+        'NULL',
+        'FUTURES',
+        'MICRO',
+        'E-MINI',
+        'EMINI',
+        'MICRO FUTURES',
+        'NASDAQ FUTURES',
+        'S&P FUTURES',
+        'TRADINGVIEW',
+    ]);
+    if (invalidValues.has(rootCleaned)) {
+        return null;
+    }
+    const explicitTickerPatterns = [
+        [/\bMNQ[A-Z]?\d{1,2}\b/, 'MNQ'],
+        [/\bMES[A-Z]?\d{1,2}\b/, 'MES'],
+        [/\bMYM[A-Z]?\d{1,2}\b/, 'MYM'],
+        [/\bM2K[A-Z]?\d{1,2}\b/, 'M2K'],
+        [/\bMCL[A-Z]?\d{1,2}\b/, 'MCL'],
+        [/\bMGC[A-Z]?\d{1,2}\b/, 'MGC'],
+        [/\bMBT[A-Z]?\d{1,2}\b/, 'MBT'],
+        [/\bMET[A-Z]?\d{1,2}\b/, 'MET'],
+        [/\bNQ[A-Z]?\d{1,2}\b/, 'NQ'],
+        [/\bES[A-Z]?\d{1,2}\b/, 'ES'],
+        [/\bYM[A-Z]?\d{1,2}\b/, 'YM'],
+        [/\bRTY[A-Z]?\d{1,2}\b/, 'RTY'],
+        [/\bCL[A-Z]?\d{1,2}\b/, 'CL'],
+        [/\bGC[A-Z]?\d{1,2}\b/, 'GC'],
+        [/\bSI[A-Z]?\d{1,2}\b/, 'SI'],
+        [/\bZB[A-Z]?\d{1,2}\b/, 'ZB'],
+        [/\bZN[A-Z]?\d{1,2}\b/, 'ZN'],
+        [/\bZF[A-Z]?\d{1,2}\b/, 'ZF'],
+        [/\b6E[A-Z]?\d{1,2}\b/, '6E'],
+        [/\b6B[A-Z]?\d{1,2}\b/, '6B'],
+        [/\b6J[A-Z]?\d{1,2}\b/, '6J'],
+        [/\bBTC[A-Z]?\d{0,2}\b/, 'BTC'],
+        [/\bETH[A-Z]?\d{0,2}\b/, 'ETH'],
+    ];
+    for (const [pattern, ticker] of explicitTickerPatterns) {
+        if (pattern.test(cleaned)) {
+            return ticker;
+        }
+    }
+    if (cleaned.includes('MICRO NASDAQ') || cleaned.includes('MICRO E-MINI NASDAQ') || cleaned.includes('MICRO NASDAQ-100')) {
+        return 'MNQ';
+    }
+    if (cleaned.includes('NASDAQ')) {
+        return cleaned.includes('MICRO') ? 'MNQ' : 'NQ';
+    }
+    if (cleaned.includes('MICRO S&P') || cleaned.includes('MICRO SP')) {
+        return 'MES';
+    }
+    if (cleaned.includes('S&P') || cleaned.includes('SP 500') || cleaned.includes('E-MINI S&P') || cleaned.includes('E MINI S&P')) {
+        return cleaned.includes('MICRO') ? 'MES' : 'ES';
+    }
+    return invalidValues.has(rootCleaned) ? null : rootCleaned;
 }
 function parseNullableTime(value) {
     const normalized = parseNullableString(value);
@@ -366,6 +635,31 @@ function sanitizeExactPriceRead(raw) {
         tp_price: parseNullableNumber(raw.tp_price),
     };
 }
+function sanitizeHeaderIdentityRead(raw) {
+    return {
+        symbol: normalizeScannedSymbol(parseNullableString(raw.symbol)),
+        timeframe_minutes: parseNullableNumber(raw.timeframe_minutes),
+    };
+}
+async function extractHeaderIdentity(images) {
+    const systemPrompt = `You are reading ONLY the TradingView header of the single chart that contains the colored risk/reward box.
+
+Read only:
+- the exact futures ticker/root from the top-left chart label
+- the timeframe
+
+Critical symbol rules:
+- Return the tradeable root ticker, not generic words
+- Good outputs: MNQ, NQ, MES, ES, MYM, YM, M2K, RTY, CL, MCL, GC, MGC, SI, SIL, 6E, 6B, 6J, BTC, MBT, ETH, MET
+- If the header shows an expiry code like MNQM26 or NQU6, return the root ticker only: MNQ or NQ
+- If the header says Micro Nasdaq-100 or Micro E-mini Nasdaq-100, return MNQ
+- If the header says E-mini Nasdaq-100, return NQ
+- NEVER return generic words like Futures, Micro, E-mini, CME, CBOT, or TradingView as the symbol
+
+Return ONLY a raw JSON object with these exact keys:
+symbol, timeframe_minutes`;
+    return sanitizeHeaderIdentityRead(await callClaudeJson(systemPrompt, images, 'Read only the instrument ticker/root and timeframe from the header of the chart containing the colored risk/reward box.', 250));
+}
 async function extractExactPriceLevels(images, scannerContext) {
     const systemPrompt = `You are reading ONLY the exact three price labels from TradingView risk/reward screenshots.
 ${MANUAL_READING_PROCESS}
@@ -413,6 +707,16 @@ function applyExactPriceRead(base, exactPriceRead) {
         entry_price: repairedStructure.entry_price ?? base.entry_price,
         sl_price: repairedStructure.sl_price ?? base.sl_price,
         tp_price: repairedStructure.tp_price ?? base.tp_price,
+    };
+}
+function applyHeaderIdentityRead(base, headerIdentityRead) {
+    if (!headerIdentityRead) {
+        return base;
+    }
+    return {
+        ...base,
+        symbol: headerIdentityRead.symbol ?? base.symbol,
+        timeframe_minutes: headerIdentityRead.timeframe_minutes ?? base.timeframe_minutes,
     };
 }
 async function callClaudeJson(system, images, userText, maxTokens = 1024) {
@@ -463,6 +767,12 @@ Read these facts directly from the screenshot:
 - sl_price
 - tp_price
 - timeframe_minutes
+
+Symbol rules:
+- Read the symbol from the top-left chart label only
+- Return the tradable root ticker such as MNQ, NQ, MES, ES, MYM, YM, M2K, RTY, CL, MCL, GC, MGC, SI, SIL, 6E, 6B, 6J, BTC, MBT, ETH, MET
+- If the header shows an expiry code like MNQM26 or NQU6, return MNQ or NQ
+- Never return generic words like Futures, Micro, E-mini, CME, CBOT, or TradingView as the symbol
 
 Never estimate price labels. Read the exact numbers shown on the right axis labels.
 If entry-label-focus, stop-label-focus, or target-label-focus are attached, use those as the primary source for the exact prices.
@@ -881,6 +1191,14 @@ async function analyzeChartImage(base64Image, mimeType, entryDate, entryTime, fo
         })),
     ];
     const normalizedScannerContext = scannerContext;
+    const decodedFullImage = safeMimeType === 'image/png' ? decodePngImage(base64Image) : null;
+    const deterministicExit = safeMimeType === 'image/png'
+        ? detectDeterministicExitFromDecodedImage(decodedFullImage, normalizedScannerContext)
+        : null;
+    const identityImages = selectImagesByLabels(analysisImages, [
+        'header-focus',
+        'full_chart',
+    ]);
     const exactPriceImages = selectImagesByLabels(analysisImages, [
         'trade-box-focus',
         'price-label-focus',
@@ -917,14 +1235,21 @@ async function analyzeChartImage(base64Image, mimeType, entryDate, entryTime, fo
     ]);
     const preAnalysisWarnings = [];
     let exactPriceRead = null;
+    let headerIdentityRead = null;
+    try {
+        headerIdentityRead = await extractHeaderIdentity(identityImages);
+    }
+    catch {
+        preAnalysisWarnings.push('Header symbol/timeframe read failed, so identity relied on the broader chart reads.');
+    }
     try {
         exactPriceRead = await extractExactPriceLevels(exactPriceImages, normalizedScannerContext);
     }
     catch {
         preAnalysisWarnings.push('Exact price-label review failed, so price levels relied on the broader chart reads.');
     }
-    const extraction = applyExactPriceRead(await extractTradeFacts(extractionImages, entryDate, entryTime, normalizedScannerContext), exactPriceRead);
-    const rawHumanReview = applyExactPriceRead(await humanStyleReview(extractionImages, entryDate, entryTime, normalizedScannerContext), exactPriceRead);
+    const extraction = applyHeaderIdentityRead(applyExactPriceRead(await extractTradeFacts(extractionImages, entryDate, entryTime, normalizedScannerContext), exactPriceRead), headerIdentityRead);
+    const rawHumanReview = applyHeaderIdentityRead(applyExactPriceRead(await humanStyleReview(extractionImages, entryDate, entryTime, normalizedScannerContext), exactPriceRead), headerIdentityRead);
     const baseRead = buildManualReaderBase(extraction, rawHumanReview, entryTime);
     preAnalysisWarnings.forEach(warning => appendWarning(baseRead.warnings ?? (baseRead.warnings = []), warning));
     let verification = {
@@ -951,17 +1276,23 @@ async function analyzeChartImage(base64Image, mimeType, entryDate, entryTime, fo
     }
     let decisiveReview = rawHumanReview;
     try {
-        decisiveReview = applyExactPriceRead(await decisiveFinalReview(extractionImages, entryDate, entryTime, extraction, verification, rawHumanReview, normalizedScannerContext), exactPriceRead);
+        decisiveReview = applyHeaderIdentityRead(applyExactPriceRead(await decisiveFinalReview(extractionImages, entryDate, entryTime, extraction, verification, rawHumanReview, normalizedScannerContext), exactPriceRead), headerIdentityRead);
     }
     catch {
         appendWarning(baseRead.warnings ?? (baseRead.warnings = []), 'Final consensus review failed, so the result relied on the primary extraction passes.');
     }
-    const consensus = applyExactPriceRead(buildConsensusTradeAnalysis(extraction, verification, rawHumanReview, decisiveReview, entryTime), exactPriceRead);
-    const fallbackResult = applyExactPriceRead(finalizeManualReaderResult(baseRead, verification, extraction, rawHumanReview), exactPriceRead);
+    const consensus = applyHeaderIdentityRead(applyExactPriceRead(buildConsensusTradeAnalysis(extraction, verification, rawHumanReview, decisiveReview, entryTime), exactPriceRead), headerIdentityRead);
+    const fallbackResult = applyHeaderIdentityRead(applyExactPriceRead(finalizeManualReaderResult(baseRead, verification, extraction, rawHumanReview), exactPriceRead), headerIdentityRead);
     const structureSafeResult = hasValidLevelStructure(consensus.direction, consensus.entry_price, consensus.sl_price, consensus.tp_price)
         ? consensus
         : fallbackResult;
     const finalResult = applyConservativeExitDecision(applySanityOverride(structureSafeResult, sanityCheck), verification, rawHumanReview, decisiveReview, extraction, sanityCheck);
+    if (deterministicExit?.exit_reason) {
+        finalResult.exit_reason = deterministicExit.exit_reason;
+        finalResult.pnl_result = deterministicExit.exit_reason === 'TP' ? 'Win' : 'Loss';
+        finalResult.exit_confidence = 'high';
+        finalResult.first_touch_evidence = deterministicExit.evidence ?? finalResult.first_touch_evidence;
+    }
     finalResult.warnings = [
         ...(finalResult.warnings ?? []),
         ...(baseRead.warnings ?? []),

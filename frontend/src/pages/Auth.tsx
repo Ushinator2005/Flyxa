@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AlertCircle, CheckCircle2, Lock, Mail } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Eye, EyeOff, Lock, Mail } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext.js';
 import ThemeToggle from '../components/common/ThemeToggle.js';
 import FlyxaLogo from '../components/common/FlyxaLogo.js';
@@ -33,6 +33,7 @@ export default function Auth() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -202,8 +203,8 @@ export default function Auth() {
                       <Lock size={18} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" />
                       <Input
                         id="password"
-                        type="password"
-                        className="auth-input pl-11"
+                        type={showPassword ? 'text' : 'password'}
+                        className="auth-input pl-11 pr-12"
                         value={password}
                         onChange={e => setPassword(e.target.value)}
                         placeholder={tab === 'signup' ? 'Minimum 6 characters' : 'Enter your password'}
@@ -211,6 +212,15 @@ export default function Auth() {
                         minLength={6}
                         autoComplete={tab === 'login' ? 'current-password' : 'new-password'}
                       />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(current => !current)}
+                        className="absolute right-3 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full text-slate-500 transition-colors hover:text-white"
+                        aria-label={showPassword ? 'Hide password' : 'Show password'}
+                        title={showPassword ? 'Hide password' : 'Show password'}
+                      >
+                        {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+                      </button>
                     </div>
                     {tab === 'login' && (
                       <div className="mt-3 flex justify-end">

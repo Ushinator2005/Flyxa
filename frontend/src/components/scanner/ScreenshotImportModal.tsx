@@ -19,6 +19,21 @@ function resolveSymbol(raw: string): string {
   return SYMBOL_MAP[raw.toUpperCase()] ?? raw.toUpperCase();
 }
 
+function normalizeResolvedSymbol(raw: string | null | undefined): string | null {
+  if (!raw) {
+    return null;
+  }
+
+  const normalized = resolveSymbol(raw.trim());
+  return ['UNKNOWN', 'UNKWN', 'N/A', 'NA', 'NONE', 'NULL'].includes(normalized) ? null : normalized;
+}
+
+function inferSymbolFromFileName(fileName: string): string | null {
+  const upper = fileName.toUpperCase();
+  const match = upper.match(/(?:^|[^A-Z0-9])(MNQ|MES|NQ|ES|MYM|YM|M2K|RTY|CL|MCL|GC|SI|6E)(?=[^A-Z0-9]|$)/);
+  return match ? match[1] : null;
+}
+
 interface CropPreset {
   name: string;
   x: number;
@@ -235,11 +250,14 @@ function detectTradeBoxContext(image: HTMLImageElement): ScannerContext | null {
   const boxLeftRatio = Math.min(redBox.xMin, greenBox.xMin) / width;
   const boxRightRatio = Math.max(redBox.xMax, greenBox.xMax) / width;
   const chartPane = inferChartPaneBounds(boxLeftRatio, boxRightRatio);
-  const directionHint = greenBox.yMax < redBox.yMin
-    ? 'Long'
-    : redBox.yMax < greenBox.yMin
+  const redCenterY = (redBox.yMin + redBox.yMax) / 2;
+  const greenCenterY = (greenBox.yMin + greenBox.yMax) / 2;
+  const directionHint =
+    redCenterY < greenCenterY
       ? 'Short'
-      : undefined;
+      : greenCenterY < redCenterY
+        ? 'Long'
+        : undefined;
 
   let entryLineRatio: number | undefined;
   let stopLineRatio: number | undefined;
@@ -384,6 +402,11 @@ interface Props {
 }
 
 export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTrade, prefillTrade }: Props) {
+  const getInitialContractSize = useCallback(
+    () => String(Math.max(1, Number(editTrade?.contract_size ?? prefillTrade?.contract_size ?? 1))),
+    [editTrade?.contract_size, prefillTrade?.contract_size]
+  );
+
   const [scanning, setScanning]           = useState(false);
   const [scanError, setScanError]         = useState('');
   const [warnings, setWarnings]           = useState<string[]>([]);
@@ -402,6 +425,7 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
   const [fullscreenPreview, setFullscreenPreview] = useState(false);
   const [isDragging, setIsDragging]       = useState(false);
   const [saving, setSaving]              = useState(false);
+  const [contractInputValue, setContractInputValue] = useState(() => getInitialContractSize());
 
   const [currentDate, setCurrentDate] = useState(() => editTrade?.trade_date ?? prefillTrade?.trade_date ?? '');
   const [currentTime, setCurrentTime] = useState(() => editTrade?.trade_time ?? prefillTrade?.trade_time ?? '');
@@ -424,6 +448,7 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
     setCurrentDate(editTrade?.trade_date ?? prefillTrade?.trade_date ?? '');
     setCurrentTime(editTrade?.trade_time ?? prefillTrade?.trade_time ?? '');
     setImagePreview(editTrade?.screenshot_url ?? null);
+    setContractInputValue(getInitialContractSize());
     if (!editTrade && prefillTrade) {
       setFormData(prefillTrade);
       setAiFields(new Set());
@@ -431,7 +456,7 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
       setScanEvidence('');
       setScanError('');
     }
-  }, [isOpen, editTrade, prefillTrade]);
+  }, [getInitialContractSize, isOpen, editTrade, prefillTrade]);
 
   const reset = () => {
     setFormData(editTrade ?? prefillTrade ?? null);
@@ -443,6 +468,7 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
     setScanEvidence('');
     setCurrentDate(editTrade?.trade_date ?? prefillTrade?.trade_date ?? '');
     setCurrentTime(editTrade?.trade_time ?? prefillTrade?.trade_time ?? '');
+    setContractInputValue(getInitialContractSize());
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -473,9 +499,15 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
       const mapped: Partial<Trade> = {
         trade_date: currentDate || undefined,
         trade_time: currentTime || undefined,
+        contract_size: Math.max(1, Number(formData?.contract_size ?? prefillTrade?.contract_size ?? editTrade?.contract_size ?? 1)),
       };
-
-      if (extracted.symbol)     { mapped.symbol = resolveSymbol(String(extracted.symbol)); fields.add('symbol'); }
+      const resolvedSymbol = normalizeResolvedSymbol(extracted.symbol) ?? inferSymbolFromFileName(file.name);
+      if (resolvedSymbol) {
+        mapped.symbol = resolvedSymbol;
+        if (normalizeResolvedSymbol(extracted.symbol)) {
+          fields.add('symbol');
+        }
+      }
       if (extracted.direction)  { mapped.direction = extracted.direction as 'Long'|'Short'; fields.add('direction'); }
       if (extracted.entry_price){ mapped.entry_price = Number(extracted.entry_price); fields.add('entry_price');
         const inst = lookupContract(mapped.symbol ?? '');
@@ -488,6 +520,7 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
         mapped.exit_reason = r; fields.add('exit_reason');
         mapped.exit_price = r === 'TP' ? Number(extracted.tp_price ?? 0) : Number(extracted.sl_price ?? 0);
       }
+
       if (extracted.trade_length_seconds){ mapped.trade_length_seconds = Number(extracted.trade_length_seconds); fields.add('trade_length_seconds'); }
       if (extracted.candle_count)     mapped.candle_count = Number(extracted.candle_count);
       if (extracted.timeframe_minutes) mapped.timeframe_minutes = Number(extracted.timeframe_minutes);
@@ -502,7 +535,7 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
     } finally {
       setScanning(false);
     }
-  }, [currentDate, currentTime]);
+  }, [currentDate, currentTime, editTrade?.contract_size, formData?.contract_size, prefillTrade?.contract_size]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault(); setIsDragging(false);
@@ -513,7 +546,10 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
   const handleSave = async (data: Partial<Trade>) => {
     setSaving(true);
     try {
-      await onSave(data);
+      await onSave({
+        ...data,
+        screenshot_url: imagePreview ?? editTrade?.screenshot_url ?? undefined,
+      });
       localStorage.removeItem(DRAFT_KEY);
       handleClose();
     } catch (err) {
@@ -525,6 +561,27 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
 
   const topInputClass = 'input-field h-12 border border-amber-400/70 bg-slate-950/80 shadow-[0_0_0_1px_rgba(245,158,11,0.18),0_0_18px_rgba(245,158,11,0.14)]';
   const hasPreviewImage = Boolean(imagePreview);
+  const handleContractSizeChange = (value: string) => {
+    setContractInputValue(value);
+
+    if (value === '') {
+      setFormData(current => ({
+        ...(current ?? {}),
+        contract_size: undefined,
+      }));
+      return;
+    }
+
+    const parsedValue = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
+      return;
+    }
+
+    setFormData(current => ({
+      ...(current ?? {}),
+      contract_size: parsedValue,
+    }));
+  };
 
   return (
     <Modal isOpen={isOpen} onClose={handleClose} title={editTrade ? 'Edit Trade' : 'Add Trade'} size="2xl">
@@ -606,23 +663,6 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
-                <div className="rounded-2xl border border-slate-700/60 bg-slate-950/70 px-3 py-3">
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Input</p>
-                  <p className="mt-1 text-sm font-medium text-slate-200">PNG, JPG, WebP</p>
-                </div>
-                <div className="rounded-2xl border border-slate-700/60 bg-slate-950/70 px-3 py-3">
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Flow</p>
-                  <p className="mt-1 text-sm font-medium text-slate-200">Scan then review</p>
-                </div>
-                <div className="rounded-2xl border border-slate-700/60 bg-slate-950/70 px-3 py-3">
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Status</p>
-                  <p className={`mt-1 text-sm font-medium ${scanning ? 'text-blue-300' : hasPreviewImage ? 'text-emerald-300' : 'text-slate-200'}`}>
-                    {scanning ? 'Scanning...' : hasPreviewImage ? 'Ready to review' : 'Awaiting chart'}
-                  </p>
-                </div>
-              </div>
-
               {hasPreviewImage ? (
                 <div className="relative overflow-hidden rounded-[24px] border border-slate-700/60 bg-slate-950/90 shadow-[inset_0_1px_0_rgba(148,163,184,0.06)]">
                   <div className="aspect-[4/3] w-full bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.12),transparent_48%)] p-3">
@@ -651,7 +691,7 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
                       <div className="flex flex-col items-center gap-3 rounded-2xl border border-blue-500/20 bg-slate-900/80 px-6 py-5">
                         <div className="h-9 w-9 rounded-full border-2 border-blue-400 border-t-transparent animate-spin" />
                         <div className="text-center">
-                          <p className="text-sm font-medium text-blue-200">Analysing with Claude</p>
+                          <p className="text-sm font-medium text-blue-200">Analysing with Flyxa</p>
                           <p className="text-xs text-slate-400">Reading levels, entry anchor, and first-touch path</p>
                         </div>
                       </div>
@@ -692,6 +732,23 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
                 <div className="rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-300">{scanError}</div>
               )}
 
+              {!editTrade && (
+                <div className="rounded-[24px] border border-slate-700/60 bg-slate-950/70 p-4 shadow-[inset_0_1px_0_rgba(148,163,184,0.04)]">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Entry Details</p>
+                  <div className="mt-3">
+                    <label className="label">Contracts</label>
+                    <input
+                      type="number"
+                      min={1}
+                      className="input-field h-11"
+                      value={contractInputValue}
+                      onChange={e => handleContractSizeChange(e.target.value)}
+                      required
+                    />
+                  </div>
+                </div>
+              )}
+
               {aiFields.size > 0 && (
                 <div className="flex items-center gap-2 rounded-xl border border-blue-400/20 bg-blue-400/8 px-4 py-3 text-sm text-blue-200">
                   <Sparkles size={14} />
@@ -708,6 +765,7 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
                 aiFields={aiFields}
                 tradeDate={currentDate}
                 tradeTime={currentTime}
+                showContractsField={Boolean(editTrade)}
                 onSubmit={handleSave}
                 onCancel={handleClose}
                 isLoading={saving}
@@ -717,13 +775,36 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
         </div>
       </div>
 
-      <Modal isOpen={fullscreenPreview} onClose={() => setFullscreenPreview(false)} title="Trade Screenshot" size="xl">
-        {imagePreview && (
-          <div className="overflow-hidden rounded-2xl border border-slate-700/60 bg-slate-950/90 p-3">
-            <img src={imagePreview} alt="Trade screenshot fullscreen" className="max-h-[78vh] w-full rounded-xl object-contain" />
+      {fullscreenPreview && imagePreview && (
+        <div className="fixed inset-0 z-[70]">
+          <button
+            type="button"
+            aria-label="Close trade screenshot"
+            onClick={() => setFullscreenPreview(false)}
+            className="absolute inset-0"
+            style={{
+              background:
+                'radial-gradient(circle at center, rgba(15, 23, 42, 0.16) 0%, rgba(2, 6, 23, 0.78) 68%, rgba(2, 6, 23, 0.92) 100%)',
+            }}
+          />
+
+          <button
+            type="button"
+            onClick={() => setFullscreenPreview(false)}
+            className="absolute right-4 top-4 z-10 inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-600/80 bg-slate-950/90 text-slate-300 shadow-[0_12px_28px_rgba(2,6,23,0.34)] transition hover:border-slate-500 hover:text-white"
+          >
+            <X size={18} />
+          </button>
+
+          <div className="absolute inset-[24px] flex items-center justify-center md:inset-[32px]">
+            <img
+              src={imagePreview}
+              alt="Trade screenshot fullscreen"
+              className="max-h-full max-w-full object-contain"
+            />
           </div>
-        )}
-      </Modal>
+        </div>
+      )}
     </Modal>
   );
 }
