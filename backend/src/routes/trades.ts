@@ -57,6 +57,7 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res: Response
   try {
     const {
       symbol,
+      screenshot_url,
       direction,
       entry_price,
       sl_price,
@@ -113,6 +114,7 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res: Response
       .insert({
         user_id: req.userId!,
         symbol,
+        screenshot_url: typeof screenshot_url === 'string' ? screenshot_url : '',
         direction,
         entry_price,
         exit_price: normalizedExitPrice,
