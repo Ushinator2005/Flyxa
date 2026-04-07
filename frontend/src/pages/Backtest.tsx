@@ -1,0 +1,1310 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+  AlertCircle,
+  ChevronLeft,
+  Download,
+  Minus,
+  MousePointer2,
+  Pause,
+  Play,
+  Search,
+  Square,
+  StepForward,
+  TrendingUp,
+} from 'lucide-react';
+import { format } from 'date-fns';
+import Modal from '../components/common/Modal.js';
+import { lookupContract } from '../constants/futuresContracts.js';
+import { marketDataApi } from '../services/api.js';
+import { Trade } from '../types/index.js';
+import { formatCurrency, formatDuration, getSession } from '../utils/calculations.js';
+
+declare global {
+  interface Window {
+    LightweightCharts?: {
+      createChart: (container: HTMLElement, options: Record<string, unknown>) => {
+        addCandlestickSeries: (options?: Record<string, unknown>) => {
+          setData: (data: Array<Record<string, unknown>>) => void;
+          priceToCoordinate: (price: number) => number | null;
+          coordinateToPrice: (coordinate: number) => number | null;
+          createPriceLine: (options: Record<string, unknown>) => unknown;
+          removePriceLine: (line: unknown) => void;
+        };
+        applyOptions: (options: Record<string, unknown>) => void;
+        remove: () => void;
+        timeScale: () => {
+          fitContent?: () => void;
+          logicalToCoordinate: (logical: number) => number | null;
+          coordinateToLogical: (coordinate: number) => number | null;
+        };
+      };
+    };
+  }
+}
+
+type ReplayTimeframe = '1m' | '5m' | '15m' | '1H' | '1D';
+type ReplayRange = '1D' | '5D' | '1M' | '3M' | '1Y';
+type ToolMode = 'cursor' | 'horizontal' | 'trendline' | 'rectangle';
+type TradeDirection = 'Long' | 'Short';
+type ExitReason = 'TP' | 'SL';
+
+interface ReplayCandle {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+interface ReplaySession {
+  symbol: string;
+  timeframe: ReplayTimeframe;
+  range: ReplayRange;
+  timeframeMinutes: number;
+  candles: ReplayCandle[];
+  pointValue: number;
+  tickSize: number;
+}
+
+interface TradeDraft {
+  direction: TradeDirection | null;
+  entryPrice: string;
+  stopLoss: string;
+  takeProfit: string;
+  quantity: string;
+  notes: string;
+}
+
+interface TradeIntent {
+  id: string;
+  symbol: string;
+  direction: TradeDirection;
+  entryPrice: number;
+  stopLoss: number;
+  takeProfit: number;
+  quantity: number;
+  notes: string;
+  pointValue: number;
+  placedIndex: number;
+  placedTime: number;
+}
+
+interface ActiveReplayTrade extends TradeIntent {
+  currentPrice: number;
+  pnlPoints: number;
+  pnlDollars: number;
+  durationSeconds: number;
+  candlesHeld: number;
+}
+
+interface ClosedReplayTrade extends TradeIntent {
+  exitPrice: number;
+  exitReason: ExitReason;
+  exitIndex: number;
+  exitTime: number;
+  pnlPoints: number;
+  pnlDollars: number;
+  candlesHeld: number;
+  durationSeconds: number;
+  outcome: 'Win' | 'Loss';
+  rAchieved: number;
+}
+
+interface ReplaySimulation {
+  activeTrade: ActiveReplayTrade | null;
+  closedTrades: ClosedReplayTrade[];
+  placedTrades: number;
+}
+
+interface PlacementPoint {
+  index: number;
+  price: number;
+}
+
+interface HorizontalDrawing {
+  id: string;
+  type: 'horizontal';
+  price: number;
+}
+
+interface TrendlineDrawing {
+  id: string;
+  type: 'trendline';
+  startIndex: number;
+  endIndex: number;
+  startPrice: number;
+  endPrice: number;
+}
+
+interface RectangleDrawing {
+  id: string;
+  type: 'rectangle';
+  startIndex: number;
+  endIndex: number;
+  topPrice: number;
+  bottomPrice: number;
+}
+
+type ReplayDrawing = HorizontalDrawing | TrendlineDrawing | RectangleDrawing;
+
+type ProjectedDrawing =
+  | { id: string; type: 'horizontal' | 'trendline'; x1: number; y1: number; x2: number; y2: number }
+  | { id: string; type: 'rectangle'; x: number; y: number; width: number; height: number };
+
+interface ReplaySymbolSuggestion {
+  symbol: string;
+  label: string;
+  description: string;
+}
+
+const CHART_SCRIPT_SRC = 'https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js';
+const BACKTEST_PREFILL_KEY = 'tw_backtest_trade_prefill';
+
+const TIMEFRAME_OPTIONS: Array<{ label: ReplayTimeframe; interval: string; minutes: number }> = [
+  { label: '1m', interval: '1m', minutes: 1 },
+  { label: '5m', interval: '5m', minutes: 5 },
+  { label: '15m', interval: '15m', minutes: 15 },
+  { label: '1H', interval: '1h', minutes: 60 },
+  { label: '1D', interval: '1d', minutes: 1440 },
+];
+
+const RANGE_OPTIONS: Array<{ label: ReplayRange; range: string }> = [
+  { label: '1D', range: '1d' },
+  { label: '5D', range: '5d' },
+  { label: '1M', range: '1mo' },
+  { label: '3M', range: '3mo' },
+  { label: '1Y', range: '1y' },
+];
+
+const QUICK_SYMBOLS = ['NQ=F', 'ES=F', 'EURUSD=X', 'AAPL'];
+const REPLAY_SYMBOL_SUGGESTIONS: ReplaySymbolSuggestion[] = [
+  { symbol: 'NQ=F', label: 'NQ=F', description: 'Nasdaq futures continuous contract' },
+  { symbol: 'ES=F', label: 'ES=F', description: 'S&P futures continuous contract' },
+  { symbol: 'YM=F', label: 'YM=F', description: 'Dow futures continuous contract' },
+  { symbol: 'RTY=F', label: 'RTY=F', description: 'Russell futures continuous contract' },
+  { symbol: 'GC=F', label: 'GC=F', description: 'Gold futures continuous contract' },
+  { symbol: 'CL=F', label: 'CL=F', description: 'Crude oil futures continuous contract' },
+  { symbol: 'EURUSD=X', label: 'EURUSD=X', description: 'Euro / US Dollar' },
+  { symbol: 'GBPUSD=X', label: 'GBPUSD=X', description: 'British Pound / US Dollar' },
+  { symbol: 'USDJPY=X', label: 'USDJPY=X', description: 'US Dollar / Japanese Yen' },
+  { symbol: 'AAPL', label: 'AAPL', description: 'Apple' },
+  { symbol: 'NVDA', label: 'NVDA', description: 'NVIDIA' },
+  { symbol: 'MSFT', label: 'MSFT', description: 'Microsoft' },
+  { symbol: 'TSLA', label: 'TSLA', description: 'Tesla' },
+];
+
+let chartsLoaderPromise: Promise<void> | null = null;
+
+function loadLightweightChartsScript() {
+  if (window.LightweightCharts) return Promise.resolve();
+  if (chartsLoaderPromise) return chartsLoaderPromise;
+
+  chartsLoaderPromise = new Promise((resolve, reject) => {
+    const existing = document.querySelector<HTMLScriptElement>(`script[src="${CHART_SCRIPT_SRC}"]`);
+    if (existing) {
+      existing.addEventListener('load', () => resolve(), { once: true });
+      existing.addEventListener('error', () => reject(new Error('Failed to load Lightweight Charts.')), { once: true });
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = CHART_SCRIPT_SRC;
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('Failed to load Lightweight Charts.'));
+    document.body.appendChild(script);
+  });
+
+  return chartsLoaderPromise;
+}
+
+function makeId(prefix: string) {
+  return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function inferInstrumentMeta(symbol: string, fallbackPrice = 0) {
+  const normalized = symbol.toUpperCase();
+  if (normalized.endsWith('=F')) {
+    const contract = lookupContract(normalized.replace('=F', ''));
+    if (contract) return { pointValue: contract.point_value, tickSize: contract.tick_size };
+  }
+  if (normalized.endsWith('=X')) return { pointValue: 100000, tickSize: 0.0001 };
+  const contract = lookupContract(normalized);
+  if (contract) return { pointValue: contract.point_value, tickSize: contract.tick_size };
+  return { pointValue: 1, tickSize: fallbackPrice < 10 ? 0.0001 : 0.01 };
+}
+
+function getPricePrecision(tickSize: number) {
+  if (tickSize <= 0) return 2;
+  const decimals = tickSize.toString().split('.')[1]?.length ?? 0;
+  return Math.min(Math.max(decimals, 2), 5);
+}
+
+function formatPrice(value: number, tickSize: number) {
+  return value.toFixed(getPricePrecision(tickSize));
+}
+
+function formatPoints(value: number, tickSize: number) {
+  return `${value >= 0 ? '+' : '-'}${Math.abs(value).toFixed(getPricePrecision(tickSize))}`;
+}
+
+function normalizeJournalSymbol(symbol: string) {
+  if (symbol.endsWith('=F')) return symbol.replace('=F', '');
+  if (symbol.endsWith('=X')) return symbol.replace('=X', '');
+  return symbol;
+}
+
+function createInitialDraft(price: number, tickSize: number, quantity = '1'): TradeDraft {
+  return {
+    direction: null,
+    entryPrice: formatPrice(price, tickSize),
+    stopLoss: '',
+    takeProfit: '',
+    quantity,
+    notes: '',
+  };
+}
+
+function calculatePnL(direction: TradeDirection, entry: number, exit: number, quantity: number, pointValue: number) {
+  const pnlPoints = direction === 'Long' ? exit - entry : entry - exit;
+  return { pnlPoints, pnlDollars: pnlPoints * quantity * pointValue };
+}
+
+function simulateTrades(candles: ReplayCandle[], revealedCount: number, intents: TradeIntent[]): ReplaySimulation {
+  const closedTrades: ClosedReplayTrade[] = [];
+  let activeTrade: ActiveReplayTrade | null = null;
+
+  intents
+    .filter(intent => intent.placedIndex < revealedCount)
+    .forEach(intent => {
+      let closedTrade: ClosedReplayTrade | null = null;
+
+      for (let index = intent.placedIndex + 1; index < revealedCount; index++) {
+        const candle = candles[index];
+        const hitStop = intent.direction === 'Long' ? candle.low <= intent.stopLoss : candle.high >= intent.stopLoss;
+        const hitTarget = intent.direction === 'Long' ? candle.high >= intent.takeProfit : candle.low <= intent.takeProfit;
+
+        if (!hitStop && !hitTarget) continue;
+
+        const exitReason: ExitReason = hitStop ? 'SL' : 'TP';
+        const exitPrice = exitReason === 'SL' ? intent.stopLoss : intent.takeProfit;
+        const { pnlPoints, pnlDollars } = calculatePnL(intent.direction, intent.entryPrice, exitPrice, intent.quantity, intent.pointValue);
+        const riskPoints = Math.abs(intent.entryPrice - intent.stopLoss) || 1;
+
+        closedTrade = {
+          ...intent,
+          exitPrice,
+          exitReason,
+          exitIndex: index,
+          exitTime: candle.time,
+          pnlPoints,
+          pnlDollars,
+          candlesHeld: Math.max(index - intent.placedIndex, 1),
+          durationSeconds: Math.max(candle.time - intent.placedTime, 60),
+          outcome: pnlDollars >= 0 ? 'Win' : 'Loss',
+          rAchieved: pnlPoints / riskPoints,
+        };
+        break;
+      }
+
+      if (closedTrade) { closedTrades.push(closedTrade); return; }
+
+      const currentCandle = candles[revealedCount - 1];
+      const { pnlPoints, pnlDollars } = calculatePnL(intent.direction, intent.entryPrice, currentCandle.close, intent.quantity, intent.pointValue);
+      activeTrade = {
+        ...intent,
+        currentPrice: currentCandle.close,
+        pnlPoints,
+        pnlDollars,
+        candlesHeld: Math.max((revealedCount - 1) - intent.placedIndex, 0),
+        durationSeconds: Math.max(currentCandle.time - intent.placedTime, 0),
+      };
+    });
+
+  return { activeTrade, closedTrades, placedTrades: intents.filter(intent => intent.placedIndex < revealedCount).length };
+}
+
+function buildSessionCsv(closedTrades: ClosedReplayTrade[]) {
+  const header = ['symbol','direction','entry_time','exit_time','entry_price','exit_price','stop_loss','take_profit','quantity','outcome','exit_reason','pnl_points','pnl_dollars','r_achieved','candles_held','duration_seconds','notes'];
+  const rows = closedTrades.map(trade => ([
+    trade.symbol, trade.direction,
+    new Date(trade.placedTime * 1000).toISOString(),
+    new Date(trade.exitTime * 1000).toISOString(),
+    trade.entryPrice, trade.exitPrice, trade.stopLoss, trade.takeProfit,
+    trade.quantity, trade.outcome, trade.exitReason, trade.pnlPoints,
+    trade.pnlDollars, trade.rAchieved, trade.candlesHeld, trade.durationSeconds,
+    trade.notes.replace(/\r?\n/g, ' '),
+  ]));
+  return [header, ...rows].map(cols => cols.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+}
+
+function getTradePrefill(session: ReplaySession, trade: ClosedReplayTrade): Partial<Trade> {
+  const entryDate = new Date(trade.placedTime * 1000);
+  const exitDate = new Date(trade.exitTime * 1000);
+  return {
+    symbol: normalizeJournalSymbol(session.symbol),
+    direction: trade.direction,
+    entry_price: trade.entryPrice,
+    exit_price: trade.exitPrice,
+    sl_price: trade.stopLoss,
+    tp_price: trade.takeProfit,
+    exit_reason: trade.exitReason,
+    contract_size: trade.quantity,
+    point_value: trade.pointValue,
+    trade_date: format(entryDate, 'yyyy-MM-dd'),
+    trade_time: format(entryDate, 'HH:mm'),
+    trade_length_seconds: trade.durationSeconds,
+    candle_count: trade.candlesHeld,
+    timeframe_minutes: session.timeframeMinutes,
+    emotional_state: 'Calm',
+    confidence_level: 7,
+    pre_trade_notes: trade.notes,
+    post_trade_notes: `${trade.outcome} via ${trade.exitReason} after ${trade.candlesHeld} candles in replay.`,
+    followed_plan: true,
+    pnl: trade.pnlDollars,
+    session: getSession(format(exitDate, 'HH:mm')) as Trade['session'],
+  };
+}
+
+function getProjectedPoint(
+  chart: ReturnType<NonNullable<typeof window.LightweightCharts>['createChart']>,
+  series: ReturnType<ReturnType<NonNullable<typeof window.LightweightCharts>['createChart']>['addCandlestickSeries']>,
+  index: number,
+  price: number
+) {
+  const x = chart.timeScale().logicalToCoordinate(index);
+  const y = series.priceToCoordinate(price);
+  if (x === null || y === null) return null;
+  return { x, y };
+}
+
+export default function Backtest() {
+  const navigate = useNavigate();
+  const chartContainerRef = useRef<HTMLDivElement | null>(null);
+  const symbolSearchRef = useRef<HTMLDivElement | null>(null);
+  const chartRef = useRef<ReturnType<NonNullable<typeof window.LightweightCharts>['createChart']> | null>(null);
+  const seriesRef = useRef<ReturnType<ReturnType<NonNullable<typeof window.LightweightCharts>['createChart']>['addCandlestickSeries']> | null>(null);
+  const priceLinesRef = useRef<{ entry: unknown | null; stop: unknown | null; target: unknown | null }>({ entry: null, stop: null, target: null });
+
+  const [symbol, setSymbol] = useState('NQ=F');
+  const [timeframe, setTimeframe] = useState<ReplayTimeframe>('5m');
+  const [range, setRange] = useState<ReplayRange>('5D');
+  const [session, setSession] = useState<ReplaySession | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const [chartReady, setChartReady] = useState(false);
+  const [revealedCount, setRevealedCount] = useState(0);
+  const [speed, setSpeed] = useState(5);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [toolMode, setToolMode] = useState<ToolMode>('cursor');
+  const [pendingPoint, setPendingPoint] = useState<PlacementPoint | null>(null);
+  const [drawings, setDrawings] = useState<ReplayDrawing[]>([]);
+  const [tradeDraft, setTradeDraft] = useState<TradeDraft>(createInitialDraft(0, 0.25));
+  const [syncEntryToCurrentClose, setSyncEntryToCurrentClose] = useState(true);
+  const [tradeIntents, setTradeIntents] = useState<TradeIntent[]>([]);
+  const [tradeError, setTradeError] = useState('');
+  const [resultTrade, setResultTrade] = useState<ClosedReplayTrade | null>(null);
+  const [dismissedResultIds, setDismissedResultIds] = useState<string[]>([]);
+  const [chartBox, setChartBox] = useState({ width: 0, height: 0 });
+  const [showSymbolSuggestions, setShowSymbolSuggestions] = useState(false);
+  const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
+
+  const displayedCandles = useMemo(() => session?.candles.slice(0, revealedCount) ?? [], [session, revealedCount]);
+  const currentCandle = displayedCandles[displayedCandles.length - 1] ?? null;
+  const simulation = useMemo(
+    () => session ? simulateTrades(session.candles, revealedCount, tradeIntents) : { activeTrade: null, closedTrades: [], placedTrades: 0 },
+    [session, revealedCount, tradeIntents]
+  );
+  const latestClosedTrade = simulation.closedTrades[simulation.closedTrades.length - 1] ?? null;
+
+  const sessionStats = useMemo(() => {
+    const wins = simulation.closedTrades.filter(t => t.pnlDollars > 0);
+    const losses = simulation.closedTrades.filter(t => t.pnlDollars < 0);
+    const grossProfit = wins.reduce((sum, t) => sum + t.pnlDollars, 0);
+    const grossLoss = Math.abs(losses.reduce((sum, t) => sum + t.pnlDollars, 0));
+    return {
+      tradesTaken: simulation.placedTrades,
+      winRate: simulation.closedTrades.length ? (wins.length / simulation.closedTrades.length) * 100 : 0,
+      totalPnL: simulation.closedTrades.reduce((sum, t) => sum + t.pnlDollars, 0),
+      avgWin: wins.length ? grossProfit / wins.length : 0,
+      avgLoss: losses.length ? losses.reduce((sum, t) => sum + t.pnlDollars, 0) / losses.length : 0,
+      profitFactor: grossLoss === 0 ? (grossProfit > 0 ? 999 : 0) : grossProfit / grossLoss,
+    };
+  }, [simulation.closedTrades, simulation.placedTrades]);
+
+  const timeframeMeta = TIMEFRAME_OPTIONS.find(o => o.label === timeframe)!;
+  const rangeMeta = RANGE_OPTIONS.find(o => o.label === range)!;
+  const filteredSymbolSuggestions = useMemo(() => {
+    const q = symbol.trim().toUpperCase();
+    if (!q) return REPLAY_SYMBOL_SUGGESTIONS.slice(0, 8);
+    return REPLAY_SYMBOL_SUGGESTIONS.filter(item =>
+      item.symbol.toUpperCase().startsWith(q) ||
+      item.label.toUpperCase().startsWith(q) ||
+      item.description.toUpperCase().includes(q)
+    ).slice(0, 8);
+  }, [symbol]);
+
+  useEffect(() => {
+    const handlePointerDown = (e: MouseEvent) => {
+      if (!symbolSearchRef.current?.contains(e.target as Node)) setShowSymbolSuggestions(false);
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => document.removeEventListener('mousedown', handlePointerDown);
+  }, []);
+
+  useEffect(() => {
+    if (!latestClosedTrade || dismissedResultIds.includes(latestClosedTrade.id)) return;
+    setResultTrade(latestClosedTrade);
+    setDismissedResultIds(curr => [...curr, latestClosedTrade.id]);
+  }, [latestClosedTrade, dismissedResultIds]);
+
+  useEffect(() => {
+    if (!session || !currentCandle || !syncEntryToCurrentClose || simulation.activeTrade) return;
+    setTradeDraft(d => ({ ...d, entryPrice: formatPrice(currentCandle.close, session.tickSize) }));
+  }, [currentCandle, session, syncEntryToCurrentClose, simulation.activeTrade]);
+
+  useEffect(() => {
+    if (!isPlaying || !session) return;
+    const interval = window.setInterval(() => {
+      setRevealedCount(curr => {
+        if (curr >= session.candles.length) { setIsPlaying(false); return curr; }
+        const next = curr + 1;
+        if (next >= session.candles.length) setIsPlaying(false);
+        return next;
+      });
+    }, Math.max(25, 800 / speed));
+    return () => window.clearInterval(interval);
+  }, [isPlaying, speed, session]);
+
+  useEffect(() => {
+    if (!session || !chartContainerRef.current) return;
+    let cancelled = false;
+    let resizeObserver: ResizeObserver | null = null;
+
+    loadLightweightChartsScript()
+      .then(() => {
+        if (cancelled || !chartContainerRef.current || !window.LightweightCharts) return;
+        const chart = window.LightweightCharts.createChart(chartContainerRef.current, {
+          layout: { background: { color: '#020817' }, textColor: '#64748b' },
+          grid: { vertLines: { color: 'rgba(30,41,59,0.6)' }, horzLines: { color: 'rgba(30,41,59,0.6)' } },
+          rightPriceScale: { borderColor: 'rgba(30,41,59,0.8)' },
+          timeScale: { borderColor: 'rgba(30,41,59,0.8)', timeVisible: session.timeframeMinutes < 1440, secondsVisible: false },
+          crosshair: { vertLine: { color: 'rgba(96,165,250,0.35)', width: 1 }, horzLine: { color: 'rgba(96,165,250,0.35)', width: 1 } },
+          handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
+          handleScale: { axisPressedMouseMove: true, mouseWheel: true, pinch: true },
+          width: chartContainerRef.current.clientWidth,
+          height: chartContainerRef.current.clientHeight,
+        });
+
+        const series = chart.addCandlestickSeries({
+          upColor: '#22c55e', downColor: '#ef4444',
+          wickUpColor: '#22c55e', wickDownColor: '#ef4444',
+          borderVisible: false,
+        });
+
+        chartRef.current = chart;
+        seriesRef.current = series;
+        setChartReady(true);
+        setChartBox({ width: chartContainerRef.current.clientWidth, height: chartContainerRef.current.clientHeight });
+
+        resizeObserver = new ResizeObserver(entries => {
+          const entry = entries[0];
+          if (!entry) return;
+          chart.applyOptions({ width: entry.contentRect.width, height: entry.contentRect.height });
+          setChartBox({ width: entry.contentRect.width, height: entry.contentRect.height });
+        });
+        resizeObserver.observe(chartContainerRef.current);
+      })
+      .catch(error => { if (!cancelled) setLoadError(error instanceof Error ? error.message : 'Failed to load chart library.'); });
+
+    return () => {
+      cancelled = true;
+      resizeObserver?.disconnect();
+      Object.values(priceLinesRef.current).forEach(line => {
+        if (line && seriesRef.current) { try { seriesRef.current.removePriceLine(line); } catch { /* ignore */ } }
+      });
+      priceLinesRef.current = { entry: null, stop: null, target: null };
+      chartRef.current?.remove();
+      chartRef.current = null;
+      seriesRef.current = null;
+      setChartReady(false);
+    };
+  }, [session]);
+
+  useEffect(() => {
+    if (!chartReady || !seriesRef.current || !chartRef.current || !session) return;
+    seriesRef.current.setData(displayedCandles.map(c => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })));
+  }, [displayedCandles, chartReady, session]);
+
+  useEffect(() => {
+    if (!chartReady || !chartRef.current || !session) return;
+    chartRef.current.timeScale().fitContent?.();
+  }, [chartReady, session]);
+
+  useEffect(() => {
+    if (!seriesRef.current) return;
+    Object.values(priceLinesRef.current).forEach(line => {
+      if (line) { try { seriesRef.current?.removePriceLine(line); } catch { /* ignore */ } }
+    });
+    priceLinesRef.current = { entry: null, stop: null, target: null };
+    if (!simulation.activeTrade) return;
+    priceLinesRef.current.entry = seriesRef.current.createPriceLine({ price: simulation.activeTrade.entryPrice, color: '#3b82f6', lineWidth: 2, lineStyle: 0, axisLabelVisible: true, title: 'Entry' });
+    priceLinesRef.current.stop = seriesRef.current.createPriceLine({ price: simulation.activeTrade.stopLoss, color: '#ef4444', lineWidth: 2, lineStyle: 2, axisLabelVisible: true, title: 'SL' });
+    priceLinesRef.current.target = seriesRef.current.createPriceLine({ price: simulation.activeTrade.takeProfit, color: '#22c55e', lineWidth: 2, lineStyle: 2, axisLabelVisible: true, title: 'TP' });
+  }, [simulation.activeTrade]);
+
+  useEffect(() => { setPendingPoint(null); }, [toolMode]);
+
+  const projectedDrawings = useMemo<ProjectedDrawing[]>(() => {
+    const chart = chartRef.current;
+    const series = seriesRef.current;
+    if (!chart || !series || !chartBox.width || !chartBox.height) return [];
+
+    return drawings.reduce<ProjectedDrawing[]>((acc, drawing) => {
+      if (drawing.type === 'horizontal') {
+        const y = series.priceToCoordinate(drawing.price);
+        if (y === null || y === undefined) return acc;
+        acc.push({ id: drawing.id, type: drawing.type, x1: 12, y1: y, x2: Math.max(chartBox.width - 12, 12), y2: y });
+        return acc;
+      }
+      if (drawing.type === 'trendline') {
+        const start = getProjectedPoint(chart, series, drawing.startIndex, drawing.startPrice);
+        const end = getProjectedPoint(chart, series, drawing.endIndex, drawing.endPrice);
+        if (!start || !end) return acc;
+        acc.push({ id: drawing.id, type: drawing.type, x1: start.x, y1: start.y, x2: end.x, y2: end.y });
+        return acc;
+      }
+      const start = getProjectedPoint(chart, series, drawing.startIndex, drawing.topPrice);
+      const end = getProjectedPoint(chart, series, drawing.endIndex, drawing.bottomPrice);
+      if (!start || !end) return acc;
+      acc.push({ id: drawing.id, type: drawing.type, x: Math.min(start.x, end.x), y: Math.min(start.y, end.y), width: Math.abs(end.x - start.x), height: Math.abs(end.y - start.y) });
+      return acc;
+    }, []);
+  }, [drawings, chartBox, displayedCandles.length]);
+
+  useEffect(() => {
+    if (!selectedDrawingId) return;
+    if (!drawings.some(d => d.id === selectedDrawingId)) setSelectedDrawingId(null);
+  }, [drawings, selectedDrawingId]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeTag = document.activeElement?.tagName;
+      if (activeTag === 'INPUT' || activeTag === 'TEXTAREA' || activeTag === 'SELECT') return;
+      if (e.code === 'Space' && session) { e.preventDefault(); if (revealedCount < session.candles.length) setIsPlaying(curr => !curr); }
+      if (e.key === 'ArrowRight' && session) { e.preventDefault(); setRevealedCount(curr => Math.min(curr + 1, session.candles.length)); }
+      if (e.key === 'ArrowLeft' && session) { e.preventDefault(); setIsPlaying(false); setRevealedCount(curr => Math.max(curr - 1, 1)); }
+      if (e.key === 'Escape') { e.preventDefault(); setPendingPoint(null); setToolMode('cursor'); }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedDrawingId) {
+        e.preventDefault();
+        setDrawings(curr => curr.filter(d => d.id !== selectedDrawingId));
+        setSelectedDrawingId(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [revealedCount, selectedDrawingId, session]);
+
+  const handleLoadReplay = async () => {
+    setLoading(true);
+    setLoadError('');
+    setIsPlaying(false);
+    setResultTrade(null);
+    try {
+      const candles = await marketDataApi.getChart(symbol, timeframeMeta.interval, rangeMeta.range);
+      const instrumentMeta = inferInstrumentMeta(symbol, candles[0]?.close ?? 0);
+      const initialCount = Math.min(50, candles.length);
+      setSession({ symbol, timeframe, range, timeframeMinutes: timeframeMeta.minutes, candles, pointValue: instrumentMeta.pointValue, tickSize: instrumentMeta.tickSize });
+      setRevealedCount(initialCount);
+      setTradeDraft(createInitialDraft(candles[initialCount - 1].close, instrumentMeta.tickSize));
+      setSyncEntryToCurrentClose(true);
+      setDrawings([]);
+      setTradeIntents([]);
+      setDismissedResultIds([]);
+      setToolMode('cursor');
+      setPendingPoint(null);
+      setTradeError('');
+      setSelectedDrawingId(null);
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : 'Failed to load replay data.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resetToStart = () => {
+    setIsPlaying(false);
+    setSession(null);
+    setRevealedCount(0);
+    setTradeDraft(createInitialDraft(0, 0.25));
+    setDrawings([]);
+    setTradeIntents([]);
+    setPendingPoint(null);
+    setTradeError('');
+    setResultTrade(null);
+    setDismissedResultIds([]);
+    setToolMode('cursor');
+    setSyncEntryToCurrentClose(true);
+    setSelectedDrawingId(null);
+  };
+
+  const handleStepForward = () => {
+    if (!session) return;
+    setRevealedCount(curr => Math.min(curr + 1, session.candles.length));
+  };
+
+  const handleStepBackward = () => {
+    setIsPlaying(false);
+    setRevealedCount(curr => Math.max(curr - 1, 1));
+  };
+
+  const updateDraft = (field: keyof TradeDraft, value: string | TradeDirection | null) => {
+    setTradeError('');
+    if (field === 'entryPrice') setSyncEntryToCurrentClose(false);
+    setTradeDraft(d => ({ ...d, [field]: value }));
+  };
+
+  const handleOverlayClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!session || toolMode === 'cursor' || !chartRef.current || !seriesRef.current) return;
+    const bounds = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - bounds.left;
+    const y = e.clientY - bounds.top;
+    const logical = chartRef.current.timeScale().coordinateToLogical(x);
+    const price = seriesRef.current.coordinateToPrice(y);
+    if (price === null || price === undefined) return;
+
+    const point: PlacementPoint = {
+      index: Math.max(0, Math.min(revealedCount - 1, Math.round(logical ?? (revealedCount - 1)))),
+      price,
+    };
+
+    if (toolMode === 'horizontal') {
+      const id = makeId('drawing');
+      setDrawings(curr => [...curr, { id, type: 'horizontal', price: point.price }]);
+      setSelectedDrawingId(id);
+      return;
+    }
+
+    if (!pendingPoint) { setPendingPoint(point); return; }
+
+    if (toolMode === 'trendline') {
+      const id = makeId('drawing');
+      setDrawings(curr => [...curr, { id, type: 'trendline', startIndex: pendingPoint.index, endIndex: point.index, startPrice: pendingPoint.price, endPrice: point.price }]);
+      setSelectedDrawingId(id);
+    }
+
+    if (toolMode === 'rectangle') {
+      const id = makeId('drawing');
+      setDrawings(curr => [...curr, { id, type: 'rectangle', startIndex: pendingPoint.index, endIndex: point.index, topPrice: Math.max(pendingPoint.price, point.price), bottomPrice: Math.min(pendingPoint.price, point.price) }]);
+      setSelectedDrawingId(id);
+    }
+
+    setPendingPoint(null);
+  };
+
+  const handleSymbolSuggestionSelect = (value: string) => {
+    setSymbol(value);
+    setShowSymbolSuggestions(false);
+  };
+
+  const handlePlaceTrade = () => {
+    if (!session || !currentCandle || simulation.activeTrade) return;
+    const direction = tradeDraft.direction;
+    const entryPrice = Number(tradeDraft.entryPrice);
+    const stopLoss = Number(tradeDraft.stopLoss);
+    const takeProfit = Number(tradeDraft.takeProfit);
+    const quantity = Number(tradeDraft.quantity);
+
+    if (!direction || !Number.isFinite(entryPrice) || !Number.isFinite(stopLoss) || !Number.isFinite(takeProfit) || !Number.isFinite(quantity) || quantity <= 0) {
+      setTradeError('Fill Direction, Entry, Stop, Target, and Quantity before placing a trade.');
+      return;
+    }
+
+    const validStructure = direction === 'Long' ? stopLoss < entryPrice && takeProfit > entryPrice : takeProfit < entryPrice && stopLoss > entryPrice;
+    if (!validStructure) { setTradeError('Stop/target levels do not match the selected direction.'); return; }
+
+    setTradeIntents(curr => [...curr, {
+      id: makeId('trade'),
+      symbol: session.symbol,
+      direction, entryPrice, stopLoss, takeProfit, quantity,
+      notes: tradeDraft.notes.trim(),
+      pointValue: session.pointValue,
+      placedIndex: revealedCount - 1,
+      placedTime: currentCandle.time,
+    }]);
+    setTradeDraft(createInitialDraft(currentCandle.close, session.tickSize, tradeDraft.quantity || '1'));
+    setSyncEntryToCurrentClose(true);
+    setTradeError('');
+  };
+
+  const handleExportCsv = () => {
+    if (!session || simulation.closedTrades.length === 0) return;
+    const csv = buildSessionCsv(simulation.closedTrades);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${normalizeJournalSymbol(session.symbol)}-${session.timeframe}-${session.range}-replay.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleLogToJournal = () => {
+    if (!session || !resultTrade) return;
+    const prefill = getTradePrefill(session, resultTrade);
+    sessionStorage.setItem(BACKTEST_PREFILL_KEY, JSON.stringify(prefill));
+    setResultTrade(null);
+    navigate('/scanner');
+  };
+
+  const entryValue = Number(tradeDraft.entryPrice);
+  const stopValue = Number(tradeDraft.stopLoss);
+  const targetValue = Number(tradeDraft.takeProfit);
+  const quantityValue = Number(tradeDraft.quantity);
+  const stopDistance = Number.isFinite(entryValue) && Number.isFinite(stopValue) ? Math.abs(entryValue - stopValue) : null;
+  const rewardDistance = Number.isFinite(entryValue) && Number.isFinite(targetValue) ? Math.abs(targetValue - entryValue) : null;
+  const rrRatio = stopDistance && rewardDistance ? rewardDistance / stopDistance : null;
+  const canPlaceTrade = Boolean(
+    tradeDraft.direction && Number.isFinite(entryValue) && Number.isFinite(stopValue) &&
+    Number.isFinite(targetValue) && Number.isFinite(quantityValue) && quantityValue > 0 && !simulation.activeTrade
+  );
+
+  // ── Setup screen ────────────────────────────────────────────────────────────
+  if (!session) {
+    return (
+      <div className="mx-auto max-w-4xl space-y-5">
+
+        {/* Header */}
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-500/10 ring-1 ring-blue-500/20">
+            <TrendingUp size={16} className="text-blue-400" />
+          </div>
+          <div>
+            <h1 className="text-lg font-semibold tracking-tight text-white">Backtest Replay</h1>
+            <p className="text-[12px] text-slate-500">
+              Load historical candles, replay bar by bar, place mock trades, and hand off to your journal.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-[1fr_220px]">
+
+          {/* Config card */}
+          <div className="space-y-4 rounded-xl border border-slate-700/50 bg-slate-900 p-5">
+
+            {/* Symbol + TF + Range */}
+            <div className="grid gap-3 sm:grid-cols-[1fr_110px_110px]">
+              <div>
+                <p className="mb-1.5 text-[11px] text-slate-500">Symbol</p>
+                <div ref={symbolSearchRef} className="relative">
+                  <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-600" />
+                  <input
+                    type="text"
+                    value={symbol}
+                    onChange={e => { setSymbol(e.target.value.toUpperCase()); setShowSymbolSuggestions(true); }}
+                    onFocus={() => setShowSymbolSuggestions(true)}
+                    className="h-9 w-full rounded-lg border border-slate-700/60 bg-slate-800/60 pl-9 pr-3 text-[13px] text-slate-100 outline-none placeholder:text-slate-600 focus:border-blue-500/50 transition-colors"
+                    placeholder="NQ=F"
+                  />
+                  {showSymbolSuggestions && filteredSymbolSuggestions.length > 0 && (
+                    <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-30 overflow-hidden rounded-xl border border-slate-700/80 bg-slate-950 shadow-xl">
+                      {filteredSymbolSuggestions.map(item => (
+                        <button
+                          key={item.symbol}
+                          type="button"
+                          onClick={() => handleSymbolSuggestionSelect(item.symbol)}
+                          className="flex w-full cursor-pointer items-center justify-between gap-4 border-b border-slate-800/60 px-3.5 py-2.5 text-left last:border-b-0 hover:bg-slate-900 transition-colors"
+                        >
+                          <div>
+                            <p className="text-[13px] font-medium text-slate-100">{item.label}</p>
+                            <p className="text-[11px] text-slate-500">{item.description}</p>
+                          </div>
+                          <span className="text-[11px] text-slate-500">{item.symbol}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div>
+                <p className="mb-1.5 text-[11px] text-slate-500">Timeframe</p>
+                <select
+                  value={timeframe}
+                  onChange={e => setTimeframe(e.target.value as ReplayTimeframe)}
+                  className="input-field h-9 text-[13px] cursor-pointer"
+                >
+                  {TIMEFRAME_OPTIONS.map(o => <option key={o.label} value={o.label}>{o.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <p className="mb-1.5 text-[11px] text-slate-500">Range</p>
+                <select
+                  value={range}
+                  onChange={e => setRange(e.target.value as ReplayRange)}
+                  className="input-field h-9 text-[13px] cursor-pointer"
+                >
+                  {RANGE_OPTIONS.map(o => <option key={o.label} value={o.label}>{o.label}</option>)}
+                </select>
+              </div>
+            </div>
+
+            {/* Quick symbols */}
+            <div className="flex flex-wrap gap-1.5">
+              {QUICK_SYMBOLS.map(qs => (
+                <button
+                  key={qs}
+                  type="button"
+                  onClick={() => setSymbol(qs)}
+                  className={`cursor-pointer rounded-lg border px-3 py-1.5 text-[12px] font-medium transition-colors ${
+                    symbol === qs
+                      ? 'border-blue-500/40 bg-blue-500/10 text-blue-300'
+                      : 'border-slate-700/60 bg-slate-800/40 text-slate-400 hover:border-slate-600 hover:text-slate-200'
+                  }`}
+                >
+                  {qs}
+                </button>
+              ))}
+            </div>
+
+            {loadError && (
+              <div className="flex items-start gap-2 rounded-lg border border-red-500/25 bg-red-500/[0.08] px-3 py-2.5 text-[12px] text-red-300">
+                <AlertCircle size={13} className="mt-0.5 shrink-0" />
+                <span>{loadError}</span>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={handleLoadReplay}
+              disabled={loading || !symbol.trim()}
+              className="h-10 w-full cursor-pointer rounded-lg bg-blue-600 text-[13px] font-medium text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {loading ? 'Loading...' : 'Load Replay'}
+            </button>
+          </div>
+
+          {/* Feature list */}
+          <div className="rounded-xl border border-slate-700/50 bg-slate-900 p-5">
+            <p className="mb-3.5 text-[11px] font-medium uppercase tracking-[0.12em] text-slate-600">Includes</p>
+            <div className="space-y-3">
+              {[
+                'Candle-by-candle replay at 1x to 50x speed',
+                'Horizontal levels, trendlines, and zones',
+                'Mock trades with live P&L and auto TP/SL exit',
+                'One-click journal handoff per trade',
+              ].map(f => (
+                <div key={f} className="flex items-start gap-2.5">
+                  <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-blue-500" />
+                  <p className="text-[12px] leading-relaxed text-slate-400">{f}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Replay screen ────────────────────────────────────────────────────────────
+  const progressPct = session.candles.length ? (revealedCount / session.candles.length) * 100 : 0;
+
+  return (
+    <div className="flex flex-col gap-3">
+
+      {/* ── Top control bar ── */}
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-700/50 bg-slate-900 px-4 py-2.5">
+
+        {/* Symbol + back */}
+        <div className="flex items-center gap-2.5">
+          <button
+            type="button"
+            onClick={resetToStart}
+            title="New symbol"
+            className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-700/60 bg-slate-800/50 px-2.5 py-1.5 text-[12px] text-slate-400 transition-colors hover:border-slate-600 hover:text-slate-200"
+          >
+            <ChevronLeft size={13} />
+            New
+          </button>
+          <div className="flex items-center gap-2">
+            <span className="text-[14px] font-semibold text-white">{session.symbol}</span>
+            <span className="text-slate-700">·</span>
+            <span className="text-[12px] text-slate-500">{session.timeframe}</span>
+            <span className="text-slate-700">·</span>
+            <span className="text-[12px] text-slate-500">{session.range}</span>
+          </div>
+        </div>
+
+        {/* OHLC info */}
+        {currentCandle && (
+          <div className="hidden items-center gap-1.5 text-[11px] text-slate-500 xl:flex">
+            <span>{format(new Date(currentCandle.time * 1000), 'MMM d HH:mm')}</span>
+            <span className="text-slate-700">·</span>
+            <span>O <span className="text-slate-300">{formatPrice(currentCandle.open, session.tickSize)}</span></span>
+            <span>H <span className="text-slate-300">{formatPrice(currentCandle.high, session.tickSize)}</span></span>
+            <span>L <span className="text-slate-300">{formatPrice(currentCandle.low, session.tickSize)}</span></span>
+            <span>C <span className={currentCandle.close >= currentCandle.open ? 'text-emerald-400' : 'text-red-400'}>{formatPrice(currentCandle.close, session.tickSize)}</span></span>
+          </div>
+        )}
+
+        {/* Transport */}
+        <div className="ml-auto flex items-center gap-1">
+          <button type="button" onClick={handleStepBackward} disabled={revealedCount <= 1} title="Step back (←)" className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg border border-slate-700/60 bg-slate-800/50 text-slate-400 transition-colors hover:border-slate-600 hover:text-slate-200 disabled:cursor-not-allowed disabled:opacity-40">
+            <ChevronLeft size={14} />
+          </button>
+          {isPlaying ? (
+            <button type="button" onClick={() => setIsPlaying(false)} title="Pause (Space)" className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg border border-slate-700/60 bg-slate-800/50 text-slate-400 transition-colors hover:border-slate-600 hover:text-slate-200">
+              <Pause size={13} />
+            </button>
+          ) : (
+            <button type="button" onClick={() => setIsPlaying(true)} disabled={revealedCount >= session.candles.length} title="Play (Space)" className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg border border-blue-500/40 bg-blue-500/10 text-blue-400 transition-colors hover:bg-blue-500/20 disabled:cursor-not-allowed disabled:opacity-40">
+              <Play size={13} />
+            </button>
+          )}
+          <button type="button" onClick={handleStepForward} disabled={revealedCount >= session.candles.length} title="Step forward (→)" className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg border border-slate-700/60 bg-slate-800/50 text-slate-400 transition-colors hover:border-slate-600 hover:text-slate-200 disabled:cursor-not-allowed disabled:opacity-40">
+            <StepForward size={13} />
+          </button>
+        </div>
+
+        {/* Progress */}
+        <div className="flex items-center gap-2">
+          <div className="hidden h-1 w-20 overflow-hidden rounded-full bg-slate-800 sm:block">
+            <div className="h-full rounded-full bg-blue-500 transition-all duration-100" style={{ width: `${progressPct}%` }} />
+          </div>
+          <span className="tabular-nums text-[11px] text-slate-500">{revealedCount}/{session.candles.length}</span>
+        </div>
+
+        {/* Speed */}
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-slate-600">Speed</span>
+          <input
+            type="range"
+            min={1}
+            max={50}
+            value={speed}
+            onChange={e => setSpeed(Number(e.target.value))}
+            className="h-1 w-20 cursor-pointer accent-blue-500"
+          />
+          <span className="w-8 text-right text-[12px] tabular-nums text-slate-400">{speed}x</span>
+        </div>
+      </div>
+
+      {/* ── Main grid: chart + right panel ── */}
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_300px]">
+
+        {/* Chart column */}
+        <div className="flex flex-col gap-2">
+
+          {/* Drawing toolbar */}
+          <div className="flex items-center gap-1.5 rounded-xl border border-slate-700/50 bg-slate-900 px-3 py-2">
+            {([
+              { id: 'cursor', label: 'Cursor', icon: MousePointer2 },
+              { id: 'horizontal', label: 'Horizontal', icon: Minus },
+              { id: 'trendline', label: 'Trendline', icon: TrendingUp },
+              { id: 'rectangle', label: 'Zone', icon: Square },
+            ] as const).map(tool => (
+              <button
+                key={tool.id}
+                type="button"
+                onClick={() => setToolMode(tool.id as ToolMode)}
+                className={`inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px] font-medium transition-colors ${
+                  toolMode === tool.id
+                    ? 'border-blue-500/40 bg-blue-500/10 text-blue-300'
+                    : 'border-slate-700/60 bg-slate-800/40 text-slate-500 hover:border-slate-600 hover:text-slate-300'
+                }`}
+              >
+                <tool.icon size={12} />
+                {tool.label}
+              </button>
+            ))}
+            {pendingPoint && (
+              <span className="ml-1 rounded-md border border-amber-400/25 bg-amber-400/[0.08] px-2 py-1 text-[11px] text-amber-300">
+                Click second point to finish
+              </span>
+            )}
+            <span className="ml-auto hidden text-[10px] text-slate-700 lg:block">
+              Space play · ← → step · Del remove drawing
+            </span>
+          </div>
+
+          {/* Chart */}
+          <div
+            className="relative overflow-hidden rounded-xl border border-slate-800 bg-[#020817]"
+            style={{ height: 'calc(100vh - 260px)', minHeight: '480px' }}
+          >
+            <div ref={chartContainerRef} className="h-full w-full" />
+
+            {/* OHLC overlay (mobile fallback) */}
+            <div className="pointer-events-none absolute left-3 top-3 z-10 flex items-center gap-2 rounded-lg border border-slate-700/60 bg-slate-900/90 px-3 py-2 text-[11px] xl:hidden">
+              <span className="font-semibold text-slate-100">{session.symbol}</span>
+              {currentCandle && (
+                <span className="text-slate-500">
+                  C <span className={currentCandle.close >= currentCandle.open ? 'text-emerald-400' : 'text-red-400'}>{formatPrice(currentCandle.close, session.tickSize)}</span>
+                </span>
+              )}
+            </div>
+
+            {/* Drawing SVG overlay */}
+            <div
+              className={`absolute inset-0 z-20 ${toolMode === 'cursor' ? 'pointer-events-none cursor-default' : 'pointer-events-auto cursor-crosshair'}`}
+              onClick={handleOverlayClick}
+            >
+              <svg className="h-full w-full">
+                {projectedDrawings.map(drawing => {
+                  if (drawing.type === 'rectangle') {
+                    const selected = selectedDrawingId === drawing.id;
+                    return (
+                      <rect
+                        key={drawing.id}
+                        x={drawing.x} y={drawing.y}
+                        width={Math.max(drawing.width, 2)} height={Math.max(drawing.height, 2)}
+                        fill={selected ? 'rgba(56,189,248,0.18)' : 'rgba(59,130,246,0.10)'}
+                        stroke={selected ? 'rgba(125,211,252,0.95)' : 'rgba(96,165,250,0.7)'}
+                        strokeWidth={selected ? '2.5' : '1.5'}
+                        rx="6"
+                        className="pointer-events-auto cursor-pointer"
+                        onContextMenu={e => { e.preventDefault(); setDrawings(curr => curr.filter(d => d.id !== drawing.id)); }}
+                        onClick={() => setSelectedDrawingId(drawing.id)}
+                      />
+                    );
+                  }
+                  return (
+                    <line
+                      key={drawing.id}
+                      x1={drawing.x1} y1={drawing.y1} x2={drawing.x2} y2={drawing.y2}
+                      stroke={
+                        selectedDrawingId === drawing.id
+                          ? 'rgba(125,211,252,1)'
+                          : drawing.type === 'horizontal'
+                            ? 'rgba(250,204,21,0.85)'
+                            : 'rgba(96,165,250,0.85)'
+                      }
+                      strokeWidth={selectedDrawingId === drawing.id ? '2.5' : '1.5'}
+                      strokeDasharray={drawing.type === 'horizontal' ? '6 4' : undefined}
+                      strokeLinecap="round"
+                      className="pointer-events-auto cursor-pointer"
+                      onContextMenu={e => { e.preventDefault(); setDrawings(curr => curr.filter(d => d.id !== drawing.id)); }}
+                      onClick={() => setSelectedDrawingId(drawing.id)}
+                    />
+                  );
+                })}
+              </svg>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Right panel ── */}
+        <div className="flex flex-col gap-3 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 200px)' }}>
+
+          {/* Trade ticket */}
+          <div className="rounded-xl border border-slate-700/50 bg-slate-900 p-4">
+            <div className="mb-3.5 flex items-center justify-between">
+              <p className="text-[12px] font-medium text-slate-300">Trade Ticket</p>
+              <span className={`rounded-md px-2 py-0.5 text-[11px] font-medium ${simulation.activeTrade ? 'bg-amber-400/10 text-amber-300' : 'bg-slate-800 text-slate-500'}`}>
+                {simulation.activeTrade ? 'Active' : 'Ready'}
+              </span>
+            </div>
+
+            <div className="space-y-3">
+              {/* Direction */}
+              <div className="grid grid-cols-2 gap-2">
+                {(['Long', 'Short'] as const).map(dir => (
+                  <button
+                    key={dir}
+                    type="button"
+                    disabled={!!simulation.activeTrade}
+                    onClick={() => updateDraft('direction', dir)}
+                    className={`cursor-pointer rounded-lg border py-2 text-[13px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                      tradeDraft.direction === dir
+                        ? dir === 'Long'
+                          ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+                          : 'border-red-500/40 bg-red-500/10 text-red-300'
+                        : 'border-slate-700/60 bg-slate-800/40 text-slate-400 hover:border-slate-600 hover:text-slate-200'
+                    }`}
+                  >
+                    {dir}
+                  </button>
+                ))}
+              </div>
+
+              {/* Entry */}
+              <div>
+                <p className="mb-1 text-[11px] text-slate-500">Entry Price</p>
+                <input type="number" value={tradeDraft.entryPrice} disabled={!!simulation.activeTrade} onChange={e => updateDraft('entryPrice', e.target.value)} className="input-field h-9 text-[13px]" />
+              </div>
+
+              {/* Stop + Target */}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <p className="mb-1 text-[11px] text-slate-500">Stop Loss</p>
+                  <input type="number" value={tradeDraft.stopLoss} disabled={!!simulation.activeTrade} onChange={e => updateDraft('stopLoss', e.target.value)} className="input-field h-9 text-[13px]" />
+                  {stopDistance !== null && (
+                    <p className="mt-1 text-[10px] text-slate-600">{formatPrice(stopDistance, session.tickSize)} pts</p>
+                  )}
+                </div>
+                <div>
+                  <p className="mb-1 text-[11px] text-slate-500">Take Profit</p>
+                  <input type="number" value={tradeDraft.takeProfit} disabled={!!simulation.activeTrade} onChange={e => updateDraft('takeProfit', e.target.value)} className="input-field h-9 text-[13px]" />
+                  {rrRatio && (
+                    <p className="mt-1 text-[10px] text-slate-600">{rrRatio.toFixed(2)}R</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Qty */}
+              <div>
+                <p className="mb-1 text-[11px] text-slate-500">Quantity</p>
+                <input type="number" min={1} value={tradeDraft.quantity} disabled={!!simulation.activeTrade} onChange={e => updateDraft('quantity', e.target.value)} className="input-field h-9 text-[13px]" />
+              </div>
+
+              {/* Notes */}
+              <div>
+                <p className="mb-1 text-[11px] text-slate-500">Notes</p>
+                <textarea
+                  rows={2}
+                  value={tradeDraft.notes}
+                  disabled={!!simulation.activeTrade}
+                  onChange={e => updateDraft('notes', e.target.value)}
+                  className="input-field resize-none text-[13px]"
+                  placeholder="Setup, context..."
+                />
+              </div>
+
+              {tradeError && (
+                <p className="rounded-lg border border-red-500/20 bg-red-500/[0.07] px-3 py-2 text-[12px] text-red-300">
+                  {tradeError}
+                </p>
+              )}
+
+              <button
+                type="button"
+                disabled={!canPlaceTrade}
+                onClick={handlePlaceTrade}
+                className="h-9 w-full cursor-pointer rounded-lg bg-blue-600 text-[13px] font-medium text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Place Trade
+              </button>
+            </div>
+          </div>
+
+          {/* Live position */}
+          {simulation.activeTrade ? (
+            <div className="rounded-xl border border-slate-700/50 bg-slate-900 p-4">
+              <p className="mb-3 text-[12px] font-medium text-slate-300">Live Position</p>
+              <div className={`mb-3 rounded-lg border px-3 py-2.5 ${simulation.activeTrade.pnlDollars >= 0 ? 'border-emerald-500/25 bg-emerald-500/[0.07]' : 'border-red-500/25 bg-red-500/[0.07]'}`}>
+                <div className="flex items-center justify-between">
+                  <span className="text-[12px] font-medium text-slate-300">
+                    {simulation.activeTrade.direction} · {session.symbol}
+                  </span>
+                  <span className={`text-[15px] font-semibold tabular-nums ${simulation.activeTrade.pnlDollars >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {formatCurrency(simulation.activeTrade.pnlDollars)}
+                  </span>
+                </div>
+                <p className={`mt-0.5 text-[12px] tabular-nums ${simulation.activeTrade.pnlPoints >= 0 ? 'text-emerald-400/70' : 'text-red-400/70'}`}>
+                  {formatPoints(simulation.activeTrade.pnlPoints, session.tickSize)} pts
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-[12px]">
+                {[
+                  ['Current', formatPrice(simulation.activeTrade.currentPrice, session.tickSize)],
+                  ['Duration', formatDuration(simulation.activeTrade.durationSeconds)],
+                  ['Entry', formatPrice(simulation.activeTrade.entryPrice, session.tickSize)],
+                  ['Candles', String(simulation.activeTrade.candlesHeld)],
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-lg border border-slate-800 bg-slate-950/50 px-2.5 py-2">
+                    <p className="text-[10px] text-slate-600">{label}</p>
+                    <p className="mt-0.5 font-medium text-slate-200">{value}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-slate-700/50 bg-slate-900 p-4">
+              <p className="mb-2 text-[12px] font-medium text-slate-300">Live Position</p>
+              <p className="text-[12px] text-slate-600">No active trade. Place a trade to track it here.</p>
+            </div>
+          )}
+
+          {/* Session stats */}
+          <div className="rounded-xl border border-slate-700/50 bg-slate-900 p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-[12px] font-medium text-slate-300">Session Stats</p>
+              <button
+                type="button"
+                onClick={handleExportCsv}
+                disabled={simulation.closedTrades.length === 0}
+                className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-700/60 bg-slate-800/40 px-2.5 py-1 text-[11px] text-slate-400 transition-colors hover:border-slate-600 hover:text-slate-200 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Download size={11} />
+                Export CSV
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                ['Trades', String(sessionStats.tradesTaken), null],
+                ['Win Rate', `${sessionStats.winRate.toFixed(1)}%`, sessionStats.winRate > 50 ? 'positive' : sessionStats.winRate > 0 ? 'neutral' : null],
+                ['Total P&L', formatCurrency(sessionStats.totalPnL), sessionStats.totalPnL > 0 ? 'positive' : sessionStats.totalPnL < 0 ? 'negative' : null],
+                ['Profit Factor', sessionStats.profitFactor >= 999 ? '—' : sessionStats.profitFactor.toFixed(2), sessionStats.profitFactor >= 1.5 ? 'positive' : null],
+                ['Avg Win', formatCurrency(sessionStats.avgWin), 'positive'],
+                ['Avg Loss', formatCurrency(sessionStats.avgLoss), 'negative'],
+              ] as [string, string, string | null][]).map(([label, value, tone]) => (
+                <div key={label} className="rounded-lg border border-slate-800 bg-slate-950/50 px-2.5 py-2.5">
+                  <p className="text-[10px] text-slate-600">{label}</p>
+                  <p className={`mt-1 text-[14px] font-semibold tabular-nums ${
+                    tone === 'positive' ? 'text-emerald-400' : tone === 'negative' ? 'text-red-400' : 'text-slate-200'
+                  }`}>{value}</p>
+                </div>
+              ))}
+            </div>
+
+            {simulation.closedTrades.length === 0 && (
+              <p className="mt-2 text-[11px] text-slate-700">Stats appear once trades close.</p>
+            )}
+          </div>
+
+        </div>
+      </div>
+
+      {/* ── Result modal ── */}
+      <Modal isOpen={!!resultTrade} onClose={() => setResultTrade(null)} title="Trade Closed" size="md">
+        {resultTrade && (
+          <div className="space-y-4">
+            <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[13px] font-semibold ${
+              resultTrade.outcome === 'Win'
+                ? 'border-emerald-500/35 bg-emerald-500/[0.08] text-emerald-300'
+                : 'border-red-500/35 bg-red-500/[0.08] text-red-300'
+            }`}>
+              {resultTrade.outcome} · {resultTrade.exitReason}
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                ['Entry → Exit', `${formatPrice(resultTrade.entryPrice, session.tickSize)} → ${formatPrice(resultTrade.exitPrice, session.tickSize)}`],
+                ['Points', formatPoints(resultTrade.pnlPoints, session.tickSize)],
+                ['P&L', formatCurrency(resultTrade.pnlDollars)],
+                ['R Achieved', `${resultTrade.rAchieved.toFixed(2)}R`],
+                ['Duration', formatDuration(resultTrade.durationSeconds)],
+                ['Candles', String(resultTrade.candlesHeld)],
+              ] as [string, string][]).map(([label, value]) => (
+                <div key={label} className="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2.5">
+                  <p className="text-[11px] text-slate-500">{label}</p>
+                  <p className="mt-1 text-[13px] font-semibold text-slate-100">{value}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex gap-2">
+              <button type="button" onClick={handleLogToJournal} className="btn-primary flex-1 rounded-lg py-2.5 text-[13px]">
+                Log to Journal
+              </button>
+              <button type="button" onClick={() => setResultTrade(null)} className="btn-secondary flex-1 rounded-lg py-2.5 text-[13px]">
+                Next Trade
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+    </div>
+  );
+}

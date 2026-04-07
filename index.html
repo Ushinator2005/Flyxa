@@ -1,0 +1,2158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Flyxa | Travel without the friction</title>
+  <meta
+    name="description"
+    content="Flyxa is an AI-powered travel platform that helps you plan, book, and manage every trip without the usual mess."
+  />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Playfair+Display:wght@600;700;800&display=swap"
+    rel="stylesheet"
+  />
+  <style>
+    :root {
+      --bg: #0a0e1a;
+      --bg-soft: #10172a;
+      --bg-band: #08101f;
+      --surface: rgba(255, 255, 255, 0.05);
+      --surface-strong: rgba(255, 255, 255, 0.08);
+      --border: rgba(255, 255, 255, 0.12);
+      --text: #f8f6f0;
+      --muted: rgba(248, 246, 240, 0.72);
+      --subtle: rgba(248, 246, 240, 0.48);
+      --accent: #2563eb;
+      --accent-soft: rgba(37, 99, 235, 0.24);
+      --gold: #c9a84c;
+      --shadow: 0 30px 80px rgba(0, 0, 0, 0.35);
+      --radius-lg: 30px;
+      --radius-md: 22px;
+      --nav-height: 92px;
+      --cursor-size: 18px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 20% 15%, rgba(37, 99, 235, 0.18), transparent 28%),
+        radial-gradient(circle at 82% 22%, rgba(201, 168, 76, 0.08), transparent 22%),
+        linear-gradient(180deg, #09101d 0%, #0a0e1a 34%, #08101f 100%);
+      color: var(--text);
+      font-family: "DM Sans", sans-serif;
+      overflow-x: hidden;
+      cursor: none;
+    }
+
+    body.menu-open {
+      overflow: hidden;
+    }
+
+    a,
+    button,
+    input,
+    [role="button"] {
+      cursor: none;
+    }
+
+    img,
+    svg {
+      display: block;
+      max-width: 100%;
+    }
+
+    button {
+      border: 0;
+      background: none;
+      font: inherit;
+      color: inherit;
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    .progress-bar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      z-index: 80;
+      width: 100%;
+      height: 3px;
+      transform-origin: left center;
+      transform: scaleX(0);
+      background: linear-gradient(90deg, #2d7bff 0%, #5aa0ff 100%);
+      box-shadow: 0 0 24px rgba(37, 99, 235, 0.8);
+      will-change: transform;
+    }
+
+    .cursor {
+      position: fixed;
+      top: 0;
+      left: 0;
+      z-index: 90;
+      width: var(--cursor-size);
+      height: var(--cursor-size);
+      border: 1px solid rgba(248, 246, 240, 0.5);
+      border-radius: 50%;
+      pointer-events: none;
+      transform: translate3d(-50%, -50%, 0);
+      transition:
+        width 180ms ease,
+        height 180ms ease,
+        border-color 180ms ease,
+        background-color 180ms ease,
+        opacity 180ms ease;
+      backdrop-filter: blur(4px);
+      will-change: transform;
+    }
+
+    .cursor.is-hovering {
+      width: 42px;
+      height: 42px;
+      border-color: rgba(37, 99, 235, 0.65);
+      background: rgba(37, 99, 235, 0.1);
+    }
+
+    .site-shell {
+      position: relative;
+      isolation: isolate;
+    }
+
+    .section {
+      position: relative;
+      padding: 0 6vw;
+    }
+
+    .section-inner {
+      width: min(1240px, 100%);
+      margin: 0 auto;
+    }
+
+    .section-kicker {
+      margin: 0 0 18px;
+      color: var(--subtle);
+      font-size: 0.78rem;
+      letter-spacing: 0.3em;
+      text-transform: uppercase;
+    }
+
+    .section-title {
+      margin: 0;
+      font-family: "Playfair Display", serif;
+      font-size: clamp(2.4rem, 4vw, 4.7rem);
+      line-height: 0.98;
+      letter-spacing: -0.04em;
+      max-width: 12ch;
+    }
+
+    .section-copy {
+      margin: 20px 0 0;
+      max-width: 40rem;
+      color: var(--muted);
+      font-size: 1.05rem;
+      line-height: 1.8;
+    }
+
+    .site-nav {
+      position: sticky;
+      top: 0;
+      z-index: 70;
+      height: var(--nav-height);
+      transition:
+        height 220ms ease,
+        background-color 220ms ease,
+        border-color 220ms ease,
+        box-shadow 220ms ease;
+      border-bottom: 1px solid transparent;
+    }
+
+    .site-nav.is-condensed {
+      height: 74px;
+      background: rgba(10, 14, 26, 0.72);
+      backdrop-filter: blur(22px);
+      border-color: rgba(255, 255, 255, 0.08);
+      box-shadow: 0 12px 50px rgba(0, 0, 0, 0.2);
+    }
+
+    .nav-inner {
+      width: min(1320px, calc(100% - 48px));
+      height: 100%;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 14px;
+      opacity: 0;
+      transform: translate3d(0, 14px, 0);
+      animation: load-in 700ms cubic-bezier(.22,1,.36,1) forwards;
+      animation-delay: 120ms;
+    }
+
+    .brand-mark {
+      width: 46px;
+      height: 46px;
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow:
+        0 0 0 1px rgba(255, 255, 255, 0.12),
+        0 14px 36px rgba(37, 99, 235, 0.25);
+      background: linear-gradient(145deg, #122348 0%, #09101d 100%);
+    }
+
+    .brand-word {
+      font-weight: 700;
+      font-size: 1.8rem;
+      letter-spacing: -0.05em;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 30px;
+      color: var(--muted);
+      opacity: 0;
+      transform: translate3d(0, 14px, 0);
+      animation: load-in 700ms cubic-bezier(.22,1,.36,1) forwards;
+      animation-delay: 240ms;
+    }
+
+    .nav-links a {
+      position: relative;
+      font-size: 0.97rem;
+    }
+
+    .nav-links a::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      bottom: -8px;
+      width: 100%;
+      height: 1px;
+      transform: scaleX(0);
+      transform-origin: left center;
+      background: rgba(248, 246, 240, 0.8);
+      transition: transform 180ms ease;
+    }
+
+    .nav-links a:hover::after,
+    .nav-links a:focus-visible::after {
+      transform: scaleX(1);
+    }
+
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      opacity: 0;
+      transform: translate3d(0, 14px, 0);
+      animation: load-in 700ms cubic-bezier(.22,1,.36,1) forwards;
+      animation-delay: 320ms;
+    }
+
+    .cta,
+    .ghost-button,
+    .menu-toggle,
+    .dest-arrow {
+      position: relative;
+      overflow: hidden;
+      transition:
+        transform 180ms ease,
+        border-color 180ms ease,
+        background-color 180ms ease,
+        box-shadow 180ms ease,
+        color 180ms ease;
+      will-change: transform;
+    }
+
+    .cta {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 14px 22px;
+      border-radius: 999px;
+      color: var(--text);
+      background: linear-gradient(135deg, #2563eb 0%, #3d84ff 100%);
+      box-shadow:
+        0 0 0 1px rgba(255, 255, 255, 0.06) inset,
+        0 14px 36px rgba(37, 99, 235, 0.36);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .cta:hover,
+    .cta:focus-visible,
+    .ghost-button:hover,
+    .ghost-button:focus-visible,
+    .dest-arrow:hover,
+    .dest-arrow:focus-visible,
+    .pricing-card:hover,
+    .pricing-card:focus-within {
+      transform: translate3d(0, -3px, 0);
+    }
+
+    .cta--gold {
+      background: linear-gradient(135deg, #c9a84c 0%, #e2c067 100%);
+      color: #111521;
+      box-shadow:
+        0 0 0 1px rgba(255, 255, 255, 0.08) inset,
+        0 16px 36px rgba(201, 168, 76, 0.28);
+    }
+
+    .ghost-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 14px 22px;
+      border-radius: 999px;
+      color: var(--text);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      background: rgba(255, 255, 255, 0.03);
+      backdrop-filter: blur(16px);
+    }
+
+    .menu-toggle {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .menu-toggle span,
+    .menu-toggle span::before,
+    .menu-toggle span::after {
+      display: block;
+      width: 18px;
+      height: 2px;
+      border-radius: 999px;
+      background: var(--text);
+      transition: transform 180ms ease, opacity 180ms ease;
+      content: "";
+    }
+
+    .menu-toggle span::before {
+      transform: translateY(-6px);
+    }
+
+    .menu-toggle span::after {
+      transform: translateY(4px);
+    }
+
+    .menu-toggle[aria-expanded="true"] span {
+      background: transparent;
+    }
+
+    .menu-toggle[aria-expanded="true"] span::before {
+      transform: translateY(0) rotate(45deg);
+    }
+
+    .menu-toggle[aria-expanded="true"] span::after {
+      transform: translateY(-2px) rotate(-45deg);
+    }
+
+    .mobile-menu {
+      position: fixed;
+      inset: 0;
+      z-index: 65;
+      display: grid;
+      align-content: start;
+      gap: 18px;
+      padding: 108px 28px 36px;
+      background:
+        radial-gradient(circle at top right, rgba(37, 99, 235, 0.18), transparent 28%),
+        rgba(10, 14, 26, 0.96);
+      backdrop-filter: blur(20px);
+      transform: translateX(100%);
+      transition: transform 280ms cubic-bezier(.22,1,.36,1);
+    }
+
+    .mobile-menu.is-open {
+      transform: translateX(0);
+    }
+
+    .mobile-menu a,
+    .mobile-menu button {
+      font-size: 1.35rem;
+      padding: 10px 0;
+      color: var(--text);
+    }
+    .hero {
+      min-height: calc(100vh - 28px);
+      display: flex;
+      align-items: center;
+      padding-top: 42px;
+      padding-bottom: 78px;
+      overflow: clip;
+    }
+
+    .hero::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(circle at 20% 20%, rgba(49, 102, 255, 0.28), transparent 24%),
+        radial-gradient(circle at 80% 30%, rgba(62, 99, 191, 0.18), transparent 20%),
+        radial-gradient(circle at 60% 68%, rgba(201, 168, 76, 0.08), transparent 18%),
+        linear-gradient(120deg, rgba(37, 99, 235, 0.1), transparent 48%);
+      animation: mesh-drift 18s ease-in-out infinite alternate;
+      will-change: transform;
+      z-index: -3;
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      opacity: 0.1;
+      pointer-events: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180' viewBox='0 0 180 180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.05' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+      mix-blend-mode: soft-light;
+      z-index: -2;
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.05fr) minmax(280px, 0.8fr);
+      gap: 54px;
+      align-items: end;
+    }
+
+    .hero-copy {
+      max-width: 720px;
+      opacity: 0;
+      transform: translate3d(0, 18px, 0);
+      animation: load-in 900ms cubic-bezier(.22,1,.36,1) forwards;
+      animation-delay: 480ms;
+      will-change: transform, opacity;
+    }
+
+    .hero-kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 16px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: var(--muted);
+      font-size: 0.88rem;
+      backdrop-filter: blur(12px);
+    }
+
+    .hero-kicker-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #4f91ff;
+      box-shadow: 0 0 0 0 rgba(79, 145, 255, 0.6);
+      animation: pulse 1.9s ease infinite;
+    }
+
+    .hero-title {
+      margin: 26px 0 0;
+      font-family: "Playfair Display", serif;
+      font-size: clamp(3.8rem, 9vw, 7.2rem);
+      line-height: 0.9;
+      letter-spacing: -0.055em;
+      max-width: 10ch;
+      text-wrap: balance;
+    }
+
+    .hero-title .offset-line {
+      display: block;
+      transform: translateX(6vw);
+      color: rgba(248, 246, 240, 0.96);
+    }
+
+    .hero-text {
+      margin: 26px 0 0;
+      max-width: 33rem;
+      font-size: 1.15rem;
+      line-height: 1.8;
+      color: var(--muted);
+    }
+
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      margin-top: 34px;
+    }
+
+    .hero-panel {
+      position: relative;
+      padding: 26px;
+      border-radius: 34px 34px 14px 34px;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.03));
+      border: 1px solid rgba(255, 255, 255, 0.11);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(20px);
+      transform: translateY(28px);
+      opacity: 0;
+      animation: load-in 900ms cubic-bezier(.22,1,.36,1) forwards;
+      animation-delay: 620ms;
+      will-change: transform, opacity;
+    }
+
+    .hero-panel::before {
+      content: "";
+      position: absolute;
+      inset: auto -18px -24px auto;
+      width: 180px;
+      height: 180px;
+      background: radial-gradient(circle, rgba(37, 99, 235, 0.28), transparent 68%);
+      filter: blur(10px);
+      z-index: -1;
+    }
+
+    .panel-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 22px;
+    }
+
+    .panel-label {
+      color: var(--subtle);
+      font-size: 0.82rem;
+      letter-spacing: 0.25em;
+      text-transform: uppercase;
+    }
+
+    .status-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(37, 99, 235, 0.12);
+      color: #90b7ff;
+      font-size: 0.82rem;
+    }
+
+    .status-chip::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #4a8cff;
+    }
+
+    .route-card {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      margin-bottom: 16px;
+    }
+
+    .route-block,
+    .dashboard-card,
+    .feature-card,
+    .destination-card,
+    .testimonial-card,
+    .pricing-card,
+    .footer-panel {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      backdrop-filter: blur(16px);
+    }
+
+    .route-block {
+      border-radius: 24px;
+      padding: 18px;
+    }
+
+    .route-block strong {
+      display: block;
+      font-size: 1.12rem;
+      margin-top: 10px;
+    }
+
+    .route-block span {
+      display: block;
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: 1.2fr 0.9fr;
+      gap: 14px;
+    }
+
+    .dashboard-card {
+      min-height: 176px;
+      border-radius: 24px;
+      padding: 18px;
+    }
+
+    .mini-bars {
+      display: flex;
+      align-items: end;
+      gap: 10px;
+      height: 100px;
+      margin-top: 18px;
+    }
+
+    .mini-bars span {
+      flex: 1;
+      border-radius: 18px 18px 8px 8px;
+      background: linear-gradient(180deg, rgba(102, 155, 255, 0.96), rgba(37, 99, 235, 0.22));
+    }
+
+    .travel-dots {
+      display: grid;
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .travel-dots span {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 12px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--muted);
+      font-size: 0.88rem;
+    }
+
+    .travel-dots em {
+      font-style: normal;
+      color: var(--text);
+    }
+
+    .reveal {
+      opacity: 0;
+      transform: translate3d(0, 28px, 0);
+      transition:
+        opacity 700ms ease,
+        transform 700ms cubic-bezier(.22,1,.36,1);
+      transition-delay: var(--delay, 0ms);
+      will-change: transform, opacity;
+    }
+
+    .reveal.visible {
+      opacity: 1;
+      transform: translate3d(0, 0, 0);
+    }
+
+    .feature-showcase {
+      padding-top: 86px;
+      padding-bottom: 86px;
+    }
+
+    .feature-list {
+      margin-top: 42px;
+      display: grid;
+      gap: 26px;
+    }
+
+    .feature-card {
+      display: grid;
+      grid-template-columns: 72px minmax(0, 1fr);
+      gap: 22px;
+      align-items: start;
+      padding: 28px;
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow);
+      transform: translate3d(0, 0, 0);
+    }
+
+    .feature-card[data-side="left"] {
+      margin-right: 10%;
+      transform: translate3d(-48px, 0, 0);
+    }
+
+    .feature-card[data-side="right"] {
+      margin-left: 10%;
+      transform: translate3d(48px, 0, 0);
+    }
+
+    .feature-card.visible {
+      transform: translate3d(0, 0, 0);
+      transition:
+        opacity 300ms ease-out,
+        transform 300ms ease-out;
+    }
+
+    .feature-icon {
+      display: grid;
+      place-items: center;
+      width: 72px;
+      height: 72px;
+      border-radius: 24px;
+      background: linear-gradient(180deg, rgba(37, 99, 235, 0.18), rgba(37, 99, 235, 0.06));
+      border: 1px solid rgba(37, 99, 235, 0.28);
+      color: #8db4ff;
+    }
+
+    .feature-card h3 {
+      margin: 0;
+      font-size: 1.55rem;
+      letter-spacing: -0.03em;
+    }
+
+    .feature-card p {
+      margin: 12px 0 0;
+      color: var(--muted);
+      line-height: 1.75;
+      max-width: 40rem;
+    }
+    .destinations {
+      padding-top: 54px;
+      padding-bottom: 92px;
+    }
+
+    .destinations-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 28px;
+      margin-bottom: 34px;
+    }
+
+    .dest-controls {
+      display: flex;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+
+    .dest-arrow {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .dest-viewport {
+      position: relative;
+      user-select: none;
+      overflow: hidden;
+      cursor: grab;
+    }
+
+    .dest-viewport.is-dragging {
+      cursor: grabbing;
+    }
+
+    .dest-track {
+      display: flex;
+      gap: 18px;
+      padding-bottom: 8px;
+      transform: translate3d(0, 0, 0);
+      will-change: transform;
+    }
+
+    .destination-card {
+      flex: 0 0 min(31vw, 320px);
+      min-height: 360px;
+      padding: 24px;
+      border-radius: 30px;
+      box-shadow: var(--shadow);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .destination-card::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(circle at 20% 18%, rgba(255, 255, 255, 0.16), transparent 28%),
+        linear-gradient(160deg, rgba(255, 255, 255, 0.08), transparent 58%);
+      pointer-events: none;
+    }
+
+    .destination-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: start;
+      gap: 18px;
+    }
+
+    .destination-card h3 {
+      margin: 0;
+      font-family: "Playfair Display", serif;
+      font-size: clamp(2rem, 4vw, 3rem);
+      letter-spacing: -0.05em;
+    }
+
+    .destination-price {
+      padding: 10px 14px;
+      border-radius: 999px;
+      background: rgba(10, 14, 26, 0.28);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: var(--text);
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .destination-meta {
+      position: absolute;
+      left: 24px;
+      right: 24px;
+      bottom: 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: end;
+      gap: 20px;
+      color: rgba(248, 246, 240, 0.84);
+    }
+
+    .destination-meta small {
+      display: block;
+      color: rgba(248, 246, 240, 0.6);
+      text-transform: uppercase;
+      letter-spacing: 0.24em;
+      margin-bottom: 6px;
+      font-size: 0.72rem;
+    }
+
+    .stats-band {
+      padding: 0;
+      background:
+        radial-gradient(circle at 15% 50%, rgba(37, 99, 235, 0.12), transparent 28%),
+        linear-gradient(180deg, #070d19 0%, #08101f 100%);
+      overflow: clip;
+    }
+
+    .stats-band-inner {
+      width: min(1360px, 100%);
+      margin: 0 auto;
+      padding: 70px 6vw;
+      position: relative;
+    }
+
+    .stats-band-inner::before {
+      content: "";
+      position: absolute;
+      inset: 12px 6vw;
+      border-radius: 34px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.025);
+      z-index: 0;
+    }
+
+    .stats-grid {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .stat-block {
+      padding: 22px 26px;
+      text-align: center;
+    }
+
+    .stat-value {
+      display: block;
+      font-family: "Playfair Display", serif;
+      font-size: clamp(2.6rem, 5vw, 4.6rem);
+      line-height: 0.95;
+      letter-spacing: -0.06em;
+    }
+
+    .stat-label {
+      margin-top: 14px;
+      color: var(--muted);
+      font-size: 0.98rem;
+    }
+
+    .testimonials {
+      padding-top: 96px;
+      padding-bottom: 96px;
+    }
+
+    .testimonial-stack {
+      position: relative;
+      margin-top: 46px;
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 22px;
+    }
+
+    .testimonial-card {
+      padding: 28px;
+      border-radius: 28px;
+      box-shadow: var(--shadow);
+    }
+
+    .testimonial-card:nth-child(1) {
+      grid-column: 1 / span 5;
+      transform: rotate(-1.6deg);
+    }
+
+    .testimonial-card:nth-child(2) {
+      grid-column: 4 / span 5;
+      margin-top: 88px;
+      transform: rotate(1.4deg);
+      z-index: 2;
+    }
+
+    .testimonial-card:nth-child(3) {
+      grid-column: 8 / span 5;
+      margin-top: 28px;
+      transform: rotate(-1deg);
+    }
+
+    .quote-mark {
+      color: rgba(37, 99, 235, 0.8);
+      font-size: 2.6rem;
+      line-height: 1;
+      margin-bottom: 14px;
+    }
+
+    .testimonial-card p {
+      margin: 0;
+      font-size: 1.05rem;
+      line-height: 1.85;
+      color: var(--text);
+    }
+
+    .testimonial-meta {
+      margin-top: 26px;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    .testimonial-meta strong {
+      display: block;
+      color: var(--text);
+      font-size: 1rem;
+      margin-bottom: 4px;
+    }
+
+    .pricing {
+      padding-top: 76px;
+      padding-bottom: 112px;
+    }
+
+    .pricing-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 22px;
+      margin-top: 42px;
+    }
+
+    .pricing-card {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      padding: 30px;
+      border-radius: 30px;
+      box-shadow: var(--shadow);
+      min-height: 460px;
+      transition:
+        transform 220ms ease,
+        box-shadow 220ms ease,
+        border-color 220ms ease;
+    }
+
+    .pricing-card:hover,
+    .pricing-card:focus-within {
+      box-shadow: 0 36px 90px rgba(0, 0, 0, 0.38);
+    }
+
+    .pricing-card.popular {
+      border-color: rgba(201, 168, 76, 0.52);
+      box-shadow:
+        0 0 0 1px rgba(201, 168, 76, 0.18),
+        0 0 80px rgba(201, 168, 76, 0.12),
+        0 34px 90px rgba(0, 0, 0, 0.38);
+    }
+
+    .popular-badge {
+      position: absolute;
+      top: 18px;
+      right: 18px;
+      padding: 9px 12px;
+      border-radius: 999px;
+      background: rgba(201, 168, 76, 0.14);
+      border: 1px solid rgba(201, 168, 76, 0.3);
+      color: #e3c777;
+      font-size: 0.78rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+    }
+
+    .pricing-tier {
+      color: var(--subtle);
+      letter-spacing: 0.24em;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+    }
+
+    .pricing-value {
+      margin-top: 18px;
+      font-family: "Playfair Display", serif;
+      font-size: clamp(2.8rem, 4vw, 4.2rem);
+      letter-spacing: -0.06em;
+      line-height: 0.95;
+    }
+
+    .pricing-value small {
+      font-family: "DM Sans", sans-serif;
+      font-size: 0.95rem;
+      letter-spacing: 0;
+      color: var(--muted);
+    }
+
+    .pricing-copy {
+      margin: 16px 0 0;
+      color: var(--muted);
+      line-height: 1.8;
+      max-width: 28ch;
+    }
+    .pricing-list {
+      list-style: none;
+      margin: 28px 0 0;
+      padding: 0;
+      display: grid;
+      gap: 14px;
+      color: var(--text);
+    }
+
+    .pricing-list li {
+      display: flex;
+      gap: 12px;
+      align-items: start;
+      line-height: 1.6;
+    }
+
+    .pricing-list li::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-top: 10px;
+      background: rgba(37, 99, 235, 0.95);
+      flex-shrink: 0;
+    }
+
+    .pricing-card .cta,
+    .pricing-card .ghost-button {
+      margin-top: auto;
+    }
+
+    .final-cta {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      padding-top: 80px;
+      padding-bottom: 80px;
+      overflow: clip;
+    }
+
+    .final-cta::before,
+    .final-cta::after {
+      content: "";
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(60px);
+      opacity: 0.35;
+      animation: aurora 16s ease-in-out infinite alternate;
+      will-change: transform;
+    }
+
+    .final-cta::before {
+      width: 340px;
+      height: 340px;
+      left: 8%;
+      top: 22%;
+      background: rgba(37, 99, 235, 0.44);
+    }
+
+    .final-cta::after {
+      width: 280px;
+      height: 280px;
+      right: 10%;
+      bottom: 20%;
+      background: rgba(201, 168, 76, 0.16);
+      animation-duration: 20s;
+    }
+
+    .final-cta-panel {
+      position: relative;
+      width: min(960px, 100%);
+      margin: 0 auto;
+      padding: 72px clamp(28px, 6vw, 74px);
+      border-radius: 38px;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.02));
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      text-align: center;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .final-cta-panel::before {
+      content: "";
+      position: absolute;
+      inset: -30%;
+      background: conic-gradient(
+        from 0deg,
+        rgba(37, 99, 235, 0.08),
+        rgba(255, 255, 255, 0),
+        rgba(201, 168, 76, 0.06),
+        rgba(255, 255, 255, 0),
+        rgba(37, 99, 235, 0.08)
+      );
+      animation: spin-slow 22s linear infinite;
+      z-index: 0;
+    }
+
+    .final-cta-panel > * {
+      position: relative;
+      z-index: 1;
+    }
+
+    .final-cta h2 {
+      margin: 0;
+      font-family: "Playfair Display", serif;
+      font-size: clamp(3rem, 6vw, 5.7rem);
+      line-height: 0.92;
+      letter-spacing: -0.06em;
+    }
+
+    .final-cta p {
+      margin: 22px auto 0;
+      max-width: 34rem;
+      color: var(--muted);
+      line-height: 1.8;
+      font-size: 1.05rem;
+    }
+
+    .final-cta .cta {
+      margin-top: 34px;
+    }
+
+    .site-footer {
+      padding-top: 40px;
+      padding-bottom: 26px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(5, 9, 18, 0.7);
+    }
+
+    .footer-grid {
+      display: grid;
+      grid-template-columns: 1.4fr repeat(3, minmax(0, 1fr));
+      gap: 26px;
+    }
+
+    .footer-panel {
+      padding: 22px;
+      border-radius: 24px;
+    }
+
+    .footer-panel h3,
+    .footer-panel h4 {
+      margin: 0 0 14px;
+      font-size: 0.82rem;
+      letter-spacing: 0.24em;
+      text-transform: uppercase;
+      color: var(--subtle);
+    }
+
+    .footer-panel p,
+    .footer-panel a,
+    .footer-panel button {
+      color: var(--muted);
+      line-height: 1.8;
+    }
+
+    .footer-links {
+      display: grid;
+      gap: 8px;
+    }
+
+    .socials {
+      display: flex;
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .socials a {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .footer-bottom {
+      margin-top: 22px;
+      padding-top: 18px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      color: var(--subtle);
+      font-size: 0.92rem;
+    }
+
+    @keyframes load-in {
+      to {
+        opacity: 1;
+        transform: translate3d(0, 0, 0);
+      }
+    }
+
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(79, 145, 255, 0.58); }
+      70% { box-shadow: 0 0 0 14px rgba(79, 145, 255, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(79, 145, 255, 0); }
+    }
+
+    @keyframes mesh-drift {
+      0% { transform: translate3d(0, 0, 0) scale(1); }
+      100% { transform: translate3d(0, -2%, 0) scale(1.06); }
+    }
+
+    @keyframes aurora {
+      0% { transform: translate3d(0, 0, 0) scale(1); }
+      100% { transform: translate3d(24px, -18px, 0) scale(1.16); }
+    }
+
+    @keyframes spin-slow {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    @media (max-width: 1024px) {
+      .hero-grid,
+      .pricing-grid,
+      .footer-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .testimonial-stack {
+        grid-template-columns: 1fr;
+      }
+
+      .testimonial-card,
+      .testimonial-card:nth-child(1),
+      .testimonial-card:nth-child(2),
+      .testimonial-card:nth-child(3) {
+        grid-column: auto;
+        margin-top: 0;
+        transform: rotate(0);
+      }
+
+      .destination-card {
+        flex-basis: min(46vw, 320px);
+      }
+    }
+
+    @media (max-width: 768px) {
+      body,
+      a,
+      button,
+      input,
+      [role="button"] {
+        cursor: auto;
+      }
+
+      .cursor {
+        display: none;
+      }
+
+      .section {
+        padding-left: 22px;
+        padding-right: 22px;
+      }
+
+      .nav-inner {
+        width: calc(100% - 28px);
+      }
+
+      .nav-links,
+      .nav-actions .cta {
+        display: none;
+      }
+
+      .menu-toggle {
+        display: inline-flex;
+      }
+
+      .hero {
+        padding-top: 10px;
+        min-height: auto;
+      }
+
+      .hero-title .offset-line {
+        transform: none;
+      }
+
+      .hero-panel {
+        border-radius: 28px;
+      }
+
+      .route-card,
+      .dashboard-grid,
+      .stats-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .feature-card,
+      .feature-card[data-side="left"],
+      .feature-card[data-side="right"] {
+        grid-template-columns: 1fr;
+        margin: 0;
+        transform: translate3d(0, 28px, 0);
+      }
+
+      .destinations-head {
+        align-items: start;
+        flex-direction: column;
+      }
+
+      .destination-card {
+        flex-basis: min(72vw, 320px);
+        min-height: 320px;
+      }
+
+      .stats-band-inner::before {
+        inset: 10px 22px;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .brand-word {
+        font-size: 1.45rem;
+      }
+
+      .hero-title {
+        font-size: clamp(3rem, 16vw, 4.6rem);
+      }
+
+      .hero-text,
+      .section-copy {
+        font-size: 1rem;
+      }
+
+      .cta,
+      .ghost-button {
+        width: 100%;
+      }
+
+      .destination-card {
+        flex-basis: 82vw;
+      }
+
+      .pricing-card,
+      .hero-panel,
+      .feature-card,
+      .footer-panel {
+        padding: 22px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="progress-bar" aria-hidden="true"></div>
+  <div class="cursor" aria-hidden="true"></div>
+
+  <div class="site-shell">
+    <header class="site-nav" id="site-nav">
+      <div class="nav-inner">
+        <a href="#top" class="brand hover-target" aria-label="Flyxa home">
+          <svg class="brand-mark" viewBox="0 0 64 64" aria-hidden="true">
+            <defs>
+              <linearGradient id="flyxa-mark" x1="14" y1="14" x2="50" y2="50" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#7db2ff" />
+                <stop offset="0.55" stop-color="#2563eb" />
+                <stop offset="1" stop-color="#c9a84c" />
+              </linearGradient>
+            </defs>
+            <rect x="4.5" y="4.5" width="55" height="55" rx="18" fill="#0d1730" stroke="rgba(255,255,255,0.2)" />
+            <path d="M16 46 29.4 17.6c.8-1.6 2.9-2 4.4-1l6.6 4.8c1.5 1.1 1.9 3.1.9 4.7L34.2 36h16.3c2 0 3 2.4 1.7 3.8l-9.8 9.8c-.7.7-1.7 1.1-2.7 1.1H18.6c-2.1 0-3.4-2.1-2.6-3.7Z" fill="url(#flyxa-mark)" />
+            <path d="M30.8 24.2 24 38.2h9.4l10.3-10.8H35c-1.4 0-2.8-.8-4.2-3.2Z" fill="rgba(255,255,255,0.2)" />
+            <path d="M24.5 42.3h14.2" stroke="rgba(255,255,255,0.44)" stroke-width="2.2" stroke-linecap="round" />
+          </svg>
+          <span class="brand-word">Flyxa</span>
+        </a>
+
+        <nav class="nav-links" aria-label="Primary navigation">
+          <a class="hover-target" href="#about">About</a>
+          <a class="hover-target" href="#features">Features</a>
+          <a class="hover-target" href="#pricing">Pricing</a>
+          <a class="hover-target" href="#contact">Contact</a>
+        </nav>
+
+        <div class="nav-actions">
+          <a class="cta hover-target" href="#pricing">Start for Free</a>
+          <button
+            class="menu-toggle hover-target"
+            id="menu-toggle"
+            type="button"
+            aria-expanded="false"
+            aria-controls="mobile-menu"
+            aria-label="Open menu"
+          >
+            <span></span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <nav class="mobile-menu" id="mobile-menu" aria-label="Mobile navigation">
+      <a class="hover-target" href="#about">About</a>
+      <a class="hover-target" href="#features">Features</a>
+      <a class="hover-target" href="#pricing">Pricing</a>
+      <a class="hover-target" href="#contact">Contact</a>
+      <a class="cta hover-target" href="#pricing">Start for Free</a>
+    </nav>
+
+    <main id="top">
+      <section class="section hero reveal" data-reveal>
+        <div class="section-inner hero-grid">
+          <div class="hero-copy" id="hero-copy">
+            <div class="hero-kicker">
+              <span class="hero-kicker-dot"></span>
+              AI-powered planning that keeps up when your trip changes
+            </div>
+
+            <h1 class="hero-title">
+              Travel without
+              <span class="offset-line">the friction.</span>
+            </h1>
+
+            <p class="hero-text">
+              Flyxa helps you book the right flight, time the price, and keep every detail in one place once the trip is real.
+            </p>
+
+            <div class="hero-actions">
+              <a class="cta hover-target" href="#pricing">Book a Flight</a>
+              <a class="ghost-button hover-target" href="#about">Watch how it works</a>
+            </div>
+          </div>
+
+          <aside class="hero-panel reveal" data-reveal data-delay="180" aria-label="Platform preview">
+            <div class="panel-top">
+              <div>
+                <div class="panel-label">Live Trip Board</div>
+                <strong style="display:block; margin-top:8px; font-size:1.15rem;">Melbourne to Tokyo</strong>
+              </div>
+              <div class="status-chip">Price holding</div>
+            </div>
+
+            <div class="route-card">
+              <div class="route-block">
+                <span class="panel-label">Depart</span>
+                <strong>10:20 PM</strong>
+                <span>SYD · Tue 14 May</span>
+              </div>
+              <div class="route-block">
+                <span class="panel-label">Arrive</span>
+                <strong>6:15 AM</strong>
+                <span>HND · Wed 15 May</span>
+              </div>
+            </div>
+
+            <div class="dashboard-grid">
+              <div class="dashboard-card">
+                <div class="panel-label">Fare trend</div>
+                <div class="mini-bars" aria-hidden="true">
+                  <span style="height: 46px;"></span>
+                  <span style="height: 68px;"></span>
+                  <span style="height: 54px;"></span>
+                  <span style="height: 84px;"></span>
+                  <span style="height: 76px;"></span>
+                  <span style="height: 98px;"></span>
+                </div>
+              </div>
+              <div class="dashboard-card">
+                <div class="panel-label">Trip state</div>
+                <div class="travel-dots">
+                  <span><em>Flight</em> Confirmed</span>
+                  <span><em>Hotel</em> Held for 24h</span>
+                  <span><em>Transfer</em> Ready</span>
+                </div>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="section feature-showcase" id="about">
+        <div class="section-inner">
+          <div class="reveal" data-reveal>
+            <p class="section-kicker">About Flyxa</p>
+            <h2 class="section-title">A better trip starts before you click book.</h2>
+            <p class="section-copy">
+              Good travel tools do not ask you to juggle tabs, prices, and email chains. Flyxa keeps the moving parts calm, even when the trip is not.
+            </p>
+          </div>
+
+          <div class="feature-list">
+            <article class="feature-card reveal" data-reveal data-side="left">
+              <div class="feature-icon" aria-hidden="true">
+                <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+                  <path d="M6 24c5-10 10-15 20-16-1 6-4 10-8 13l-1 5-4-2-4 2-3-2Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                  <circle cx="20.5" cy="11.5" r="2.5" stroke="currentColor" stroke-width="1.8"/>
+                </svg>
+              </div>
+              <div>
+                <h3>AI itineraries that adjust when the trip does</h3>
+                <p>
+                  Change the city, shift the layover, miss a train. Flyxa rewrites the plan around what is still possible instead of forcing you to start over.
+                </p>
+              </div>
+            </article>
+
+            <article class="feature-card reveal" data-reveal data-side="right" data-delay="80">
+              <div class="feature-icon" aria-hidden="true">
+                <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+                  <path d="M7 23 12 18l4 3 8-10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M7 9v14h18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                  <path d="M21 7h4v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                </svg>
+              </div>
+              <div>
+                <h3>Price prediction that tells you when to wait</h3>
+                <p>
+                  Flyxa watches fare movement and gives you a straight read. Book now, hold off, or move fast before the number climbs.
+                </p>
+              </div>
+            </article>
+
+            <article class="feature-card reveal" data-reveal data-side="left" data-delay="160">
+              <div class="feature-icon" aria-hidden="true">
+                <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+                  <rect x="5" y="7" width="22" height="18" rx="4" stroke="currentColor" stroke-width="1.8"/>
+                  <path d="M11 13h10M11 18h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                  <circle cx="23" cy="18" r="1.5" fill="currentColor"/>
+                </svg>
+              </div>
+              <div>
+                <h3>One dashboard for every booking and every change</h3>
+                <p>
+                  Flights, stays, timing updates, and check-in details live in one clean view. You know what changed and what still needs a decision.
+                </p>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section destinations" id="features">
+        <div class="section-inner">
+          <div class="destinations-head reveal" data-reveal>
+            <div>
+              <p class="section-kicker">Destinations</p>
+              <h2 class="section-title">Pick the mood first. The route can follow.</h2>
+            </div>
+
+            <div class="dest-controls">
+              <button class="dest-arrow hover-target" id="dest-prev" type="button" aria-label="Scroll destinations left">
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                  <path d="M11.5 3.5 6 9l5.5 5.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
+              <button class="dest-arrow hover-target" id="dest-next" type="button" aria-label="Scroll destinations right">
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                  <path d="M6.5 3.5 12 9l-5.5 5.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="dest-viewport reveal" data-reveal id="dest-viewport" tabindex="0" aria-label="Destination cards">
+            <div class="dest-track" id="dest-track">
+              <article class="destination-card" style="background: linear-gradient(160deg, #25174c 0%, #0f1d40 100%);">
+                <div class="destination-top">
+                  <div>
+                    <small class="section-kicker" style="margin-bottom:8px;">Tokyo</small>
+                    <h3>Tokyo</h3>
+                  </div>
+                  <div class="destination-price">From $689</div>
+                </div>
+                <div class="destination-meta">
+                  <div>
+                    <small>Best window</small>
+                    Mid Apr to Jun
+                  </div>
+                  <div>
+                    <small>Route note</small>
+                    Late flights trending lower
+                  </div>
+                </div>
+              </article>
+
+              <article class="destination-card" style="background: linear-gradient(160deg, #3e2413 0%, #182743 100%);">
+                <div class="destination-top">
+                  <div>
+                    <small class="section-kicker" style="margin-bottom:8px;">Dubai</small>
+                    <h3>Dubai</h3>
+                  </div>
+                  <div class="destination-price">From $742</div>
+                </div>
+                <div class="destination-meta">
+                  <div>
+                    <small>Best window</small>
+                    Nov to Mar
+                  </div>
+                  <div>
+                    <small>Route note</small>
+                    Short layovers move fastest
+                  </div>
+                </div>
+              </article>
+
+              <article class="destination-card" style="background: linear-gradient(160deg, #123052 0%, #69301d 100%);">
+                <div class="destination-top">
+                  <div>
+                    <small class="section-kicker" style="margin-bottom:8px;">Barcelona</small>
+                    <h3>Barcelona</h3>
+                  </div>
+                  <div class="destination-price">From $614</div>
+                </div>
+                <div class="destination-meta">
+                  <div>
+                    <small>Best window</small>
+                    May to Jun
+                  </div>
+                  <div>
+                    <small>Route note</small>
+                    Midweek departures win
+                  </div>
+                </div>
+              </article>
+
+              <article class="destination-card" style="background: linear-gradient(160deg, #13263a 0%, #5f7f9a 100%);">
+                <div class="destination-top">
+                  <div>
+                    <small class="section-kicker" style="margin-bottom:8px;">Reykjavik</small>
+                    <h3>Reykjavik</h3>
+                  </div>
+                  <div class="destination-price">From $531</div>
+                </div>
+                <div class="destination-meta">
+                  <div>
+                    <small>Best window</small>
+                    Feb to Mar
+                  </div>
+                  <div>
+                    <small>Route note</small>
+                    Price dips after midnight
+                  </div>
+                </div>
+              </article>
+
+              <article class="destination-card" style="background: linear-gradient(160deg, #162b55 0%, #284f72 100%);">
+                <div class="destination-top">
+                  <div>
+                    <small class="section-kicker" style="margin-bottom:8px;">Sydney</small>
+                    <h3>Sydney</h3>
+                  </div>
+                  <div class="destination-price">From $398</div>
+                </div>
+                <div class="destination-meta">
+                  <div>
+                    <small>Best window</small>
+                    Sep to Nov
+                  </div>
+                  <div>
+                    <small>Route note</small>
+                    Early departures hold steady
+                  </div>
+                </div>
+              </article>
+
+              <article class="destination-card" style="background: linear-gradient(160deg, #213f43 0%, #472c43 100%);">
+                <div class="destination-top">
+                  <div>
+                    <small class="section-kicker" style="margin-bottom:8px;">Cape Town</small>
+                    <h3>Cape Town</h3>
+                  </div>
+                  <div class="destination-price">From $657</div>
+                </div>
+                <div class="destination-meta">
+                  <div>
+                    <small>Best window</small>
+                    Jan to Apr
+                  </div>
+                  <div>
+                    <small>Route note</small>
+                    Flexible dates save more
+                  </div>
+                </div>
+              </article>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section stats-band reveal" data-reveal>
+        <div class="stats-band-inner" id="stats">
+          <div class="stats-grid">
+            <div class="stat-block">
+              <span class="stat-value" data-count="2.4" data-suffix="M+">0</span>
+              <div class="stat-label">trips booked</div>
+            </div>
+            <div class="stat-block">
+              <span class="stat-value" data-count="190" data-suffix="+">0</span>
+              <div class="stat-label">countries covered</div>
+            </div>
+            <div class="stat-block">
+              <span class="stat-value" data-count="4.9" data-suffix="">0</span>
+              <div class="stat-label">avg. rating</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section testimonials">
+        <div class="section-inner">
+          <div class="reveal" data-reveal>
+            <p class="section-kicker">Testimonials</p>
+            <h2 class="section-title">People keep using Flyxa for the same reason.</h2>
+            <p class="section-copy">
+              It removes the little failures that turn into stressful travel days.
+            </p>
+          </div>
+
+          <div class="testimonial-stack">
+            <article class="testimonial-card reveal" data-reveal>
+              <div class="quote-mark">“</div>
+              <p>
+                I booked a Tokyo trip in twenty minutes and did not spend the next week checking if I picked the wrong fare. That alone sold me.
+              </p>
+              <div class="testimonial-meta">
+                <strong>Maya Chen</strong>
+                Product designer, flies between Singapore and Sydney
+              </div>
+            </article>
+
+            <article class="testimonial-card reveal" data-reveal data-delay="90">
+              <div class="quote-mark">“</div>
+              <p>
+                When my connection changed, Flyxa updated the plan before I even opened my inbox. I knew what to do right away.
+              </p>
+              <div class="testimonial-meta">
+                <strong>Daniel Brooks</strong>
+                Sales lead, on the road most weeks
+              </div>
+            </article>
+
+            <article class="testimonial-card reveal" data-reveal data-delay="160">
+              <div class="quote-mark">“</div>
+              <p>
+                Most travel apps are fine until something shifts. Flyxa is the first one that still feels calm after the booking is made.
+              </p>
+              <div class="testimonial-meta">
+                <strong>Elena Varga</strong>
+                Founder, splits time across three cities
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section pricing" id="pricing">
+        <div class="section-inner">
+          <div class="reveal" data-reveal>
+            <p class="section-kicker">Pricing</p>
+            <h2 class="section-title">Start free. Upgrade when travel gets heavier.</h2>
+            <p class="section-copy">
+              The free plan covers the basics. Pro adds sharper timing and better trip control. Business keeps teams aligned without long threads.
+            </p>
+          </div>
+
+          <div class="pricing-grid">
+            <article class="pricing-card reveal" data-reveal>
+              <div class="pricing-tier">Free</div>
+              <div class="pricing-value">$0 <small>/ month</small></div>
+              <p class="pricing-copy">For personal trips and quick fare checks.</p>
+              <ul class="pricing-list">
+                <li>Smart flight search</li>
+                <li>Basic itinerary builder</li>
+                <li>One active trip dashboard</li>
+                <li>Price alerts on saved routes</li>
+              </ul>
+              <a class="ghost-button hover-target" href="#contact">Start Free</a>
+            </article>
+
+            <article class="pricing-card popular reveal" data-reveal data-delay="90">
+              <div class="popular-badge">Most Popular</div>
+              <div class="pricing-tier">Pro</div>
+              <div class="pricing-value">$12 <small>/ month</small></div>
+              <p class="pricing-copy">For people who travel often and want better timing.</p>
+              <ul class="pricing-list">
+                <li>AI-curated itineraries that update live</li>
+                <li>Price prediction before spikes hit</li>
+                <li>Unlimited active trips</li>
+                <li>Delay and booking change tracking</li>
+              </ul>
+              <a class="cta cta--gold hover-target" href="#contact">Choose Pro</a>
+            </article>
+
+            <article class="pricing-card reveal" data-reveal data-delay="160">
+              <div class="pricing-tier">Business</div>
+              <div class="pricing-value">$49 <small>/ month</small></div>
+              <p class="pricing-copy">For teams booking across roles, regions, and shifting schedules.</p>
+              <ul class="pricing-list">
+                <li>Shared travel dashboards</li>
+                <li>Policy-aware booking controls</li>
+                <li>Team-wide trip visibility</li>
+                <li>Priority support and account setup</li>
+              </ul>
+              <a class="ghost-button hover-target" href="#contact">Talk to Sales</a>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section final-cta">
+        <div class="final-cta-panel reveal" data-reveal>
+          <p class="section-kicker" style="margin-bottom:20px;">Ready when you are</p>
+          <h2>Book smarter. Travel lighter.</h2>
+          <p>
+            Let Flyxa handle the moving parts so you can focus on where you are going, not what might break on the way there.
+          </p>
+          <a class="cta hover-target" href="#contact">Start for Free</a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer section" id="contact">
+      <div class="section-inner">
+        <div class="footer-grid reveal" data-reveal>
+          <div class="footer-panel">
+            <h3>Brand</h3>
+            <p>AI travel planning that feels calm before, during, and after the booking.</p>
+            <div class="socials">
+              <a class="hover-target" href="#" aria-label="Flyxa on X">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M5 5 19 19M19 5 5 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                </svg>
+              </a>
+              <a class="hover-target" href="#" aria-label="Flyxa on Instagram">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <rect x="4" y="4" width="16" height="16" rx="4" stroke="currentColor" stroke-width="1.8"/>
+                  <circle cx="12" cy="12" r="3.6" stroke="currentColor" stroke-width="1.8"/>
+                  <circle cx="17.2" cy="6.8" r="1" fill="currentColor"/>
+                </svg>
+              </a>
+              <a class="hover-target" href="#" aria-label="Flyxa on LinkedIn">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M7 9v8M7 6.5v.1M12 17V9h4a3 3 0 0 1 0 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </a>
+            </div>
+          </div>
+
+          <div class="footer-panel">
+            <h4>Product</h4>
+            <div class="footer-links">
+              <a class="hover-target" href="#about">How it works</a>
+              <a class="hover-target" href="#features">Destinations</a>
+              <a class="hover-target" href="#pricing">Pricing</a>
+            </div>
+          </div>
+
+          <div class="footer-panel">
+            <h4>Company</h4>
+            <div class="footer-links">
+              <a class="hover-target" href="#top">About Flyxa</a>
+              <a class="hover-target" href="#contact">Contact</a>
+              <a class="hover-target" href="#pricing">Business</a>
+            </div>
+          </div>
+
+          <div class="footer-panel">
+            <h4>Legal</h4>
+            <div class="footer-links">
+              <a class="hover-target" href="#">Privacy</a>
+              <a class="hover-target" href="#">Terms</a>
+              <a class="hover-target" href="#">Cookies</a>
+            </div>
+          </div>
+        </div>
+
+        <div class="footer-bottom reveal" data-reveal data-delay="80">
+          © 2026 Flyxa. All rights reserved.
+        </div>
+      </div>
+    </footer>
+  </div>
+  <script>
+    (() => {
+      const progressBar = document.querySelector('.progress-bar');
+      const siteNav = document.getElementById('site-nav');
+      const heroCopy = document.getElementById('hero-copy');
+      const menuToggle = document.getElementById('menu-toggle');
+      const mobileMenu = document.getElementById('mobile-menu');
+      const cursor = document.querySelector('.cursor');
+      const hoverTargets = () => document.querySelectorAll('.hover-target');
+      const revealItems = document.querySelectorAll('[data-reveal]');
+      const statValues = document.querySelectorAll('.stat-value');
+      const destViewport = document.getElementById('dest-viewport');
+      const destTrack = document.getElementById('dest-track');
+      const destPrev = document.getElementById('dest-prev');
+      const destNext = document.getElementById('dest-next');
+      const mediaMobile = window.matchMedia('(max-width: 768px)');
+
+      let cursorX = window.innerWidth / 2;
+      let cursorY = window.innerHeight / 2;
+      let currentX = cursorX;
+      let currentY = cursorY;
+
+      const updateScrollState = () => {
+        const scrollTop = window.scrollY;
+        const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+        const progress = maxScroll > 0 ? scrollTop / maxScroll : 0;
+        progressBar.style.transform = `scaleX(${progress})`;
+        siteNav.classList.toggle('is-condensed', scrollTop > 24);
+
+        const heroShift = Math.min(scrollTop * 0.18, 84);
+        const heroFade = Math.max(1 - scrollTop / 520, 0);
+        heroCopy.style.transform = `translate3d(0, ${-heroShift}px, 0)`;
+        heroCopy.style.opacity = heroFade.toFixed(3);
+      };
+
+      const onReveal = new IntersectionObserver(entries => {
+        entries.forEach(entry => {
+          if (!entry.isIntersecting) return;
+          const node = entry.target;
+          const delay = node.getAttribute('data-delay');
+          if (delay) {
+            node.style.setProperty('--delay', `${delay}ms`);
+          }
+          node.classList.add('visible');
+          onReveal.unobserve(node);
+        });
+      }, {
+        threshold: 0.16,
+        rootMargin: '0px 0px -8% 0px'
+      });
+
+      revealItems.forEach(item => onReveal.observe(item));
+
+      const animateCount = (element) => {
+        const target = Number(element.dataset.count || 0);
+        const suffix = element.dataset.suffix || '';
+        const decimals = Number.isInteger(target) ? 0 : 1;
+        const start = performance.now();
+        const duration = 1400;
+
+        const step = (now) => {
+          const progress = Math.min((now - start) / duration, 1);
+          const eased = 1 - Math.pow(1 - progress, 3);
+          const value = target * eased;
+          element.textContent = `${value.toFixed(decimals)}${suffix}`;
+          if (progress < 1) {
+            requestAnimationFrame(step);
+          }
+        };
+
+        requestAnimationFrame(step);
+      };
+
+      const statObserver = new IntersectionObserver(entries => {
+        entries.forEach(entry => {
+          if (!entry.isIntersecting) return;
+          animateCount(entry.target);
+          statObserver.unobserve(entry.target);
+        });
+      }, { threshold: 0.5 });
+
+      statValues.forEach(item => statObserver.observe(item));
+
+      const setCursorHoverState = (isHovering) => {
+        if (!cursor || mediaMobile.matches) return;
+        cursor.classList.toggle('is-hovering', isHovering);
+      };
+
+      hoverTargets().forEach(target => {
+        target.addEventListener('mouseenter', () => setCursorHoverState(true));
+        target.addEventListener('mouseleave', () => setCursorHoverState(false));
+        target.addEventListener('focus', () => setCursorHoverState(true));
+        target.addEventListener('blur', () => setCursorHoverState(false));
+      });
+
+      const animateCursor = () => {
+        currentX += (cursorX - currentX) * 0.18;
+        currentY += (cursorY - currentY) * 0.18;
+        if (cursor) {
+          cursor.style.transform = `translate3d(${currentX}px, ${currentY}px, 0) translate3d(-50%, -50%, 0)`;
+        }
+        requestAnimationFrame(animateCursor);
+      };
+
+      window.addEventListener('mousemove', (event) => {
+        cursorX = event.clientX;
+        cursorY = event.clientY;
+      }, { passive: true });
+
+      if (!mediaMobile.matches) {
+        requestAnimationFrame(animateCursor);
+      }
+
+      const closeMenu = () => {
+        mobileMenu.classList.remove('is-open');
+        menuToggle.setAttribute('aria-expanded', 'false');
+        document.body.classList.remove('menu-open');
+      };
+
+      const openMenu = () => {
+        mobileMenu.classList.add('is-open');
+        menuToggle.setAttribute('aria-expanded', 'true');
+        document.body.classList.add('menu-open');
+      };
+
+      menuToggle.addEventListener('click', () => {
+        const expanded = menuToggle.getAttribute('aria-expanded') === 'true';
+        if (expanded) closeMenu();
+        else openMenu();
+      });
+
+      mobileMenu.querySelectorAll('a').forEach(link => {
+        link.addEventListener('click', closeMenu);
+      });
+
+      window.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') closeMenu();
+      });
+
+      let isDown = false;
+      let startX = 0;
+      let currentTranslate = 0;
+      let previousTranslate = 0;
+      let velocity = 0;
+      let lastPointerX = 0;
+      let rafId = 0;
+      let maxTranslate = 0;
+
+      const clampTranslate = (value) => Math.max(Math.min(value, 0), maxTranslate);
+
+      const measureTrack = () => {
+        const trackWidth = destTrack.scrollWidth;
+        const viewportWidth = destViewport.clientWidth;
+        maxTranslate = Math.min(0, viewportWidth - trackWidth);
+        previousTranslate = clampTranslate(previousTranslate);
+        currentTranslate = previousTranslate;
+        destTrack.style.transform = `translate3d(${currentTranslate}px, 0, 0)`;
+      };
+
+      const setTrackPosition = (value) => {
+        currentTranslate = clampTranslate(value);
+        destTrack.style.transform = `translate3d(${currentTranslate}px, 0, 0)`;
+      };
+
+      const momentum = () => {
+        velocity *= 0.94;
+        if (Math.abs(velocity) < 0.18) {
+          cancelAnimationFrame(rafId);
+          previousTranslate = currentTranslate;
+          return;
+        }
+        setTrackPosition(currentTranslate + velocity);
+        rafId = requestAnimationFrame(momentum);
+      };
+
+      const pointerDown = (event) => {
+        isDown = true;
+        destViewport.classList.add('is-dragging');
+        cancelAnimationFrame(rafId);
+        startX = event.clientX;
+        lastPointerX = event.clientX;
+        velocity = 0;
+      };
+
+      const pointerMove = (event) => {
+        if (!isDown) return;
+        const delta = event.clientX - startX;
+        const step = event.clientX - lastPointerX;
+        velocity = step;
+        setTrackPosition(previousTranslate + delta);
+        lastPointerX = event.clientX;
+      };
+
+      const pointerUp = () => {
+        if (!isDown) return;
+        isDown = false;
+        destViewport.classList.remove('is-dragging');
+        previousTranslate = currentTranslate;
+        rafId = requestAnimationFrame(momentum);
+      };
+
+      destViewport.addEventListener('pointerdown', pointerDown);
+      window.addEventListener('pointermove', pointerMove);
+      window.addEventListener('pointerup', pointerUp);
+      window.addEventListener('pointercancel', pointerUp);
+
+      const shiftTrack = (amount) => {
+        cancelAnimationFrame(rafId);
+        previousTranslate = clampTranslate(previousTranslate + amount);
+        currentTranslate = previousTranslate;
+        destTrack.style.transform = `translate3d(${currentTranslate}px, 0, 0)`;
+      };
+
+      destPrev.addEventListener('click', () => shiftTrack(320));
+      destNext.addEventListener('click', () => shiftTrack(-320));
+
+      destViewport.addEventListener('keydown', (event) => {
+        if (event.key === 'ArrowLeft') shiftTrack(260);
+        if (event.key === 'ArrowRight') shiftTrack(-260);
+      });
+
+      window.addEventListener('resize', () => {
+        measureTrack();
+        if (mediaMobile.matches && cursor) {
+          cursor.style.display = 'none';
+        }
+      });
+
+      updateScrollState();
+      measureTrack();
+      window.addEventListener('scroll', updateScrollState, { passive: true });
+    })();
+  </script>
+</body>
+</html>
