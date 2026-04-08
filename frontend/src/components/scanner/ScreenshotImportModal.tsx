@@ -449,12 +449,18 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
     setCurrentTime(editTrade?.trade_time ?? prefillTrade?.trade_time ?? '');
     setImagePreview(editTrade?.screenshot_url ?? null);
     setContractInputValue(getInitialContractSize());
-    if (!editTrade && prefillTrade) {
+    setAiFields(new Set());
+    setWarnings([]);
+    setScanEvidence('');
+    setScanError('');
+
+    if (editTrade) {
+      setFormData(editTrade);
+      return;
+    }
+
+    if (prefillTrade) {
       setFormData(prefillTrade);
-      setAiFields(new Set());
-      setWarnings([]);
-      setScanEvidence('');
-      setScanError('');
     }
   }, [getInitialContractSize, isOpen, editTrade, prefillTrade]);
 
@@ -496,7 +502,9 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
       );
       const w: string[] = Array.isArray(extracted.warnings) ? extracted.warnings : [];
       const fields = new Set<string>();
+      const baseTrade = editTrade ?? prefillTrade ?? formData ?? null;
       const mapped: Partial<Trade> = {
+        ...baseTrade,
         trade_date: currentDate || undefined,
         trade_time: currentTime || undefined,
         contract_size: Math.max(1, Number(formData?.contract_size ?? prefillTrade?.contract_size ?? editTrade?.contract_size ?? 1)),
@@ -561,6 +569,10 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
 
   const topInputClass = 'input-field h-12 border border-amber-400/70 bg-slate-950/80 shadow-[0_0_0_1px_rgba(245,158,11,0.18),0_0_18px_rgba(245,158,11,0.14)]';
   const hasPreviewImage = Boolean(imagePreview);
+  const reviewSectionTitle = editTrade ? 'Review screenshot' : 'Import screenshot';
+  const reviewSectionCopy = editTrade
+    ? 'View the original scanned chart in fullscreen, or upload a replacement screenshot and rescan this trade.'
+    : 'Scan a TradingView chart, then review the extracted trade details before saving.';
   const handleContractSizeChange = (value: string) => {
     setContractInputValue(value);
 
@@ -649,14 +661,8 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Chart Scanner</p>
-                  <h3 className="mt-1 text-xl font-semibold text-slate-100">
-                    {editTrade ? 'Review screenshot' : 'Import screenshot'}
-                  </h3>
-                  <p className="mt-1 text-sm text-slate-400">
-                    {editTrade
-                      ? 'Open the chart in fullscreen, or upload a new screenshot to rescan this trade.'
-                      : 'Scan a TradingView chart, then review the extracted trade details before saving.'}
-                  </p>
+                  <h3 className="mt-1 text-xl font-semibold text-slate-100">{reviewSectionTitle}</h3>
+                  <p className="mt-1 text-sm text-slate-400">{reviewSectionCopy}</p>
                 </div>
                 <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-3 text-blue-300">
                   <Wand2 size={18} />
@@ -682,10 +688,12 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
                     <Expand size={12} />
                     Fullscreen
                   </button>
-                  <button onClick={reset} className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full border border-slate-600/80 bg-slate-950/90 px-2.5 py-1.5 text-xs font-medium text-slate-300 transition hover:border-slate-500 hover:text-white">
-                    <X size={12} />
-                    Clear
-                  </button>
+                  {!editTrade && (
+                    <button onClick={reset} className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full border border-slate-600/80 bg-slate-950/90 px-2.5 py-1.5 text-xs font-medium text-slate-300 transition hover:border-slate-500 hover:text-white">
+                      <X size={12} />
+                      Clear
+                    </button>
+                  )}
                   {scanning && (
                     <div className="absolute inset-0 flex items-center justify-center bg-slate-950/78 backdrop-blur-sm">
                       <div className="flex flex-col items-center gap-3 rounded-2xl border border-blue-500/20 bg-slate-900/80 px-6 py-5">

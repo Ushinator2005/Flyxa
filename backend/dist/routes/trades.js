@@ -31,6 +31,15 @@ function getSession(time) {
         return 'New York';
     return 'Other';
 }
+function isMissingScreenshotUrlColumnError(error) {
+    if (!error || typeof error !== 'object' || !('message' in error)) {
+        return false;
+    }
+    const message = typeof error.message === 'string' ? error.message : '';
+    return message.includes("'screenshot_url'") &&
+        message.includes("'trades'") &&
+        message.includes('schema cache');
+}
 // GET all trades for user
 router.get('/', auth_1.authMiddleware, async (req, res, next) => {
     try {
@@ -77,9 +86,7 @@ router.post('/', auth_1.authMiddleware, async (req, res, next) => {
             : (entry_price - normalizedExitPrice) * normalizedContractSize * normalizedPointValue;
         // Determine session
         const session = getSession(trade_time);
-        const { data, error } = await supabase_1.supabase
-            .from('trades')
-            .insert({
+        const insertPayload = {
             user_id: req.userId,
             symbol,
             screenshot_url: typeof screenshot_url === 'string' ? screenshot_url : '',
@@ -103,9 +110,21 @@ router.post('/', auth_1.authMiddleware, async (req, res, next) => {
             post_trade_notes: post_trade_notes || '',
             followed_plan: followed_plan !== undefined ? followed_plan : true,
             session,
-        })
+        };
+        let { data, error } = await supabase_1.supabase
+            .from('trades')
+            .insert(insertPayload)
             .select()
             .single();
+        // Allow trade saves to continue until the live database has the new screenshot column.
+        if (error && isMissingScreenshotUrlColumnError(error)) {
+            const { screenshot_url: _ignoredScreenshotUrl, ...fallbackInsertPayload } = insertPayload;
+            ({ data, error } = await supabase_1.supabase
+                .from('trades')
+                .insert(fallbackInsertPayload)
+                .select()
+                .single());
+        }
         if (error)
             throw error;
         res.status(201).json(data);
@@ -152,17 +171,27 @@ router.put('/:id', auth_1.authMiddleware, async (req, res, next) => {
         const normalizedExitPrice = getNormalizedExitPrice(merged.exit_reason, merged.sl_price, merged.tp_price);
         const normalizedContractSize = isFiniteNumber(merged.contract_size) ? merged.contract_size : 1;
         const normalizedPointValue = isFiniteNumber(merged.point_value) ? merged.point_value : 1;
-        updateData.exit_price = normalizedExitPrice;
-        updateData.pnl = merged.direction === 'Long'
+        const nextUpdateData = { ...updateData };
+        nextUpdateData.exit_price = normalizedExitPrice;
+        nextUpdateData.pnl = merged.direction === 'Long'
             ? (normalizedExitPrice - merged.entry_price) * normalizedContractSize * normalizedPointValue
             : (merged.entry_price - normalizedExitPrice) * normalizedContractSize * normalizedPointValue;
-        updateData.session = getSession(merged.trade_time);
-        const { data, error } = await supabase_1.supabase
+        nextUpdateData.session = getSession(merged.trade_time);
+        let { data, error } = await supabase_1.supabase
             .from('trades')
-            .update(updateData)
+            .update(nextUpdateData)
             .eq('id', id)
             .select()
             .single();
+        if (error && isMissingScreenshotUrlColumnError(error) && 'screenshot_url' in nextUpdateData) {
+            const { screenshot_url: _ignoredScreenshotUrl, ...fallbackUpdateData } = nextUpdateData;
+            ({ data, error } = await supabase_1.supabase
+                .from('trades')
+                .update(fallbackUpdateData)
+                .eq('id', id)
+                .select()
+                .single());
+        }
         if (error)
             throw error;
         res.json(data);

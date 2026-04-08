@@ -55,11 +55,9 @@ export default function TradeForm({
   );
 
   useEffect(() => {
-    if (initialData) {
-      setForm(f => ({ ...f, ...initialData }));
-      const contract = lookupContract(initialData.symbol || '');
-      setMatchedContract(contract);
-    }
+    setForm({ ...defaultForm, ...initialData });
+    const contract = lookupContract(initialData?.symbol || '');
+    setMatchedContract(contract);
     setSubmitError('');
   }, [initialData]);
 

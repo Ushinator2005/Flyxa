@@ -18,6 +18,12 @@ const MANUAL_READING_PROCESS = `Read the chart in this exact order:
 0. If the screenshot contains more than one chart or comparison pane, ONLY analyse the chart that contains the colored risk/reward box. Ignore every other chart, even if it shows correlated price action.
 
 1. Read the symbol and timeframe from the top-left label of the chart that contains the risk/reward box.
+   - The timeframe is the small interval value immediately beside the symbol/ticker in the top-left TradingView header.
+   - Example: "MNQM6 · 1 · CME" means timeframe_minutes = 1.
+   - Example: "NQ1! · 5" means timeframe_minutes = 5.
+   - Use the header number/text next to the ticker only.
+   - Do NOT infer timeframe from candle spacing, the x-axis, how long the trade lasts, or how many candles fit on screen.
+   - If the header uses hour notation like 1H or 4H, convert it to minutes.
 
 2. Identify the P&L box: the semi-transparent overlay of TWO colored zones on the chart.
    - TEAL (mint/cyan green) zone = profit target area
@@ -556,7 +562,7 @@ function describeImageLabel(label: string): string {
     case 'full_chart':
       return 'the full chart for overall candle sequence, x-axis timing, and confirmation';
     case 'header-focus':
-      return 'a zoomed crop of the top-left chart header for symbol and timeframe';
+      return 'a zoomed crop of the top-left chart header for symbol and timeframe; the timeframe is the interval immediately beside the ticker';
     case 'trade-box-focus':
       return 'a zoomed crop around the trade box for direction, entry edge, and price movement';
     case 'entry-window-focus':
@@ -839,9 +845,9 @@ function sanitizeHeaderIdentityRead(raw: Record<string, unknown>): HeaderIdentit
 async function extractHeaderIdentity(images: ChartImageInput[]): Promise<HeaderIdentityRead> {
   const systemPrompt = `You are reading ONLY the TradingView header of the single chart that contains the colored risk/reward box.
 
-Read only:
-- the exact futures ticker/root from the top-left chart label
-- the timeframe
+  Read only:
+  - the exact futures ticker/root from the top-left chart label
+  - the timeframe from the small interval immediately beside the ticker in that same header
 
 Critical symbol rules:
 - Return the tradeable root ticker, not generic words
@@ -851,13 +857,21 @@ Critical symbol rules:
 - If the header says E-mini Nasdaq-100, return NQ
 - NEVER return generic words like Futures, Micro, E-mini, CME, CBOT, or TradingView as the symbol
 
+Critical timeframe rules:
+- Read the timeframe ONLY from the interval shown immediately beside the ticker/root in the top-left header
+- Example: "MNQM6 · 1 · CME" => timeframe_minutes = 1
+- Example: "NQ1! · 5" => timeframe_minutes = 5
+- Example: "ES1! · 15" => timeframe_minutes = 15
+- Do NOT estimate timeframe from candle width, chart zoom, x-axis spacing, or trade duration
+- Return timeframe_minutes as a number in minutes only
+
 Return ONLY a raw JSON object with these exact keys:
 symbol, timeframe_minutes`;
 
   return sanitizeHeaderIdentityRead(await callClaudeJson(
     systemPrompt,
     images,
-    'Read only the instrument ticker/root and timeframe from the header of the chart containing the colored risk/reward box.',
+    'Read only the instrument ticker/root and the timeframe interval printed immediately beside it in the header of the chart containing the colored risk/reward box.',
     250
   ));
 }
@@ -1014,6 +1028,12 @@ Symbol rules:
 - If the header shows an expiry code like MNQM26 or NQU6, return MNQ or NQ
 - Never return generic words like Futures, Micro, E-mini, CME, CBOT, or TradingView as the symbol
 
+Timeframe rules:
+- Read timeframe_minutes from the top-left header only
+- The timeframe is the interval value printed immediately beside the symbol/ticker
+- Example: "MNQM6 · 1 · CME" means timeframe_minutes = 1
+- Do not infer timeframe from the x-axis, candle spacing, zoom level, or trade duration
+
 Never estimate price labels. Read the exact numbers shown on the right axis labels.
 If entry-label-focus, stop-label-focus, or target-label-focus are attached, use those as the primary source for the exact prices.
 If entry time is not clearly readable, return null for entry_time and low or null confidence.
@@ -1159,6 +1179,7 @@ ${FIRST_TOUCH_RULE}
 
 Use only the screenshot itself and read it in this exact order:
 1. Read the symbol and timeframe from the top-left label.
+   The timeframe is the interval shown immediately beside the ticker in the header.
 2. Read entry, stop loss, and take profit from the exact right-axis labels.
 3. Infer long or short from the box layout.
 4. Read the entry time from the x-axis using the left edge of the risk/reward box.
@@ -1196,6 +1217,7 @@ ${MANUAL_READING_PROCESS}
 ${FIRST_TOUCH_RULE}
 
 Use header-focus for symbol/timeframe, the three label-focus crops for exact levels, entry-window-focus for the exact entry anchor, and exit-path-focus for the first-touch path after entry.
+When deciding timeframe_minutes, trust the header-focus interval immediately beside the ticker over every other clue.
 If a comparison chart is visible anywhere, ignore it unless it is the chart with the colored risk/reward box.
 
 If the earlier passes disagree, use them only as hints. The screenshot itself is the source of truth.
