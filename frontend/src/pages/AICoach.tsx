@@ -615,7 +615,7 @@ export default function AICoach() {
   const [askInput, setAskInput] = useState('');
 
   return (
-    <div className="-m-8 h-[calc(100vh-3.5rem)] overflow-hidden bg-[#080B10] text-white">
+    <div className="animate-fade-in -m-8 h-[calc(100vh-3.5rem)] overflow-hidden bg-[#080B10] text-white">
       <div className="grid h-full grid-cols-1 grid-rows-[auto_auto_minmax(0,1fr)_auto] overflow-hidden md:grid-cols-[220px_minmax(0,1fr)_320px] md:grid-rows-[auto_minmax(0,1fr)]">
         <aside className="border-b border-[#1C2030] bg-[#0A0D13] md:col-[1] md:row-[1/span_2] md:h-full md:overflow-y-auto md:border-b-0 md:border-r">
           <div className="px-5 py-6">

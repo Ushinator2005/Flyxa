@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App.js';
 import { AuthProvider } from './contexts/AuthContext.js';
+import { AppSettingsProvider } from './contexts/AppSettingsContext.js';
 import { RiskProvider } from './contexts/RiskContext.js';
 import { ThemeProvider } from './contexts/ThemeContext.js';
 import './index.css';
@@ -12,9 +13,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <BrowserRouter>
       <ThemeProvider>
         <AuthProvider>
-          <RiskProvider>
-            <App />
-          </RiskProvider>
+          <AppSettingsProvider>
+            <RiskProvider>
+              <App />
+            </RiskProvider>
+          </AppSettingsProvider>
         </AuthProvider>
       </ThemeProvider>
     </BrowserRouter>

@@ -35,13 +35,13 @@ function getSession(time: string): string {
   return 'Other';
 }
 
-function isMissingScreenshotUrlColumnError(error: unknown): boolean {
+function isMissingColumnError(error: unknown, column: string): boolean {
   if (!error || typeof error !== 'object' || !('message' in error)) {
     return false;
   }
 
   const message = typeof error.message === 'string' ? error.message : '';
-  return message.includes("'screenshot_url'") &&
+  return message.includes(`'${column}'`) &&
     message.includes("'trades'") &&
     message.includes('schema cache');
 }
@@ -69,6 +69,8 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res: Response
     const {
       symbol,
       screenshot_url,
+      accountId,
+      account_id,
       direction,
       entry_price,
       sl_price,
@@ -124,6 +126,11 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res: Response
       user_id: req.userId!,
       symbol,
       screenshot_url: typeof screenshot_url === 'string' ? screenshot_url : '',
+      account_id: typeof accountId === 'string'
+        ? accountId
+        : typeof account_id === 'string'
+          ? account_id
+          : '',
       direction,
       entry_price,
       exit_price: normalizedExitPrice,
@@ -153,8 +160,12 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res: Response
       .single();
 
     // Allow trade saves to continue until the live database has the new screenshot column.
-    if (error && isMissingScreenshotUrlColumnError(error)) {
-      const { screenshot_url: _ignoredScreenshotUrl, ...fallbackInsertPayload } = insertPayload;
+    if (error && (isMissingColumnError(error, 'screenshot_url') || isMissingColumnError(error, 'account_id'))) {
+      const {
+        screenshot_url: _ignoredScreenshotUrl,
+        account_id: _ignoredAccountId,
+        ...fallbackInsertPayload
+      } = insertPayload;
       ({ data, error } = await supabase
         .from('trades')
         .insert(fallbackInsertPayload)
@@ -226,6 +237,10 @@ router.put('/:id', authMiddleware, async (req: AuthenticatedRequest, res: Respon
     const normalizedPointValue = isFiniteNumber(merged.point_value) ? merged.point_value : 1;
 
     const nextUpdateData = { ...updateData };
+    if (typeof nextUpdateData.accountId === 'string' && !('account_id' in nextUpdateData)) {
+      nextUpdateData.account_id = nextUpdateData.accountId;
+    }
+    delete nextUpdateData.accountId;
 
     nextUpdateData.exit_price = normalizedExitPrice;
     nextUpdateData.pnl = merged.direction === 'Long'
@@ -240,8 +255,19 @@ router.put('/:id', authMiddleware, async (req: AuthenticatedRequest, res: Respon
       .select()
       .single();
 
-    if (error && isMissingScreenshotUrlColumnError(error) && 'screenshot_url' in nextUpdateData) {
-      const { screenshot_url: _ignoredScreenshotUrl, ...fallbackUpdateData } = nextUpdateData;
+    if (
+      error &&
+      (
+        (isMissingColumnError(error, 'screenshot_url') && 'screenshot_url' in nextUpdateData) ||
+        (isMissingColumnError(error, 'account_id') && ('account_id' in nextUpdateData || 'accountId' in nextUpdateData))
+      )
+    ) {
+      const {
+        screenshot_url: _ignoredScreenshotUrl,
+        account_id: _ignoredAccountId,
+        accountId: _ignoredAccountIdAlias,
+        ...fallbackUpdateData
+      } = nextUpdateData;
       ({ data, error } = await supabase
         .from('trades')
         .update(fallbackUpdateData)

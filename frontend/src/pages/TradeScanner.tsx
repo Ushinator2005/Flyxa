@@ -7,7 +7,8 @@ import { useTrades } from '../hooks/useTrades.js';
 import { Trade } from '../types/index.js';
 import { formatCurrency } from '../utils/calculations.js';
 import { lookupContract } from '../constants/futuresContracts.js';
-import { format, parseISO } from 'date-fns';
+import { format, isValid, parseISO } from 'date-fns';
+import { useAppSettings } from '../contexts/AppSettingsContext.js';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -34,6 +35,20 @@ function calcRR(t: Trade): string {
   return `1:${(reward / risk).toFixed(2)}`;
 }
 
+function formatTradeDate(value: unknown): string {
+  if (typeof value !== 'string' || !value.trim()) return 'â€”';
+  const parsed = parseISO(value);
+  return isValid(parsed) ? format(parsed, 'MMM d, yyyy') : value;
+}
+
+function formatTradeDirection(value: unknown): string {
+  return value === 'Long' || value === 'Short' ? value.toUpperCase() : 'â€”';
+}
+
+function formatTradeSymbol(value: unknown): string {
+  return typeof value === 'string' && value.trim() ? value : 'â€”';
+}
+
 const MOOD_EMOJI: Record<string, string> = {
   Calm: '😌', Confident: '💪', Anxious: '😰',
   'Revenge Trading': '😤', FOMO: '😱', Overconfident: '😎',
@@ -47,7 +62,8 @@ const BACKTEST_PREFILL_KEY = 'tw_backtest_trade_prefill';
 // ─── component ──────────────────────────────────────────────────────────────
 
 export default function TradeScanner() {
-  const { trades, loading, createTrade, updateTrade, deleteTrade } = useTrades();
+  const { trades, loading, error, createTrade, updateTrade, deleteTrade } = useTrades();
+  const { filterTradesBySelectedAccount } = useAppSettings();
 
   const [showAdd, setShowAdd]       = useState(false);
   const [editTrade, setEditTrade]   = useState<Trade | null>(null);
@@ -78,11 +94,11 @@ export default function TradeScanner() {
   }, []);
 
   const filtered = useMemo(() => {
-    let list = [...trades];
+    let list = [...filterTradesBySelectedAccount(trades)];
 
     if (search) {
       const q = search.toLowerCase();
-      list = list.filter(t => t.symbol.toLowerCase().includes(q));
+      list = list.filter(t => (t.symbol ?? '').toLowerCase().includes(q));
     }
 
     if (filterResult === 'Win')   list = list.filter(t => t.pnl > 0);
@@ -96,7 +112,7 @@ export default function TradeScanner() {
     if (sort === 'pnl_low')  list.sort((a, b) => a.pnl - b.pnl);
 
     return list;
-  }, [trades, search, filterResult, sort]);
+  }, [filterResult, filterTradesBySelectedAccount, search, sort, trades]);
 
   const handleSave = async (data: Partial<Trade>) => {
     await createTrade(data);
@@ -127,7 +143,7 @@ export default function TradeScanner() {
   const sortLabel = SORT_OPTIONS.find(o => o.value === sort)?.label ?? 'Newest First';
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-fade-in">
 
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
@@ -201,6 +217,12 @@ export default function TradeScanner() {
         </div>
       </div>
 
+      {error && (
+        <div className="rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+          Failed to load trades: {error}
+        </div>
+      )}
+
       {/* Table */}
       <div className="glass-card overflow-hidden">
         <div className="overflow-x-auto">
@@ -217,6 +239,10 @@ export default function TradeScanner() {
             <tbody className="divide-y divide-slate-700/30">
               {loading ? (
                 <tr><td colSpan={11} className="text-center text-slate-500 text-base py-14">Loading trades...</td></tr>
+              ) : error ? (
+                <tr><td colSpan={11} className="text-center text-red-300 text-base py-14">
+                  Couldn&apos;t load your trades right now. Please refresh or sign in again.
+                </td></tr>
               ) : filtered.length === 0 ? (
                 <tr><td colSpan={11} className="text-center text-slate-500 text-base py-14">
                   {trades.length === 0 ? 'No trades yet — click Add Trade to get started.' : 'No trades match your filters.'}
@@ -232,10 +258,10 @@ export default function TradeScanner() {
                   <tr key={t.id} className="hover:bg-slate-700/20 transition-colors group">
                     {/* Date */}
                     <td className="px-5 py-4 text-slate-400 text-base whitespace-nowrap">
-                      {format(parseISO(t.trade_date), 'MMM d, yyyy')}
+                      {formatTradeDate(t.trade_date)}
                     </td>
                     {/* Symbol */}
-                    <td className="px-5 py-4 text-white font-bold text-base">{t.symbol}</td>
+                    <td className="px-5 py-4 text-white font-bold text-base">{formatTradeSymbol(t.symbol)}</td>
                     {/* Direction */}
                     <td className="px-5 py-4">
                       <span className={`text-sm font-bold px-3.5 py-1.5 rounded-full ${
@@ -243,7 +269,7 @@ export default function TradeScanner() {
                           ? 'bg-emerald-500 text-white'
                           : 'bg-red-500 text-white'
                       }`}>
-                        {t.direction.toUpperCase()}
+                        {formatTradeDirection(t.direction)}
                       </span>
                     </td>
                     {/* Entry */}
@@ -263,7 +289,7 @@ export default function TradeScanner() {
                     </td>
                     {/* P&L */}
                     <td className={`px-5 py-4 text-base font-bold tabular-nums ${t.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                      {formatCurrency(t.pnl)}
+                      {formatCurrency(Number.isFinite(t.pnl) ? t.pnl : 0)}
                     </td>
                     {/* R:R */}
                     <td className="px-5 py-4 text-slate-300 text-base">{rr}</td>

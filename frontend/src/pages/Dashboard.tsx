@@ -1,29 +1,33 @@
-import { useEffect, useState } from 'react';
+import { useMemo } from 'react';
 import { DollarSign, Target, BarChart2, TrendingUp, Hash } from 'lucide-react';
 import EquityCurve from '../components/dashboard/EquityCurve.js';
 import MonthlyHeatmap from '../components/dashboard/MonthlyHeatmap.js';
 import LoadingSpinner from '../components/common/LoadingSpinner.js';
-import { analyticsApi } from '../services/api.js';
 import { formatCurrency } from '../utils/calculations.js';
 import { useTrades } from '../hooks/useTrades.js';
-import { AnalyticsSummary, EquityCurvePoint } from '../types/index.js';
-import { format, parseISO } from 'date-fns';
+import { useAppSettings } from '../contexts/AppSettingsContext.js';
+import {
+  buildAnalyticsSummary,
+  buildEquityCurve,
+  buildRecentTrades,
+  formatTradeDateLabel,
+  getTradeRiskReward,
+} from '../utils/tradeAnalytics.js';
+
+function formatPrice(value: number) {
+  return value.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
 
 export default function Dashboard() {
-  const [summary, setSummary]       = useState<AnalyticsSummary | null>(null);
-  const [equityCurve, setEquityCurve] = useState<EquityCurvePoint[]>([]);
-  const [loading, setLoading]       = useState(true);
-  const { trades } = useTrades();
-
-  useEffect(() => {
-    Promise.all([analyticsApi.getSummary(), analyticsApi.getEquityCurve()])
-      .then(([sum, equity]) => {
-        setSummary(sum as AnalyticsSummary);
-        setEquityCurve(equity as EquityCurvePoint[]);
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, []);
+  const { trades, loading } = useTrades();
+  const { filterTradesBySelectedAccount, selectedAccountId, accounts } = useAppSettings();
+  const filteredTrades = useMemo(() => filterTradesBySelectedAccount(trades), [filterTradesBySelectedAccount, trades]);
+  const summary = useMemo(() => buildAnalyticsSummary(filteredTrades), [filteredTrades]);
+  const equityCurve = useMemo(() => buildEquityCurve(filteredTrades), [filteredTrades]);
+  const recentTrades = useMemo(() => buildRecentTrades(filteredTrades), [filteredTrades]);
 
   if (loading) {
     return (
@@ -33,52 +37,51 @@ export default function Dashboard() {
     );
   }
 
-  const s = summary;
+  const selectedAccountName = selectedAccountId === 'all'
+    ? 'All Accounts'
+    : accounts.find(account => account.id === selectedAccountId)?.name ?? 'Default Account';
 
   const stats = [
     {
       label: 'Total P&L',
-      value: s ? formatCurrency(s.netPnL) : '$0.00',
+      value: formatCurrency(summary.netPnL),
       icon: <DollarSign size={16} />,
-      color: s && s.netPnL >= 0 ? 'text-emerald-400' : 'text-red-400',
+      color: summary.netPnL >= 0 ? 'text-emerald-400' : 'text-red-400',
     },
     {
       label: 'Win Rate',
-      value: s ? `${s.winRate.toFixed(1)}%` : '0%',
+      value: `${summary.winRate.toFixed(1)}%`,
       icon: <Target size={16} />,
-      color: s && s.winRate >= 50 ? 'text-emerald-400' : 'text-red-400',
+      color: summary.winRate >= 50 ? 'text-emerald-400' : 'text-red-400',
     },
     {
       label: 'Profit Factor',
-      value: s ? (s.profitFactor >= 999 ? '∞' : s.profitFactor.toFixed(2)) : '0',
+      value: summary.profitFactor >= 999 ? '-' : summary.profitFactor.toFixed(2),
       icon: <BarChart2 size={16} />,
-      color: s && s.profitFactor >= 1 ? 'text-emerald-400' : 'text-red-400',
+      color: summary.profitFactor >= 1 ? 'text-emerald-400' : 'text-red-400',
     },
     {
       label: 'Avg R:R',
-      value: s ? s.avgRR.toFixed(2) : '0',
+      value: summary.avgRR.toFixed(2),
       icon: <TrendingUp size={16} />,
       color: 'text-white',
     },
     {
       label: 'Total Trades',
-      value: String(s?.totalTrades ?? 0),
+      value: String(summary.totalTrades),
       icon: <Hash size={16} />,
       color: 'text-white',
     },
   ];
 
   return (
-    <div className="space-y-6">
-
-      {/* Header */}
+    <div className="space-y-6 animate-fade-in">
       <div>
         <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-        <p className="text-slate-400 text-sm mt-1">Overview of your trading performance</p>
+        <p className="mt-1 text-sm text-slate-400">Overview of your trading performance for {selectedAccountName}</p>
       </div>
 
-      {/* Stat cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5">
         {stats.map(stat => (
           <div key={stat.label} className="glass-card p-5 flex flex-col gap-3">
             <div className="flex items-center justify-between">
@@ -90,24 +93,21 @@ export default function Dashboard() {
         ))}
       </div>
 
-      {/* Calendar heatmap */}
       <div className="glass-card p-6">
-        <MonthlyHeatmap />
+        <MonthlyHeatmap trades={filteredTrades} />
       </div>
 
-      {/* Equity curve */}
       <div className="glass-card p-6">
-        <h2 className="text-sm font-semibold text-slate-300 mb-4">Equity Curve</h2>
+        <h2 className="mb-4 text-sm font-semibold text-slate-300">Equity Curve</h2>
         <EquityCurve data={equityCurve} />
       </div>
 
-      {/* Recent trades */}
       <div className="glass-card overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-700/50">
           <h2 className="text-sm font-semibold text-slate-300">Recent Trades</h2>
         </div>
-        {trades.length === 0 ? (
-          <p className="text-slate-500 text-sm text-center py-10">No trades yet.</p>
+        {recentTrades.length === 0 ? (
+          <p className="py-10 text-center text-sm text-slate-500">No trades yet.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -124,37 +124,42 @@ export default function Dashboard() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-700/30">
-                {trades.slice(0, 10).map(t => {
-                  const rr = t.sl_price && t.tp_price && t.entry_price
-                    ? (Math.abs(t.tp_price - t.entry_price) / Math.abs(t.sl_price - t.entry_price)).toFixed(2)
-                    : null;
+                {recentTrades.map(trade => {
+                  const rr = getTradeRiskReward(trade);
+                  const direction = trade.direction === 'Long' || trade.direction === 'Short' ? trade.direction : null;
                   return (
-                    <tr key={t.id} className="hover:bg-slate-700/20 transition-colors">
+                    <tr key={trade.id} className="hover:bg-slate-700/20 transition-colors">
                       <td className="px-6 py-3 text-slate-400 text-xs whitespace-nowrap">
-                        {format(parseISO(t.trade_date), 'MMM d, yyyy')}
+                        {formatTradeDateLabel(trade.trade_date)}
                       </td>
-                      <td className="px-4 py-3 text-slate-100 font-semibold">{t.symbol}</td>
+                      <td className="px-4 py-3 text-slate-100 font-semibold">{trade.symbol || 'N/A'}</td>
                       <td className="px-4 py-3">
-                        <span className={`text-xs font-semibold px-2 py-0.5 rounded ${
-                          t.direction === 'Long'
-                            ? 'bg-emerald-500/15 text-emerald-400'
-                            : 'bg-red-500/15 text-red-400'
-                        }`}>
-                          {t.direction.toUpperCase()}
-                        </span>
+                        {direction ? (
+                          <span
+                            className={`text-xs font-semibold px-2 py-0.5 rounded ${
+                              direction === 'Long'
+                                ? 'bg-emerald-500/15 text-emerald-400'
+                                : 'bg-red-500/15 text-red-400'
+                            }`}
+                          >
+                            {direction.toUpperCase()}
+                          </span>
+                        ) : (
+                          <span className="text-slate-500">N/A</span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-right text-slate-300 tabular-nums">
-                        ${t.entry_price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        ${formatPrice(trade.entry_price)}
                       </td>
                       <td className="px-4 py-3 text-right text-slate-300 tabular-nums">
-                        ${t.exit_price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        ${formatPrice(trade.exit_price)}
                       </td>
-                      <td className="px-4 py-3 text-right text-slate-300">{t.contract_size}</td>
-                      <td className={`px-4 py-3 text-right font-bold tabular-nums ${t.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {formatCurrency(t.pnl)}
+                      <td className="px-4 py-3 text-right text-slate-300">{trade.contract_size}</td>
+                      <td className={`px-4 py-3 text-right font-bold tabular-nums ${trade.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {formatCurrency(trade.pnl)}
                       </td>
                       <td className="px-6 py-3 text-right text-slate-400 tabular-nums">
-                        {rr ? `${rr}R` : '—'}
+                        {rr !== null ? `${rr.toFixed(2)}R` : 'N/A'}
                       </td>
                     </tr>
                   );

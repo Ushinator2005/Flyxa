@@ -394,7 +394,7 @@ export default function PsychologyTracker() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-fade-in">
       {/* Header */}
       <div>
         <h1 className="text-xl font-bold text-slate-100 flex items-center gap-2">
