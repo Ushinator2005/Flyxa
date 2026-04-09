@@ -2,14 +2,10 @@ import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
-  CalendarDays,
-  CheckCircle2,
-  Heart,
   Leaf,
   Moon,
   PenLine,
   Plus,
-  Save,
   Search,
   ShieldCheck,
   Target,
@@ -22,9 +18,11 @@ import { JournalEntry } from '../types/index.js';
 import Modal from '../components/common/Modal.js';
 import LoadingSpinner from '../components/common/LoadingSpinner.js';
 
+// ─── constants ────────────────────────────────────────────────────────────────
+
 const JOURNAL_MOOD_STORAGE_KEY = 'tw-journal-moods';
+const JOURNAL_TITLE_STORAGE_KEY = 'tw-journal-titles';
 const JOURNAL_MOODS = ['Calm', 'Focused', 'Confident', 'Tired', 'Frustrated'] as const;
-const ICON_STROKE_WIDTH = 1.75;
 const MOOD_ICONS: Record<(typeof JOURNAL_MOODS)[number], LucideIcon> = {
   Calm: Leaf,
   Focused: Target,
@@ -33,28 +31,36 @@ const MOOD_ICONS: Record<(typeof JOURNAL_MOODS)[number], LucideIcon> = {
   Frustrated: AlertTriangle,
 };
 
+const MOOD_STYLES: Record<string, { bg: string; color: string; border: string }> = {
+  Focused:    { bg: '#1a3166', color: '#60a5fa', border: '#1e3d80' },
+  Calm:       { bg: '#0d3325', color: '#34d399', border: '#0f4030' },
+  Frustrated: { bg: '#3d1515', color: '#f87171', border: '#4d1a1a' },
+  Confident:  { bg: '#2d1f0a', color: '#fbbf24', border: '#3a280e' },
+  Tired:      { bg: '#1f1a2e', color: '#a78bfa', border: '#2a2240' },
+};
+
+// ─── helpers ──────────────────────────────────────────────────────────────────
+
 function wordCount(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
 function getPreview(text: string) {
-  return text.slice(0, 120).replace(/\n/g, ' ').trim();
+  return text.slice(0, 140).replace(/\n/g, ' ').trim();
 }
 
-function getEntryTitle(text: string) {
-  const firstLine = text
-    .split('\n')
-    .map(line => line.trim())
-    .find(Boolean);
+function formatEntryTitleFromDate(date: string) {
+  const parsed = parseISO(date);
+  return Number.isNaN(parsed.getTime()) ? 'Untitled entry' : format(parsed, 'EEEE, MMMM d');
+}
 
-  if (!firstLine) return 'Untitled entry';
-  if (firstLine.length <= 54) return firstLine;
-  return `${firstLine.slice(0, 54).trimEnd()}...`;
+function truncateTitle(title: string) {
+  if (title.length <= 54) return title;
+  return `${title.slice(0, 54).trimEnd()}...`;
 }
 
 function loadJournalMoods(): Record<string, string> {
   if (typeof window === 'undefined') return {};
-
   try {
     const raw = window.localStorage.getItem(JOURNAL_MOOD_STORAGE_KEY);
     if (!raw) return {};
@@ -62,9 +68,7 @@ function loadJournalMoods(): Record<string, string> {
     return Object.fromEntries(
       Object.entries(parsed).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
     );
-  } catch {
-    return {};
-  }
+  } catch { return {}; }
 }
 
 function saveJournalMoods(moods: Record<string, string>) {
@@ -72,112 +76,178 @@ function saveJournalMoods(moods: Record<string, string>) {
   window.localStorage.setItem(JOURNAL_MOOD_STORAGE_KEY, JSON.stringify(moods));
 }
 
+function loadJournalTitles(): Record<string, string> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(JOURNAL_TITLE_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.entries(parsed).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+    );
+  } catch { return {}; }
+}
+
+function saveJournalTitles(titles: Record<string, string>) {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(JOURNAL_TITLE_STORAGE_KEY, JSON.stringify(titles));
+}
+
+function getDisplayTitle(entry: JournalEntry, titleByEntryId: Record<string, string>) {
+  const stored = titleByEntryId[entry.id]?.trim();
+  return stored ? truncateTitle(stored) : formatEntryTitleFromDate(entry.date);
+}
+
+function getEntryContent(entry: JournalEntry) {
+  return typeof entry.content === 'string' ? entry.content : '';
+}
+
+function formatEntryDate(date: string, pattern: string) {
+  const parsed = parseISO(date);
+  return Number.isNaN(parsed.getTime()) ? (date || 'Unknown date') : format(parsed, pattern);
+}
+
+// ─── EntryItem ────────────────────────────────────────────────────────────────
+
 function EntryItem({
   entry,
   mood,
+  titleByEntryId,
   selected,
   onClick,
 }: {
   entry: JournalEntry;
   mood?: string;
+  titleByEntryId: Record<string, string>;
   selected: boolean;
   onClick: () => void;
 }) {
-  const preview = getPreview(entry.content);
-  const title = getEntryTitle(entry.content);
-  const wc = wordCount(entry.content);
+  const content = getEntryContent(entry);
+  const preview = getPreview(content);
+  const title = getDisplayTitle(entry, titleByEntryId);
+  const wc = wordCount(content);
   const hasContent = wc > 0;
-  const entryDate = parseISO(entry.date);
-  const MoodIcon = mood ? MOOD_ICONS[mood as keyof typeof MOOD_ICONS] : null;
+  const moodStyle = mood ? (MOOD_STYLES[mood] ?? null) : null;
 
   return (
     <button
+      type="button"
       onClick={onClick}
-      className={`w-full cursor-pointer rounded-2xl border p-4 text-left transition-all duration-200 ${
-        selected
-          ? 'border-slate-600 bg-slate-800/95 text-white'
-          : 'border-slate-800/80 bg-slate-950/80 text-slate-300 hover:border-slate-700 hover:bg-slate-900/80 hover:text-slate-100'
-      }`}
+      style={{
+        display: 'flex',
+        alignItems: 'stretch',
+        width: '100%',
+        borderRadius: '11px',
+        border: `1px solid ${selected ? '#2563eb' : '#1a2336'}`,
+        background: selected ? '#0f1e38' : '#111620',
+        marginBottom: '8px',
+        cursor: 'pointer',
+        textAlign: 'left',
+        overflow: 'hidden',
+        transition: 'border-color 0.15s, background 0.15s',
+      }}
     >
-      <div className="flex items-start gap-4">
-        <div
-          className={`flex h-16 w-16 shrink-0 flex-col items-center justify-center rounded-[18px] border ${
-            selected ? 'border-slate-500 bg-slate-900' : 'border-slate-800 bg-slate-950'
-          }`}
+      {/* Date badge */}
+      <div
+        style={{
+          width: '52px',
+          flexShrink: 0,
+          borderRight: `1px solid ${selected ? '#1a3166' : '#1a2336'}`,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '12px 0',
+          gap: '2px',
+        }}
+      >
+        <span
+          style={{
+            fontSize: '9px',
+            fontWeight: 700,
+            color: '#3b82f6',
+            textTransform: 'uppercase',
+            letterSpacing: '0.06em',
+          }}
         >
-          <span className={`text-[10px] font-semibold uppercase tracking-[0.22em] ${selected ? 'text-slate-300' : 'text-slate-500'}`}>
-            {format(entryDate, 'MMM')}
-          </span>
-          <span className={`mt-2 text-2xl font-semibold tracking-tight ${selected ? 'text-white' : 'text-slate-100'}`}>
-            {format(entryDate, 'd')}
-          </span>
-        </div>
+          {formatEntryDate(entry.date, 'MMM')}
+        </span>
+        <span
+          style={{
+            fontSize: '22px',
+            fontWeight: 700,
+            color: '#d0dae6',
+            lineHeight: 1,
+          }}
+        >
+          {formatEntryDate(entry.date, 'd')}
+        </span>
+      </div>
 
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0">
-              <p className={`truncate text-sm font-semibold leading-tight ${selected ? 'text-white' : 'text-slate-100'}`}>
-                {hasContent ? title : format(entryDate, 'EEEE')}
-              </p>
-              <p className={`mt-2 text-[11px] uppercase tracking-[0.18em] ${selected ? 'text-slate-400' : 'text-slate-500'}`}>
-                {format(entryDate, 'EEEE, MMMM d')}
-              </p>
-            </div>
+      {/* Body */}
+      <div style={{ flex: 1, padding: '14px 16px', minWidth: 0 }}>
+        <p
+          style={{
+            fontSize: '14px',
+            fontWeight: 600,
+            color: selected ? '#e2e8f0' : '#c9d3e0',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            marginBottom: '5px',
+          }}
+        >
+          {title}
+        </p>
+        <p
+          style={{
+            fontSize: '12px',
+            color: '#4a5a6e',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          {hasContent ? preview : "A clean page waiting for today's note."}
+        </p>
+      </div>
 
-            <span
-              className={`shrink-0 rounded-full px-2 py-2 text-[10px] font-medium ${
-                hasContent
-                  ? selected
-                    ? 'bg-slate-700 text-slate-200'
-                    : 'bg-slate-800 text-slate-400'
-                  : selected
-                    ? 'bg-slate-700 text-slate-300'
-                    : 'bg-slate-900 text-slate-500'
-              }`}
-            >
-              {hasContent ? `${wc} words` : 'Blank'}
-            </span>
-          </div>
-
-          <p
-            className={`mt-4 max-h-[3.8rem] overflow-hidden text-[13px] leading-6 ${
-              selected ? 'text-slate-300' : hasContent ? 'text-slate-400' : 'text-slate-600'
-            }`}
+      {/* Meta */}
+      <div
+        style={{
+          padding: '14px 16px',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'flex-end',
+          justifyContent: 'center',
+          gap: '8px',
+          flexShrink: 0,
+        }}
+      >
+        {hasContent && (
+          <span style={{ fontSize: '10px', color: '#2d3d52' }}>{wc}w</span>
+        )}
+        {mood && moodStyle && (
+          <span
+            style={{
+              borderRadius: '20px',
+              fontSize: '10px',
+              fontWeight: 600,
+              padding: '3px 8px',
+              background: moodStyle.bg,
+              color: moodStyle.color,
+              whiteSpace: 'nowrap',
+            }}
           >
-            {hasContent ? preview : "A clean page waiting for today's note."}
-          </p>
-
-          {mood && (
-            <div className="mt-4">
-              <span
-                className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-[10px] font-medium ${
-                  selected
-                    ? 'bg-slate-700 text-slate-200'
-                    : 'border border-slate-800 bg-slate-950/70 text-slate-400'
-                }`}
-              >
-                {MoodIcon ? (
-                  <MoodIcon
-                    size={10}
-                    strokeWidth={ICON_STROKE_WIDTH}
-                    className={selected ? 'text-slate-300' : 'text-slate-500'}
-                  />
-                ) : (
-                  <Heart
-                    size={10}
-                    strokeWidth={ICON_STROKE_WIDTH}
-                    className={selected ? 'text-slate-300' : 'text-slate-500'}
-                  />
-                )}
-                {mood}
-              </span>
-            </div>
-          )}
-        </div>
+            {mood}
+          </span>
+        )}
       </div>
     </button>
   );
 }
+
+// ─── Journal page ─────────────────────────────────────────────────────────────
 
 export default function Journal() {
   const [searchParams] = useSearchParams();
@@ -189,7 +259,10 @@ export default function Journal() {
   const [saved, setSaved] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<JournalEntry | null>(null);
   const [moodByEntryId, setMoodByEntryId] = useState<Record<string, string>>(() => loadJournalMoods());
+  const [titleByEntryId, setTitleByEntryId] = useState<Record<string, string>>(() => loadJournalTitles());
+  const [titleDraft, setTitleDraft] = useState('');
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const titleSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const fetchEntries = useCallback(async () => {
@@ -203,13 +276,12 @@ export default function Journal() {
     }
   }, []);
 
-  useEffect(() => {
-    void fetchEntries();
-  }, [fetchEntries]);
+  useEffect(() => { void fetchEntries(); }, [fetchEntries]);
 
   useEffect(() => {
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
+      if (titleSaveTimer.current) clearTimeout(titleSaveTimer.current);
     };
   }, []);
 
@@ -239,17 +311,29 @@ export default function Journal() {
     if (selected && textareaRef.current) textareaRef.current.focus();
   }, [selected?.id]);
 
+  useEffect(() => {
+    if (!selected) { setTitleDraft(''); return; }
+    setTitleDraft(titleByEntryId[selected.id] ?? '');
+  }, [selected, titleByEntryId]);
+
+  function persistEntryTitle(entryId: string, nextTitle: string) {
+    const normalized = nextTitle.trim();
+    setTitleByEntryId(current => {
+      const next = { ...current };
+      if (normalized) { next[entryId] = normalized; } else { delete next[entryId]; }
+      saveJournalTitles(next);
+      return next;
+    });
+  }
+
   function applyEntryUpdateLocally(entryId: string, updates: Partial<JournalEntry>) {
-    setEntries(current =>
-      current.map(entry => (entry.id === entryId ? { ...entry, ...updates } : entry))
-    );
+    setEntries(current => current.map(e => (e.id === entryId ? { ...e, ...updates } : e)));
     setSelected(current => (current?.id === entryId ? { ...current, ...updates } : current));
   }
 
   async function autoSave(content: string) {
     if (!selected) return;
     setSaving(true);
-
     try {
       const updated = await journalApi.update(selected.id, { content } as Record<string, unknown>);
       applyEntryUpdateLocally(selected.id, updated as JournalEntry);
@@ -264,30 +348,36 @@ export default function Journal() {
 
   function handleContentChange(content: string) {
     if (!selected) return;
-
     applyEntryUpdateLocally(selected.id, { content });
     setSaved(false);
-
     if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
-      void autoSave(content);
-    }, 1500);
+    saveTimer.current = setTimeout(() => { void autoSave(content); }, 1500);
+  }
+
+  function handleTitleChange(nextTitle: string) {
+    if (!selected) return;
+    setTitleDraft(nextTitle);
+    if (titleSaveTimer.current) clearTimeout(titleSaveTimer.current);
+    titleSaveTimer.current = setTimeout(() => { persistEntryTitle(selected.id, nextTitle); }, 300);
+  }
+
+  function handleTitleBlur() {
+    if (!selected) return;
+    if (titleSaveTimer.current) clearTimeout(titleSaveTimer.current);
+    persistEntryTitle(selected.id, titleDraft);
   }
 
   async function handleDateChange(nextDate: string) {
     if (!selected || !nextDate || nextDate === selected.date) return;
-
-    const duplicateEntry = entries.find(entry => entry.id !== selected.id && entry.date === nextDate);
-    if (duplicateEntry) {
-      window.alert(`There is already a journal entry for ${format(parseISO(nextDate), 'MMMM d, yyyy')}.`);
+    const duplicate = entries.find(e => e.id !== selected.id && e.date === nextDate);
+    if (duplicate) {
+      window.alert(`There is already a journal entry for ${formatEntryDate(nextDate, 'MMMM d, yyyy')}.`);
       return;
     }
-
     const previousDate = selected.date;
     applyEntryUpdateLocally(selected.id, { date: nextDate });
     setSaving(true);
     setSaved(false);
-
     try {
       const updated = await journalApi.update(selected.id, { date: nextDate } as Record<string, unknown>);
       applyEntryUpdateLocally(selected.id, updated as JournalEntry);
@@ -303,13 +393,8 @@ export default function Journal() {
 
   async function createEntry() {
     const today = format(new Date(), 'yyyy-MM-dd');
-    const existing = entries.find(entry => entry.date === today);
-
-    if (existing) {
-      setSelected(existing);
-      return;
-    }
-
+    const existing = entries.find(e => e.date === today);
+    if (existing) { setSelected(existing); return; }
     try {
       const created = await journalApi.create({ date: today, content: '', screenshots: [] } as Record<string, unknown>);
       await fetchEntries();
@@ -323,42 +408,46 @@ export default function Journal() {
     try {
       await journalApi.delete(entry.id);
       if (selected?.id === entry.id) setSelected(null);
+      setTitleByEntryId(current => {
+        const next = { ...current };
+        delete next[entry.id];
+        saveJournalTitles(next);
+        return next;
+      });
       await fetchEntries();
     } catch (error) {
       console.error(error);
     }
-
     setDeleteTarget(null);
   }
 
   const filtered = useMemo(
-    () =>
-      entries.filter(
-        entry =>
-          search === '' ||
-          entry.content.toLowerCase().includes(search.toLowerCase()) ||
-          entry.date.includes(search)
-      ),
+    () => entries.filter(
+      entry =>
+        search === '' ||
+        getEntryContent(entry).toLowerCase().includes(search.toLowerCase()) ||
+        (entry.date ?? '').includes(search)
+    ),
     [entries, search]
   );
 
   const grouped = useMemo(() => {
-    const sortedEntries = [...filtered].sort((a, b) => b.date.localeCompare(a.date));
+    const sorted = [...filtered].sort((a, b) => b.date.localeCompare(a.date));
     const bucket = new Map<string, JournalEntry[]>();
-
-    sortedEntries.forEach(entry => {
-      const month = format(parseISO(entry.date), 'MMMM yyyy');
+    sorted.forEach(entry => {
+      const month = formatEntryDate(entry.date, 'MMMM yyyy');
       const current = bucket.get(month) ?? [];
       current.push(entry);
       bucket.set(month, current);
     });
-
     return Array.from(bucket.entries());
   }, [filtered]);
 
-  const totalWords = useMemo(() => entries.reduce((sum, entry) => sum + wordCount(entry.content), 0), [entries]);
-  const selectedWordCount = selected ? wordCount(selected.content) : 0;
-  const todayLabel = format(new Date(), 'EEEE, MMMM d, yyyy');
+  const totalWords = useMemo(
+    () => entries.reduce((sum, entry) => sum + wordCount(getEntryContent(entry)), 0),
+    [entries]
+  );
+  const selectedWordCount = selected ? wordCount(getEntryContent(selected)) : 0;
 
   if (loading) {
     return (
@@ -369,231 +458,387 @@ export default function Journal() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-4 border-b border-slate-800/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-[-0.03em] text-white sm:text-3xl">Daily Journal</h1>
-          <p className="mt-2 text-sm text-slate-500">{todayLabel}</p>
-        </div>
+    <div className="animate-fade-in -m-8" style={{ fontFamily: "'DM Sans', sans-serif" }}>
 
-        <button
-          onClick={createEntry}
-          className="inline-flex h-12 shrink-0 cursor-pointer items-center justify-center gap-2 self-start rounded-2xl bg-blue-600 px-6 text-sm font-medium text-white transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 sm:self-auto"
-        >
-          <Plus size={16} strokeWidth={ICON_STROKE_WIDTH} />
-          New Entry
-        </button>
-      </div>
+      {/* ── Timeline section ─────────────────────────────────────────────── */}
+      <section style={{ padding: '20px 32px 16px' }}>
 
-      <div className="flex flex-col gap-6">
-        <div className="flex flex-col overflow-hidden rounded-[28px] border border-slate-800/80 bg-[linear-gradient(180deg,rgba(10,13,20,0.97),rgba(6,9,15,0.98))]">
-          <div className="border-b border-slate-800/80 px-6 py-6">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">Archive</p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-white">Journal timeline</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-400">
-              Browse by date, pick up where you left off, or start a fresh page for today.
+        {/* Header row */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '14px' }}>
+          <div>
+            <h1 style={{ fontSize: '18px', fontWeight: 600, color: '#c9d3e0', margin: 0, lineHeight: 1.2 }}>
+              Daily Journal
+            </h1>
+            <p style={{ fontSize: '12px', color: '#3d4e62', marginTop: '5px' }}>
+              Your private trading log — pick up where you left off.
             </p>
           </div>
+          <button
+            type="button"
+            onClick={createEntry}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              background: '#2563eb',
+              border: 'none',
+              borderRadius: '8px',
+              padding: '7px 14px',
+              color: '#fff',
+              fontSize: '12px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              flexShrink: 0,
+              transition: 'background 0.15s',
+            }}
+            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = '#1d4ed8'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = '#2563eb'; }}
+          >
+            <Plus size={13} />
+            New entry
+          </button>
+        </div>
 
-          <div className="border-b border-slate-800/80 px-4 py-4">
-            <div className="relative">
-              <Search
-                size={14}
-                strokeWidth={ICON_STROKE_WIDTH}
-                className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-600"
-              />
+        {/* Search bar */}
+        <div style={{ position: 'relative', marginBottom: '14px' }}>
+          <Search
+            size={14}
+            style={{
+              position: 'absolute',
+              left: '12px',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              color: '#2d3d52',
+              pointerEvents: 'none',
+            }}
+          />
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search entries..."
+            style={{
+              width: '100%',
+              background: '#111620',
+              border: '1px solid #1a2336',
+              borderRadius: '9px',
+              padding: '9px 12px 9px 36px',
+              fontSize: '13px',
+              color: '#8892a0',
+              outline: 'none',
+              boxSizing: 'border-box',
+              transition: 'border-color 0.15s',
+            }}
+            onFocus={e => { e.target.style.borderColor = '#2d3d52'; }}
+            onBlur={e => { e.target.style.borderColor = '#1a2336'; }}
+          />
+        </div>
+
+        {/* Entry list */}
+        {grouped.length === 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '40px 0', gap: '10px' }}>
+            <PenLine size={22} style={{ color: '#2d3d52' }} />
+            <p style={{ fontSize: '13px', color: '#4a5a6e', margin: 0 }}>
+              {search ? 'No matching entries' : 'No entries yet'}
+            </p>
+            <p style={{ fontSize: '12px', color: '#2d3d52', margin: 0 }}>
+              {search ? 'Try a different keyword.' : 'Hit "New entry" to begin your first session note.'}
+            </p>
+          </div>
+        ) : (
+          grouped.map(([month, monthEntries]) => (
+            <div key={month} style={{ marginBottom: '20px' }}>
+              {/* Month separator */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
+                <span
+                  style={{
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    color: '#3b82f6',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.1em',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {month}
+                </span>
+                <div style={{ flex: 1, height: '1px', background: '#1a2236' }} />
+                <span style={{ fontSize: '10px', color: '#2d3d52', whiteSpace: 'nowrap' }}>
+                  {monthEntries.length} {monthEntries.length === 1 ? 'entry' : 'entries'}
+                </span>
+              </div>
+
+              {monthEntries.map(entry => (
+                <EntryItem
+                  key={entry.id}
+                  entry={entry}
+                  mood={moodByEntryId[entry.id]}
+                  titleByEntryId={titleByEntryId}
+                  selected={selected?.id === entry.id}
+                  onClick={() => setSelected(entry)}
+                />
+              ))}
+            </div>
+          ))
+        )}
+      </section>
+
+      {/* ── Divider ──────────────────────────────────────────────────────── */}
+      {selected && <div style={{ height: '1px', background: '#1a2236' }} />}
+
+      {/* ── Detail panel ─────────────────────────────────────────────────── */}
+      {selected && (
+        <section style={{ padding: '28px 32px' }}>
+
+          {/* Section label */}
+          <p
+            style={{
+              fontSize: '10px',
+              fontWeight: 700,
+              color: '#3b82f6',
+              textTransform: 'uppercase',
+              letterSpacing: '0.1em',
+              marginBottom: '16px',
+            }}
+          >
+            Entry
+          </p>
+
+          {/* Header row */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              justifyContent: 'space-between',
+              gap: '24px',
+              marginBottom: '20px',
+              flexWrap: 'wrap',
+            }}
+          >
+            {/* Left: date + stats */}
+            <div>
+              <h2
+                style={{
+                  fontSize: '28px',
+                  fontWeight: 700,
+                  color: '#e2e8f0',
+                  letterSpacing: '-0.03em',
+                  margin: 0,
+                  lineHeight: 1.1,
+                }}
+              >
+                {formatEntryDate(selected.date, 'EEEE, MMMM d')}
+              </h2>
+              <p style={{ fontSize: '11px', color: '#2d3d52', marginTop: '7px' }}>
+                {formatEntryDate(selected.date, 'yyyy')}
+                <span style={{ margin: '0 5px' }}>·</span>
+                {selectedWordCount}w
+                <span style={{ margin: '0 5px' }}>·</span>
+                {totalWords} overall
+              </p>
+            </div>
+
+            {/* Right: actions */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              {/* Date picker */}
               <input
-                type="text"
-                className="h-12 w-full rounded-2xl border border-slate-800 bg-slate-900/80 pl-12 pr-4 text-sm text-slate-200 outline-none placeholder:text-slate-600 transition-colors focus:border-blue-500/40 focus:bg-slate-900"
-                placeholder="Search by date or note text..."
-                value={search}
-                onChange={event => setSearch(event.target.value)}
+                type="date"
+                value={selected.date}
+                onChange={e => void handleDateChange(e.target.value)}
+                style={{
+                  background: '#111620',
+                  border: '1px solid #1a2336',
+                  borderRadius: '8px',
+                  padding: '6px 10px',
+                  fontSize: '12px',
+                  color: '#8892a0',
+                  colorScheme: 'dark',
+                  outline: 'none',
+                  cursor: 'pointer',
+                }}
               />
+
+              {/* Auto-save status */}
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '6px 10px',
+                  border: '1px solid #1a2336',
+                  borderRadius: '7px',
+                  fontSize: '11px',
+                  color: saving ? '#fbbf24' : '#4a5a6e',
+                  cursor: 'default',
+                  userSelect: 'none',
+                }}
+              >
+                <span
+                  style={{
+                    width: '6px',
+                    height: '6px',
+                    borderRadius: '50%',
+                    flexShrink: 0,
+                    background: saving ? '#f59e0b' : saved ? '#10b981' : '#10b981',
+                    opacity: saving ? 1 : saved ? 1 : 0.4,
+                  }}
+                />
+                {saving ? 'Saving…' : saved ? 'Auto-saved' : 'Auto-save on'}
+              </span>
+
+              {/* Delete */}
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(selected)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  padding: '6px 10px',
+                  border: '1px solid #1a2336',
+                  borderRadius: '7px',
+                  background: 'transparent',
+                  fontSize: '11px',
+                  color: '#4a5a6e',
+                  cursor: 'pointer',
+                  transition: 'border-color 0.15s, color 0.15s',
+                }}
+                onMouseEnter={e => {
+                  const el = e.currentTarget as HTMLButtonElement;
+                  el.style.borderColor = '#7f1d1d';
+                  el.style.color = '#f87171';
+                }}
+                onMouseLeave={e => {
+                  const el = e.currentTarget as HTMLButtonElement;
+                  el.style.borderColor = '#1a2336';
+                  el.style.color = '#4a5a6e';
+                }}
+              >
+                <Trash2 size={12} />
+                Delete
+              </button>
             </div>
           </div>
 
-          <div className="max-h-[432px] overflow-y-auto p-4">
-            {grouped.length === 0 ? (
-              <div className="flex flex-col items-center justify-center px-8 py-12 text-center">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-slate-800 bg-slate-900/80">
-                  <PenLine size={18} strokeWidth={ICON_STROKE_WIDTH} className="text-slate-600" />
-                </div>
-                <p className="mt-4 text-sm font-medium text-slate-300">
-                  {search ? 'No matching entries' : 'No entries yet'}
-                </p>
-                <p className="mt-2 max-w-xs text-sm leading-6 text-slate-500">
-                  {search ? 'Try a different keyword or date.' : 'Start a new note and your timeline will begin here.'}
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-6 pb-4">
-                {grouped.map(([month, monthEntries]) => (
-                  <div key={month}>
-                    <div className="flex items-center justify-between px-2 pb-2">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-600">{month}</p>
-                      <p className="text-[11px] text-slate-600">
-                        {monthEntries.length} {monthEntries.length === 1 ? 'entry' : 'entries'}
-                      </p>
-                    </div>
-                    <div className="space-y-2">
-                      {monthEntries.map(entry => (
-                        <EntryItem
-                          key={entry.id}
-                          entry={entry}
-                          mood={moodByEntryId[entry.id]}
-                          selected={selected?.id === entry.id}
-                          onClick={() => setSelected(entry)}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+          {/* Mood toggles */}
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '24px' }}>
+            {JOURNAL_MOODS.map(mood => {
+              const isActive = moodByEntryId[selected.id] === mood;
+              const ms = MOOD_STYLES[mood];
+              const MoodIcon = MOOD_ICONS[mood];
+
+              return (
+                <button
+                  key={mood}
+                  type="button"
+                  onClick={() => updateEntryMood(selected.id, mood)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    padding: '5px 12px',
+                    borderRadius: '20px',
+                    border: `1px solid ${isActive ? ms.border : '#1a2336'}`,
+                    background: isActive ? ms.bg : '#111620',
+                    fontSize: '11px',
+                    color: isActive ? ms.color : '#4a5a6e',
+                    cursor: 'pointer',
+                    transition: 'background 0.15s, border-color 0.15s, color 0.15s',
+                  }}
+                >
+                  {isActive && (
+                    <svg width="8" height="8" viewBox="0 0 8 8" style={{ flexShrink: 0 }}>
+                      <circle cx="4" cy="4" r="4" fill={ms.color} />
+                    </svg>
+                  )}
+                  <MoodIcon size={11} />
+                  {mood}
+                </button>
+              );
+            })}
           </div>
-        </div>
 
-        <div className="flex min-h-0 flex-col overflow-hidden rounded-[28px] border border-slate-800/80 bg-[linear-gradient(180deg,rgba(11,15,24,0.95),rgba(8,11,18,0.99))]">
-          {selected ? (
-            <>
-              <div className="border-b border-slate-800/80 px-6 py-6 md:px-8">
-                <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
-                  <div className="min-w-0">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">Entry</p>
-                    <h2 className="mt-4 font-serif text-4xl tracking-[-0.04em] text-white md:text-5xl">
-                      {format(parseISO(selected.date), 'EEEE, MMMM d')}
-                    </h2>
-                    <p className="mt-4 text-sm text-slate-400 md:text-[15px]">
-                      {format(parseISO(selected.date), 'yyyy')} | {selectedWordCount.toLocaleString()} words |{' '}
-                      {totalWords.toLocaleString()} overall
-                    </p>
+          {/* Writing area */}
+          <div
+            style={{
+              background: '#111620',
+              border: '1px solid #1a2336',
+              borderRadius: '12px',
+              overflow: 'hidden',
+            }}
+          >
+            {/* Title input */}
+            <input
+              type="text"
+              value={titleDraft}
+              onChange={e => handleTitleChange(e.target.value)}
+              onBlur={handleTitleBlur}
+              placeholder="Entry title..."
+              style={{
+                display: 'block',
+                width: '100%',
+                padding: '14px 18px 12px',
+                background: 'transparent',
+                border: 'none',
+                outline: 'none',
+                fontSize: '14px',
+                fontWeight: 600,
+                color: '#c9d3e0',
+                boxSizing: 'border-box',
+                fontFamily: 'inherit',
+              }}
+            />
+            <style>{`input[type="text"]::placeholder { color: #2d3d52; } textarea::placeholder { color: #2d3d52; }`}</style>
 
-                    <div className="mt-6 flex flex-wrap gap-2">
-                      {JOURNAL_MOODS.map(mood => {
-                        const isActive = moodByEntryId[selected.id] === mood;
-                        const MoodIcon = MOOD_ICONS[mood];
-
-                        return (
-                          <button
-                            key={mood}
-                            type="button"
-                            onClick={() => updateEntryMood(selected.id, mood)}
-                            className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-medium transition-colors ${
-                              isActive
-                                ? 'border-slate-500 bg-slate-800 text-slate-100'
-                                : 'border-slate-700/70 bg-slate-950/80 text-slate-400 hover:border-slate-600 hover:text-slate-200'
-                            }`}
-                          >
-                            <MoodIcon
-                              size={12}
-                              strokeWidth={ICON_STROKE_WIDTH}
-                              className={isActive ? 'text-slate-300' : 'text-slate-500'}
-                            />
-                            {mood}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col gap-3 xl:items-end">
-                    <label className="flex flex-col gap-1.5 xl:items-end">
-                      <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
-                        Entry date
-                      </span>
-                      <div className="relative">
-                        <CalendarDays
-                          size={14}
-                          strokeWidth={ICON_STROKE_WIDTH}
-                          className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-500"
-                        />
-                        <input
-                          type="date"
-                          value={selected.date}
-                          onChange={event => void handleDateChange(event.target.value)}
-                          className="h-11 rounded-2xl border border-slate-700/70 bg-slate-900/85 pl-11 pr-4 text-sm text-slate-200 outline-none transition-colors focus:border-blue-500/40 focus:bg-slate-900"
-                        />
-                      </div>
-                    </label>
-
-                    <div className="flex flex-wrap items-center gap-2">
-                    {saving && (
-                      <span className="inline-flex items-center gap-2 rounded-full border border-blue-500/20 bg-blue-500/[0.08] px-4 py-2 text-sm text-blue-300">
-                        <Save size={14} strokeWidth={ICON_STROKE_WIDTH} className="animate-pulse" />
-                        Saving
-                      </span>
-                    )}
-
-                    {!saving && saved && (
-                      <span className="inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/[0.08] px-4 py-2 text-sm text-emerald-300">
-                        <CheckCircle2 size={14} strokeWidth={ICON_STROKE_WIDTH} />
-                        Saved
-                      </span>
-                    )}
-
-                    {!saving && !saved && (
-                      <span className="inline-flex items-center gap-2 rounded-full border border-slate-700/70 bg-slate-900/80 px-4 py-2 text-sm text-slate-400">
-                        <Save size={14} strokeWidth={ICON_STROKE_WIDTH} className="text-slate-500" />
-                        Auto-save on
-                      </span>
-                    )}
-
-                    <button
-                      onClick={() => setDeleteTarget(selected)}
-                      className="inline-flex items-center gap-2 rounded-full border border-slate-700/70 bg-slate-900/80 px-4 py-2 text-sm text-slate-400 transition-colors hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-300"
-                      title="Delete entry"
-                    >
-                      <Trash2 size={14} strokeWidth={ICON_STROKE_WIDTH} />
-                      Delete
-                    </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-6 md:py-6">
-                <div className="mx-auto flex h-full min-h-[480px] max-w-4xl flex-col rounded-[30px] border border-slate-800/80 bg-[#0f1726] px-6 py-6 md:px-8 md:py-8">
-                  <div className="mb-6 flex flex-col gap-4 border-b border-slate-800/80 pb-4 lg:flex-row lg:items-end lg:justify-between">
-                    <div>
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">Writing space</p>
-                      <p className="mt-2 text-sm leading-6 text-slate-400">
-                        Keep it simple: what happened, what you felt, and what you want to remember next time.
-                      </p>
-                    </div>
-                    <p className="text-xs text-slate-500">Autosaves after 1.5 seconds</p>
-                  </div>
-
-                  <div
-                    className="flex min-h-0 flex-1 overflow-hidden rounded-[26px] border border-slate-800/80 bg-[#111b2e] shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]"
-                    style={{
-                      backgroundImage:
-                        'linear-gradient(180deg, rgba(15,23,42,0.94), rgba(15,23,42,0.98)), repeating-linear-gradient(180deg, transparent 0, transparent 47px, rgba(148,163,184,0.08) 47px, rgba(148,163,184,0.08) 48px)',
-                    }}
-                  >
-                    <textarea
-                      ref={textareaRef}
-                      className="block h-full min-h-[384px] w-full resize-none overflow-y-auto bg-transparent px-6 py-6 font-serif text-[18px] leading-[48px] text-slate-100 outline-none placeholder:text-slate-500 md:px-8 md:py-8"
-                      placeholder={`Write your reflection for ${format(parseISO(selected.date), 'MMMM d, yyyy')}...\n\nWhat happened today?\nWhat felt clear?\nWhat do you want to carry into tomorrow?`}
-                      value={selected.content}
-                      onChange={event => handleContentChange(event.target.value)}
-                    />
-                  </div>
-                </div>
-              </div>
-            </>
-          ) : (
-            <div className="px-6 py-12 text-center text-sm text-slate-500 md:px-8">
-              Select a journal entry from the archive to open the writing view.
+            {/* Hint bar */}
+            <div
+              style={{
+                borderTop: '1px solid #131c2a',
+                borderBottom: '1px solid #131c2a',
+                padding: '8px 18px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}
+            >
+              <span style={{ fontSize: '11px', color: '#2d3d52' }}>
+                What happened · What you felt · What to carry forward
+              </span>
+              <span style={{ fontSize: '11px', color: '#2d3d52' }}>Autosaves after 1.5s</span>
             </div>
-          )}
-        </div>
-      </div>
 
+            {/* Body textarea */}
+            <textarea
+              ref={textareaRef}
+              value={getEntryContent(selected)}
+              onChange={e => handleContentChange(e.target.value)}
+              placeholder={`Write your reflection for ${formatEntryDate(selected.date, 'MMMM d, yyyy')}…`}
+              style={{
+                display: 'block',
+                width: '100%',
+                minHeight: '220px',
+                padding: '18px',
+                background: 'transparent',
+                border: 'none',
+                outline: 'none',
+                resize: 'none',
+                fontSize: '13.5px',
+                color: '#8892a0',
+                lineHeight: 1.75,
+                fontFamily: 'inherit',
+                boxSizing: 'border-box',
+              }}
+            />
+          </div>
+        </section>
+      )}
+
+      {/* ── Delete modal ──────────────────────────────────────────────────── */}
       <Modal isOpen={!!deleteTarget} onClose={() => setDeleteTarget(null)} title="Delete Journal Entry">
         <p className="mb-6 text-[13px] leading-relaxed text-slate-300">
           Permanently delete the entry for{' '}
           <span className="font-semibold text-white">
-            {deleteTarget ? format(parseISO(deleteTarget.date), 'MMMM d, yyyy') : ''}
+            {deleteTarget ? formatEntryDate(deleteTarget.date, 'MMMM d, yyyy') : ''}
           </span>
           ? This cannot be undone.
         </p>
@@ -602,7 +847,7 @@ export default function Journal() {
             onClick={() => deleteTarget && deleteEntry(deleteTarget)}
             className="btn-danger flex items-center gap-2 text-sm"
           >
-            <Trash2 size={13} strokeWidth={ICON_STROKE_WIDTH} />
+            <Trash2 size={13} />
             Delete Entry
           </button>
           <button onClick={() => setDeleteTarget(null)} className="btn-secondary text-sm">

@@ -986,7 +986,7 @@ export default function Chart() {
   }
 
   return (
-    <div className="h-full min-h-[720px] w-full bg-[#0f0f0f] text-slate-100">
+    <div className="animate-fade-in h-full min-h-[720px] w-full bg-[#0f0f0f] text-slate-100">
       <div className="flex h-full min-h-[calc(100vh-56px)] w-full flex-col bg-[#0f0f0f]">
         <div className="flex h-12 items-center justify-between gap-3 border-b border-[#222] bg-[#0f0f0f] px-3">
           <div className="flex min-w-0 items-center gap-2">

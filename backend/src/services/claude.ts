@@ -1496,13 +1496,6 @@ function applyConservativeExitDecision(
     );
   }
 
-  if (votes.TP > 0 && votes.SL > 0) {
-    appendWarning(
-      next.warnings ?? (next.warnings = []),
-      'Exit-order signals disagreed across scanner passes.'
-    );
-  }
-
   if (next.exit_reason) {
     next.pnl_result = next.exit_reason === 'TP' ? 'Win' : 'Loss';
   }
@@ -1675,31 +1668,61 @@ export async function analyzeChartImage(
     'target-label-focus',
   ]);
   const preAnalysisWarnings: string[] = [];
-  let exactPriceRead: ExactPriceRead | null = null;
-  let headerIdentityRead: HeaderIdentityRead | null = null;
+  const [
+    headerIdentityResult,
+    exactPriceResult,
+    extractionResult,
+    humanReviewResult,
+  ] = await Promise.allSettled([
+    extractHeaderIdentity(identityImages),
+    extractExactPriceLevels(exactPriceImages, normalizedScannerContext),
+    extractTradeFacts(extractionImages, entryDate, entryTime, normalizedScannerContext),
+    humanStyleReview(extractionImages, entryDate, entryTime, normalizedScannerContext),
+  ]);
 
-  try {
-    headerIdentityRead = await extractHeaderIdentity(identityImages);
-  } catch {
+  const headerIdentityRead = headerIdentityResult.status === 'fulfilled'
+    ? headerIdentityResult.value
+    : null;
+  if (headerIdentityResult.status === 'rejected') {
     preAnalysisWarnings.push('Header symbol/timeframe read failed, so identity relied on the broader chart reads.');
   }
 
-  try {
-    exactPriceRead = await extractExactPriceLevels(exactPriceImages, normalizedScannerContext);
-  } catch {
+  const exactPriceRead = exactPriceResult.status === 'fulfilled'
+    ? exactPriceResult.value
+    : null;
+  if (exactPriceResult.status === 'rejected') {
     preAnalysisWarnings.push('Exact price-label review failed, so price levels relied on the broader chart reads.');
+  }
+
+  if (extractionResult.status === 'rejected' && humanReviewResult.status === 'rejected') {
+    throw new Error('Chart analysis failed for both the primary and fallback Claude passes.');
+  }
+
+  const extractionSource = extractionResult.status === 'fulfilled'
+    ? extractionResult.value
+    : (humanReviewResult as PromiseFulfilledResult<ExtractedTradeData>).value;
+  const humanReviewSource = humanReviewResult.status === 'fulfilled'
+    ? humanReviewResult.value
+    : (extractionResult as PromiseFulfilledResult<ExtractedTradeData>).value;
+
+  if (extractionResult.status === 'rejected') {
+    preAnalysisWarnings.push('Primary chart extraction failed, so the scanner fell back to the human-style review pass.');
+  }
+
+  if (humanReviewResult.status === 'rejected') {
+    preAnalysisWarnings.push('Human-style review failed, so the scanner relied on the primary extraction pass.');
   }
 
   const extraction = applyHeaderIdentityRead(
     applyExactPriceRead(
-      await extractTradeFacts(extractionImages, entryDate, entryTime, normalizedScannerContext),
+      extractionSource,
       exactPriceRead
     ),
     headerIdentityRead
   );
   const rawHumanReview = applyHeaderIdentityRead(
     applyExactPriceRead(
-      await humanStyleReview(extractionImages, entryDate, entryTime, normalizedScannerContext),
+      humanReviewSource,
       exactPriceRead
     ),
     headerIdentityRead
@@ -1717,16 +1740,21 @@ export async function analyzeChartImage(
     first_touch_evidence: baseRead.first_touch_evidence,
   };
 
-  try {
-    verification = await verifyExitOrder(verificationImages, entryDate, baseRead, normalizedScannerContext);
-  } catch {
+  const [verificationResult, sanityResult] = await Promise.allSettled([
+    verifyExitOrder(verificationImages, entryDate, baseRead, normalizedScannerContext),
+    sanityCheckLevelTouches(sanityImages, entryDate, baseRead),
+  ]);
+
+  if (verificationResult.status === 'fulfilled') {
+    verification = verificationResult.value;
+  } else {
     appendWarning(baseRead.warnings ?? (baseRead.warnings = []), 'Exit verification failed, so the final answer relied on the manual chart read.');
   }
 
   let sanityCheck: LevelTouchSanityResult | null = null;
-  try {
-    sanityCheck = await sanityCheckLevelTouches(sanityImages, entryDate, baseRead);
-  } catch {
+  if (sanityResult.status === 'fulfilled') {
+    sanityCheck = sanityResult.value;
+  } else {
     appendWarning(baseRead.warnings ?? (baseRead.warnings = []), 'Stop/target sanity check failed, so the final answer relied on the broader exit review.');
   }
 

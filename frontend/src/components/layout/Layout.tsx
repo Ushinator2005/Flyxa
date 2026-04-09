@@ -1,11 +1,11 @@
-import React from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar.js';
 import Header from './Header.js';
 import RiskWarningBanner from '../risk/RiskWarningBanner.js';
+import FlyxaChatWidget from '../common/FlyxaChatWidget.js';
 import { useRisk } from '../../contexts/RiskContext.js';
 
-export default function Layout({ children }: { children: React.ReactNode }) {
+export default function Layout() {
   const { riskLevel, dailyStatus } = useRisk();
   const location = useLocation();
   const isFullBleedChartPage = location.pathname === '/chart' || location.pathname === '/backtest';
@@ -20,10 +20,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         )}
         <main className={isFullBleedChartPage ? 'flex-1 overflow-hidden p-0' : 'flex-1 overflow-auto p-8'}>
           <div className={isFullBleedChartPage ? 'h-full w-full' : 'mx-auto max-w-[1400px]'}>
-            {children}
+            <Outlet />
           </div>
         </main>
       </div>
+      <FlyxaChatWidget />
     </div>
   );
 }

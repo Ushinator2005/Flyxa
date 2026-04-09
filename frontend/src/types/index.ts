@@ -3,6 +3,8 @@ export interface Trade {
   user_id: string;
   symbol: string;
   screenshot_url?: string;
+  accountId?: string;
+  account_id?: string;
   direction: 'Long' | 'Short';
   entry_price: number;
   exit_price: number;
@@ -151,4 +153,22 @@ export interface ExtractedTradeData {
   first_touch_candle_index: number | null;
   first_touch_evidence: string | null;
   warnings?: string[];
+}
+
+export type TradingAccountType = 'Futures' | 'Forex' | 'Stocks';
+
+export interface TradingAccount {
+  id: string;
+  name: string;
+  broker?: string;
+  type: TradingAccountType;
+  color: string;
+  createdAt: string;
+}
+
+export interface AppPreferences {
+  dateFormat: 'dd/MM/yyyy' | 'MM/dd/yyyy' | 'yyyy-MM-dd';
+  currencySymbol: '$' | '€' | '£' | 'A$';
+  defaultTimeframe: '1m' | '5m' | '15m' | '1h';
+  defaultChartType: 'Candles' | 'Line' | 'Area';
 }

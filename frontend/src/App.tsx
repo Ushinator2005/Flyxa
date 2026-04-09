@@ -1,5 +1,4 @@
-import React from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Navigate, Route, Routes } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext.js';
 import Layout from './components/layout/Layout.js';
 import Auth from './pages/Auth.js';
@@ -10,12 +9,13 @@ import Analytics from './pages/Analytics.js';
 import PsychologyTracker from './pages/PsychologyTracker.js';
 import Journal from './pages/Journal.js';
 import Chart from './pages/Chart.js';
+import Settings from './pages/Settings.js';
 import LoadingSpinner from './components/common/LoadingSpinner.js';
-import FlyxaChatWidget from './components/common/FlyxaChatWidget.js';
 import LandingPage from './lumis/pages/LandingPage.js';
 
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
+function ProtectedLayout() {
   const { user, loading } = useAuth();
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -23,16 +23,9 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
       </div>
     );
   }
-  if (!user) return <Navigate to="/auth" replace />;
-  return <>{children}</>;
-}
 
-function ProtectedPage({ children }: { children: React.ReactNode }) {
-  return (
-    <ProtectedRoute>
-      <Layout>{children}</Layout>
-    </ProtectedRoute>
-  );
+  if (!user) return <Navigate to="/auth" replace />;
+  return <Layout />;
 }
 
 export default function App() {
@@ -47,24 +40,26 @@ export default function App() {
   }
 
   return (
-    <>
-      <Routes>
-        <Route path="/auth" element={user ? <Navigate to="/" replace /> : <Auth />} />
-        <Route path="/landing" element={<LandingPage />} />
-        <Route path="/" element={<ProtectedPage><Dashboard /></ProtectedPage>} />
-        <Route path="/scanner" element={<ProtectedPage><TradeScanner /></ProtectedPage>} />
-        <Route path="/coach" element={<ProtectedPage><AICoach /></ProtectedPage>} />
-        <Route path="/analytics" element={<ProtectedPage><Analytics /></ProtectedPage>} />
+    <Routes>
+      <Route path="/auth" element={user ? <Navigate to="/" replace /> : <Auth />} />
+      <Route path="/landing" element={<LandingPage />} />
+
+      <Route element={<ProtectedLayout />}>
+        <Route path="/" element={<Dashboard />} />
+        <Route path="/scanner" element={<TradeScanner />} />
+        <Route path="/coach" element={<AICoach />} />
+        <Route path="/analytics" element={<Analytics />} />
+        <Route path="/backtest" element={<Chart />} />
         <Route path="/chart" element={<Navigate to="/backtest" replace />} />
-        <Route path="/backtest" element={<ProtectedPage><Chart /></ProtectedPage>} />
-        <Route path="/psychology" element={<ProtectedPage><PsychologyTracker /></ProtectedPage>} />
-        <Route path="/journal" element={<ProtectedPage><Journal /></ProtectedPage>} />
+        <Route path="/psychology" element={<PsychologyTracker />} />
+        <Route path="/journal" element={<Journal />} />
+        <Route path="/settings" element={<Settings />} />
         <Route path="/risk" element={<Navigate to="/" replace />} />
         <Route path="/playbook" element={<Navigate to="/" replace />} />
         <Route path="/chart-analyzer" element={<Navigate to="/" replace />} />
-        <Route path="*" element={<Navigate to={user ? '/' : '/auth'} replace />} />
-      </Routes>
-      <FlyxaChatWidget />
-    </>
+      </Route>
+
+      <Route path="*" element={<Navigate to={user ? '/' : '/auth'} replace />} />
+    </Routes>
   );
 }

@@ -31,12 +31,12 @@ function getSession(time) {
         return 'New York';
     return 'Other';
 }
-function isMissingScreenshotUrlColumnError(error) {
+function isMissingColumnError(error, column) {
     if (!error || typeof error !== 'object' || !('message' in error)) {
         return false;
     }
     const message = typeof error.message === 'string' ? error.message : '';
-    return message.includes("'screenshot_url'") &&
+    return message.includes(`'${column}'`) &&
         message.includes("'trades'") &&
         message.includes('schema cache');
 }
@@ -60,7 +60,7 @@ router.get('/', auth_1.authMiddleware, async (req, res, next) => {
 // POST create trade
 router.post('/', auth_1.authMiddleware, async (req, res, next) => {
     try {
-        const { symbol, screenshot_url, direction, entry_price, sl_price, tp_price, exit_reason, contract_size, point_value, trade_date, trade_time, trade_length_seconds, candle_count, timeframe_minutes, emotional_state, confidence_level, pre_trade_notes, post_trade_notes, followed_plan, } = req.body;
+        const { symbol, screenshot_url, accountId, account_id, direction, entry_price, sl_price, tp_price, exit_reason, contract_size, point_value, trade_date, trade_time, trade_length_seconds, candle_count, timeframe_minutes, emotional_state, confidence_level, pre_trade_notes, post_trade_notes, followed_plan, } = req.body;
         if (typeof symbol !== 'string' ||
             !symbol.trim() ||
             !isTradeDirection(direction) ||
@@ -90,6 +90,11 @@ router.post('/', auth_1.authMiddleware, async (req, res, next) => {
             user_id: req.userId,
             symbol,
             screenshot_url: typeof screenshot_url === 'string' ? screenshot_url : '',
+            account_id: typeof accountId === 'string'
+                ? accountId
+                : typeof account_id === 'string'
+                    ? account_id
+                    : '',
             direction,
             entry_price,
             exit_price: normalizedExitPrice,
@@ -117,8 +122,8 @@ router.post('/', auth_1.authMiddleware, async (req, res, next) => {
             .select()
             .single();
         // Allow trade saves to continue until the live database has the new screenshot column.
-        if (error && isMissingScreenshotUrlColumnError(error)) {
-            const { screenshot_url: _ignoredScreenshotUrl, ...fallbackInsertPayload } = insertPayload;
+        if (error && (isMissingColumnError(error, 'screenshot_url') || isMissingColumnError(error, 'account_id'))) {
+            const { screenshot_url: _ignoredScreenshotUrl, account_id: _ignoredAccountId, ...fallbackInsertPayload } = insertPayload;
             ({ data, error } = await supabase_1.supabase
                 .from('trades')
                 .insert(fallbackInsertPayload)
@@ -172,6 +177,10 @@ router.put('/:id', auth_1.authMiddleware, async (req, res, next) => {
         const normalizedContractSize = isFiniteNumber(merged.contract_size) ? merged.contract_size : 1;
         const normalizedPointValue = isFiniteNumber(merged.point_value) ? merged.point_value : 1;
         const nextUpdateData = { ...updateData };
+        if (typeof nextUpdateData.accountId === 'string' && !('account_id' in nextUpdateData)) {
+            nextUpdateData.account_id = nextUpdateData.accountId;
+        }
+        delete nextUpdateData.accountId;
         nextUpdateData.exit_price = normalizedExitPrice;
         nextUpdateData.pnl = merged.direction === 'Long'
             ? (normalizedExitPrice - merged.entry_price) * normalizedContractSize * normalizedPointValue
@@ -183,8 +192,10 @@ router.put('/:id', auth_1.authMiddleware, async (req, res, next) => {
             .eq('id', id)
             .select()
             .single();
-        if (error && isMissingScreenshotUrlColumnError(error) && 'screenshot_url' in nextUpdateData) {
-            const { screenshot_url: _ignoredScreenshotUrl, ...fallbackUpdateData } = nextUpdateData;
+        if (error &&
+            ((isMissingColumnError(error, 'screenshot_url') && 'screenshot_url' in nextUpdateData) ||
+                (isMissingColumnError(error, 'account_id') && ('account_id' in nextUpdateData || 'accountId' in nextUpdateData)))) {
+            const { screenshot_url: _ignoredScreenshotUrl, account_id: _ignoredAccountId, accountId: _ignoredAccountIdAlias, ...fallbackUpdateData } = nextUpdateData;
             ({ data, error } = await supabase_1.supabase
                 .from('trades')
                 .update(fallbackUpdateData)

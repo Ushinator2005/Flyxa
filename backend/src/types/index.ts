@@ -5,6 +5,7 @@ export interface Trade {
   user_id: string;
   symbol: string;
   screenshot_url?: string;
+  account_id?: string;
   direction: 'Long' | 'Short';
   entry_price: number;
   exit_price: number;

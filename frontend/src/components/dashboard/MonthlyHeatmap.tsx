@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
-import { analyticsApi, journalApi } from '../../services/api.js';
+import { journalApi } from '../../services/api.js';
 import { formatCurrency } from '../../utils/calculations.js';
-import { JournalEntry } from '../../types/index.js';
+import { JournalEntry, Trade } from '../../types/index.js';
+import { buildMonthlyHeatmapData } from '../../utils/tradeAnalytics.js';
 
 function getCellBg(pnl: number | undefined): string {
   if (pnl === undefined) return '';
@@ -322,12 +323,11 @@ function JournalOverlay({
   );
 }
 
-export default function MonthlyHeatmap() {
+export default function MonthlyHeatmap({ trades = [] }: { trades?: Trade[] }) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
-  const [days, setDays] = useState<Record<number, number>>({});
-  const [counts, setCounts] = useState<Record<number, number>>({});
+  const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([]);
   const [journals, setJournals] = useState<Record<number, { id: string; date: string }>>({});
   const [selectedJournal, setSelectedJournal] = useState<JournalEntry | null>(null);
   const [journalLoading, setJournalLoading] = useState(false);
@@ -348,23 +348,26 @@ export default function MonthlyHeatmap() {
   }, [journalOverlay]);
 
   useEffect(() => {
-    analyticsApi.getMonthlyHeatmap(year, month)
-      .then((data: unknown) => {
-        const d = data as {
-          days: Record<number, number>;
-          counts: Record<number, number>;
-          journals: Record<number, { id: string; date: string }>;
-        };
-        setDays(d.days || {});
-        setCounts(d.counts || {});
-        setJournals(d.journals || {});
-      })
-      .catch(() => {
-        setDays({});
-        setCounts({});
-        setJournals({});
-      });
-  }, [year, month]);
+    journalApi.getAll()
+      .then(data => setJournalEntries(data as JournalEntry[]))
+      .catch(() => setJournalEntries([]));
+  }, []);
+
+  const { days, counts } = useMemo(
+    () => buildMonthlyHeatmapData(trades, year, month),
+    [month, trades, year]
+  );
+
+  useEffect(() => {
+    const nextJournals = journalEntries.reduce<Record<number, { id: string; date: string }>>((acc, journal) => {
+      const parsed = new Date(`${journal.date}T00:00:00`);
+      if (Number.isNaN(parsed.getTime())) return acc;
+      if (parsed.getFullYear() !== year || parsed.getMonth() + 1 !== month) return acc;
+      acc[parsed.getDate()] = { id: journal.id, date: journal.date };
+      return acc;
+    }, {});
+    setJournals(nextJournals);
+  }, [journalEntries, month, year]);
 
   const prevMonth = () => {
     if (month === 1) {

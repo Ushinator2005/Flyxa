@@ -1,10 +1,11 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { CalendarDays, Clock3, Expand, ImagePlus, Sparkles, Wand2, X, Upload } from 'lucide-react';
 import TradeForm from './TradeForm.js';
-import Modal from '../common/Modal.js';
 import { Trade } from '../../types/index.js';
 import { aiApi } from '../../services/api.js';
 import { lookupContract } from '../../constants/futuresContracts.js';
+import { useAppSettings } from '../../contexts/AppSettingsContext.js';
 
 const DRAFT_KEY = 'tw_scanner_draft';
 
@@ -101,6 +102,26 @@ function canvasToFile(canvas: HTMLCanvasElement, fileName: string, sourceType: s
       resolve(new File([blob], fileName, { type: sourceType || 'image/png' }));
     }, sourceType || 'image/png', 0.95);
   });
+}
+
+async function buildUploadImage(image: HTMLImageElement, fileName: string): Promise<File> {
+  const maxWidth = 1800;
+  const scale = Math.min(1, maxWidth / Math.max(1, image.naturalWidth || image.width));
+  const width = Math.max(1, Math.round((image.naturalWidth || image.width) * scale));
+  const height = Math.max(1, Math.round((image.naturalHeight || image.height) * scale));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+
+  const context = canvas.getContext('2d');
+  if (!context) {
+    throw new Error('Failed to prepare scanner upload image');
+  }
+
+  context.drawImage(image, 0, 0, width, height);
+
+  return canvasToFile(canvas, fileName.replace(/\.[^.]+$/, '') + '.webp', 'image/webp');
 }
 
 function clampRatio(value: number, min = 0, max = 1): number {
@@ -353,7 +374,11 @@ function buildDynamicFocusCrops(scannerContext: ScannerContext | null): CropPres
   ];
 }
 
-async function buildScannerAssets(file: File): Promise<{ focusImages: File[]; scannerContext: ScannerContext | null }> {
+async function buildScannerAssets(file: File): Promise<{
+  focusImages: File[];
+  scannerContext: ScannerContext | null;
+  uploadImage: File;
+}> {
   const image = await loadImage(file);
   const sourceType = file.type || 'image/png';
   const scannerContext = detectTradeBoxContext(image);
@@ -390,7 +415,9 @@ async function buildScannerAssets(file: File): Promise<{ focusImages: File[]; sc
     return canvasToFile(canvas, `${crop.name}-${file.name}`, sourceType);
   }));
 
-  return { focusImages, scannerContext };
+  const uploadImage = await buildUploadImage(image, file.name);
+
+  return { focusImages, scannerContext, uploadImage };
 }
 
 interface Props {
@@ -402,6 +429,15 @@ interface Props {
 }
 
 export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTrade, prefillTrade }: Props) {
+  const { accounts, getDefaultTradeAccountId, resolveTradeAccountId } = useAppSettings();
+  const getInitialTradeAccountId = useCallback(() => {
+    const baseTrade = editTrade ?? prefillTrade ?? null;
+    if (baseTrade?.accountId || baseTrade?.account_id || baseTrade?.id) {
+      return resolveTradeAccountId(baseTrade);
+    }
+
+    return getDefaultTradeAccountId();
+  }, [editTrade, getDefaultTradeAccountId, prefillTrade, resolveTradeAccountId]);
   const getInitialContractSize = useCallback(
     () => String(Math.max(1, Number(editTrade?.contract_size ?? prefillTrade?.contract_size ?? 1))),
     [editTrade?.contract_size, prefillTrade?.contract_size]
@@ -426,6 +462,7 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
   const [isDragging, setIsDragging]       = useState(false);
   const [saving, setSaving]              = useState(false);
   const [contractInputValue, setContractInputValue] = useState(() => getInitialContractSize());
+  const [tradeAccountId, setTradeAccountId] = useState(() => getInitialTradeAccountId());
 
   const [currentDate, setCurrentDate] = useState(() => editTrade?.trade_date ?? prefillTrade?.trade_date ?? '');
   const [currentTime, setCurrentTime] = useState(() => editTrade?.trade_time ?? prefillTrade?.trade_time ?? '');
@@ -449,6 +486,7 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
     setCurrentTime(editTrade?.trade_time ?? prefillTrade?.trade_time ?? '');
     setImagePreview(editTrade?.screenshot_url ?? null);
     setContractInputValue(getInitialContractSize());
+    setTradeAccountId(getInitialTradeAccountId());
     setAiFields(new Set());
     setWarnings([]);
     setScanEvidence('');
@@ -462,7 +500,20 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
     if (prefillTrade) {
       setFormData(prefillTrade);
     }
-  }, [getInitialContractSize, isOpen, editTrade, prefillTrade]);
+  }, [editTrade, getInitialContractSize, getInitialTradeAccountId, isOpen, prefillTrade]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isOpen]);
 
   const reset = () => {
     setFormData(editTrade ?? prefillTrade ?? null);
@@ -475,10 +526,25 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
     setCurrentDate(editTrade?.trade_date ?? prefillTrade?.trade_date ?? '');
     setCurrentTime(editTrade?.trade_time ?? prefillTrade?.trade_time ?? '');
     setContractInputValue(getInitialContractSize());
+    setTradeAccountId(getInitialTradeAccountId());
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handleClose = () => { reset(); onClose(); };
+  const handleClose = useCallback(() => {
+    setFormData(editTrade ?? prefillTrade ?? null);
+    setAiFields(new Set());
+    setImagePreview(editTrade?.screenshot_url ?? null);
+    setFullscreenPreview(false);
+    setScanError('');
+    setWarnings([]);
+    setScanEvidence('');
+    setCurrentDate(editTrade?.trade_date ?? prefillTrade?.trade_date ?? '');
+    setCurrentTime(editTrade?.trade_time ?? prefillTrade?.trade_time ?? '');
+    setContractInputValue(getInitialContractSize());
+    setTradeAccountId(getInitialTradeAccountId());
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    onClose();
+  }, [editTrade, getInitialContractSize, getInitialTradeAccountId, onClose, prefillTrade]);
 
   const handleImageSelected = useCallback(async (file: File) => {
     setScanError('');
@@ -492,9 +558,9 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
     try {
       const scanDate = currentDate || getFallbackScanDate();
       const scanTime = currentTime || getFallbackScanTime();
-      const { focusImages, scannerContext } = await buildScannerAssets(file);
+      const { focusImages, scannerContext, uploadImage } = await buildScannerAssets(file);
       const extracted = await aiApi.scanChart(
-        file,
+        uploadImage,
         scanDate,
         scanTime,
         focusImages,
@@ -505,6 +571,7 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
       const baseTrade = editTrade ?? prefillTrade ?? formData ?? null;
       const mapped: Partial<Trade> = {
         ...baseTrade,
+        accountId: tradeAccountId || getDefaultTradeAccountId(),
         trade_date: currentDate || undefined,
         trade_time: currentTime || undefined,
         contract_size: Math.max(1, Number(formData?.contract_size ?? prefillTrade?.contract_size ?? editTrade?.contract_size ?? 1)),
@@ -543,7 +610,7 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
     } finally {
       setScanning(false);
     }
-  }, [currentDate, currentTime, editTrade?.contract_size, formData?.contract_size, prefillTrade?.contract_size]);
+  }, [currentDate, currentTime, editTrade?.contract_size, formData?.contract_size, getDefaultTradeAccountId, prefillTrade?.contract_size, tradeAccountId]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault(); setIsDragging(false);
@@ -556,6 +623,7 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
     try {
       await onSave({
         ...data,
+        accountId: tradeAccountId || getDefaultTradeAccountId(),
         screenshot_url: imagePreview ?? editTrade?.screenshot_url ?? undefined,
       });
       localStorage.removeItem(DRAFT_KEY);
@@ -571,7 +639,7 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
   const hasPreviewImage = Boolean(imagePreview);
   const reviewSectionTitle = editTrade ? 'Review screenshot' : 'Import screenshot';
   const reviewSectionCopy = editTrade
-    ? 'View the original scanned chart in fullscreen, or upload a replacement screenshot and rescan this trade.'
+    ? 'View the journaled chart in fullscreen, or upload a replacement screenshot and rescan this trade.'
     : 'Scan a TradingView chart, then review the extracted trade details before saving.';
   const handleContractSizeChange = (value: string) => {
     setContractInputValue(value);
@@ -595,9 +663,57 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
     }));
   };
 
-  return (
-    <Modal isOpen={isOpen} onClose={handleClose} title={editTrade ? 'Edit Trade' : 'Add Trade'} size="2xl">
-      <div className="flex flex-col gap-5 max-h-[84vh]">
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') {
+        return;
+      }
+
+      if (fullscreenPreview) {
+        setFullscreenPreview(false);
+        return;
+      }
+
+      handleClose();
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [fullscreenPreview, handleClose, isOpen]);
+
+  if (!isOpen || typeof document === 'undefined') {
+    return null;
+  }
+
+  return createPortal(
+    <>
+      <div className="fixed inset-0 z-50 p-4 md:p-6">
+        <button
+          type="button"
+          aria-label="Close trade modal"
+          onClick={handleClose}
+          className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+        />
+
+        <div className="relative mx-auto h-full max-w-[1400px]">
+          <div className="flex h-full flex-col overflow-hidden rounded-[30px] border border-slate-700/70 bg-slate-900/95 shadow-[0_32px_120px_rgba(2,6,23,0.58)]">
+            <div className="flex items-center justify-between border-b border-slate-700/80 px-5 py-4">
+              <h2 className="text-lg font-semibold text-white">{editTrade ? 'Edit Trade' : 'Add Trade'}</h2>
+              <button
+                type="button"
+                onClick={handleClose}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-700/70 bg-slate-900/80 text-slate-400 transition hover:border-slate-500 hover:text-white"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-5 md:py-5">
+              <div className="flex min-h-full flex-col gap-5">
 
         {/* Trade date/time + warnings */}
         <div className="rounded-2xl border border-slate-700/60 bg-[radial-gradient(circle_at_top_left,rgba(245,158,11,0.12),transparent_34%),linear-gradient(180deg,rgba(15,23,42,0.96),rgba(15,23,42,0.88))] px-4 py-4 shadow-[0_18px_40px_rgba(2,6,23,0.28)]">
@@ -651,10 +767,11 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
           </div>
         )}
 
-        <div className="grid grid-cols-1 gap-5 overflow-hidden lg:grid-cols-[minmax(360px,0.95fr)_minmax(0,1.2fr)]">
+        <div className="grid min-w-0 grid-cols-1 gap-5 xl:grid-cols-[420px_minmax(0,1fr)]">
 
           {/* Left: image upload / preview */}
-          <div className="flex flex-col gap-4 rounded-[28px] border border-slate-700/60 bg-[linear-gradient(180deg,rgba(15,23,42,0.92),rgba(15,23,42,0.78))] p-4 shadow-[0_24px_60px_rgba(2,6,23,0.32)]">
+          <div className="min-w-0">
+            <div className="flex flex-col gap-4 rounded-[28px] border border-slate-700/60 bg-[linear-gradient(180deg,rgba(15,23,42,0.92),rgba(15,23,42,0.78))] p-4 shadow-[0_24px_60px_rgba(2,6,23,0.32)]">
               <input ref={fileInputRef} type="file" accept="image/*" className="hidden"
                 onChange={e => e.target.files?.[0] && handleImageSelected(e.target.files[0])} />
 
@@ -740,22 +857,36 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
                 <div className="rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-300">{scanError}</div>
               )}
 
-              {!editTrade && (
-                <div className="rounded-[24px] border border-slate-700/60 bg-slate-950/70 p-4 shadow-[inset_0_1px_0_rgba(148,163,184,0.04)]">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Entry Details</p>
-                  <div className="mt-3">
-                    <label className="label">Contracts</label>
-                    <input
-                      type="number"
-                      min={1}
+              <div className="rounded-[24px] border border-slate-700/60 bg-slate-950/70 p-4 shadow-[inset_0_1px_0_rgba(148,163,184,0.04)]">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">
+                  {editTrade ? 'Trade Details' : 'Entry Details'}
+                </p>
+                <div className="mt-3 space-y-3">
+                  <div>
+                    <label className="label">Account</label>
+                    <select
                       className="input-field h-11"
-                      value={contractInputValue}
-                      onChange={e => handleContractSizeChange(e.target.value)}
-                      required
-                    />
+                      value={tradeAccountId}
+                      onChange={e => setTradeAccountId(e.target.value)}
+                    >
+                      {accounts.map(account => (
+                        <option key={account.id} value={account.id}>
+                          {account.name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
+                  <label className="label">Contracts</label>
+                  <input
+                    type="number"
+                    min={1}
+                    className="input-field h-11"
+                    value={contractInputValue}
+                    onChange={e => handleContractSizeChange(e.target.value)}
+                    required
+                  />
                 </div>
-              )}
+              </div>
 
               {aiFields.size > 0 && (
                 <div className="flex items-center gap-2 rounded-xl border border-blue-400/20 bg-blue-400/8 px-4 py-3 text-sm text-blue-200">
@@ -763,21 +894,26 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
                   {aiFields.size} fields auto-extracted — review and save
                 </div>
               )}
+            </div>
           </div>
 
           {/* Right: form */}
-          <div className="min-h-0 overflow-y-auto" style={{ maxHeight: '64vh' }}>
+          <div className="min-w-0">
             <div className="rounded-[28px] border border-slate-700/60 bg-[linear-gradient(180deg,rgba(15,23,42,0.9),rgba(15,23,42,0.72))] p-4 shadow-[0_24px_60px_rgba(2,6,23,0.32)] md:p-5">
               <TradeForm
                 initialData={formData || undefined}
                 aiFields={aiFields}
                 tradeDate={currentDate}
                 tradeTime={currentTime}
-                showContractsField={Boolean(editTrade)}
+                showContractsField={false}
                 onSubmit={handleSave}
                 onCancel={handleClose}
                 isLoading={saving}
               />
+            </div>
+          </div>
+        </div>
+              </div>
             </div>
           </div>
         </div>
@@ -813,6 +949,7 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
           </div>
         </div>
       )}
-    </Modal>
+    </>,
+    document.body
   );
 }
