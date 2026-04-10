@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { DollarSign, Target, BarChart2, TrendingUp, Hash } from 'lucide-react';
+import { PieChart, Pie, Cell } from 'recharts';
 import EquityCurve from '../components/dashboard/EquityCurve.js';
 import MonthlyHeatmap from '../components/dashboard/MonthlyHeatmap.js';
 import LoadingSpinner from '../components/common/LoadingSpinner.js';
@@ -13,6 +14,8 @@ import {
   formatTradeDateLabel,
   getTradeRiskReward,
 } from '../utils/tradeAnalytics.js';
+
+const RING_UNIFIED_COLOR = '#34d399';
 
 function formatPrice(value: number) {
   return value.toLocaleString(undefined, {
@@ -28,6 +31,46 @@ export default function Dashboard() {
   const summary = useMemo(() => buildAnalyticsSummary(filteredTrades), [filteredTrades]);
   const equityCurve = useMemo(() => buildEquityCurve(filteredTrades), [filteredTrades]);
   const recentTrades = useMemo(() => buildRecentTrades(filteredTrades), [filteredTrades]);
+  const winLossRingData = useMemo(() => {
+    const wins = filteredTrades.filter(trade => trade.pnl > 0).length;
+    const losses = filteredTrades.filter(trade => trade.pnl < 0).length;
+
+    if (summary.totalTrades === 0 || wins + losses === 0) {
+      return [{ name: 'No trades', value: 1, color: RING_UNIFIED_COLOR }];
+    }
+
+    return [
+      { name: 'Wins', value: wins, color: RING_UNIFIED_COLOR },
+      { name: 'Losses', value: losses, color: RING_UNIFIED_COLOR },
+    ];
+  }, [filteredTrades, summary.totalTrades]);
+  const profitFactorRingData = useMemo(() => {
+    const grossProfit = filteredTrades
+      .filter(trade => trade.pnl > 0)
+      .reduce((sum, trade) => sum + trade.pnl, 0);
+    const grossLoss = Math.abs(
+      filteredTrades
+        .filter(trade => trade.pnl < 0)
+        .reduce((sum, trade) => sum + trade.pnl, 0)
+    );
+
+    if (summary.totalTrades === 0 || (grossProfit === 0 && grossLoss === 0)) {
+      return [{ name: 'No trades', value: 1, color: RING_UNIFIED_COLOR }];
+    }
+
+    if (grossProfit === 0) {
+      return [{ name: 'Losses', value: grossLoss, color: RING_UNIFIED_COLOR }];
+    }
+
+    if (grossLoss === 0) {
+      return [{ name: 'Profit', value: grossProfit, color: RING_UNIFIED_COLOR }];
+    }
+
+    return [
+      { name: 'Profit', value: grossProfit, color: RING_UNIFIED_COLOR },
+      { name: 'Loss', value: grossLoss, color: RING_UNIFIED_COLOR },
+    ];
+  }, [filteredTrades, summary.totalTrades]);
 
   if (loading) {
     return (
@@ -88,7 +131,31 @@ export default function Dashboard() {
               <span className="text-xs text-slate-400">{stat.label}</span>
               <span className="text-slate-600">{stat.icon}</span>
             </div>
-            <span className={`text-3xl font-bold tracking-tight ${stat.color}`}>{stat.value}</span>
+            {stat.label === 'Win Rate' || stat.label === 'Profit Factor' ? (
+              <div className="flex items-center justify-between gap-3">
+                <span className={`text-3xl font-bold tracking-tight ${stat.color}`}>{stat.value}</span>
+                <div className="h-[60px] w-[60px] shrink-0">
+                  <PieChart width={60} height={60}>
+                    <Pie
+                      data={stat.label === 'Win Rate' ? winLossRingData : profitFactorRingData}
+                      dataKey="value"
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={23}
+                      outerRadius={27}
+                      stroke="none"
+                      isAnimationActive={false}
+                    >
+                      {(stat.label === 'Win Rate' ? winLossRingData : profitFactorRingData).map(segment => (
+                        <Cell key={segment.name} fill={segment.color} />
+                      ))}
+                    </Pie>
+                  </PieChart>
+                </div>
+              </div>
+            ) : (
+              <span className={`text-3xl font-bold tracking-tight ${stat.color}`}>{stat.value}</span>
+            )}
           </div>
         ))}
       </div>

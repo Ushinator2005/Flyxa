@@ -1,15 +1,30 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { AppPreferences, Trade, TradingAccount } from '../types/index.js';
+import { AppPreferences, Trade, TradingAccount, TradingAccountStatus } from '../types/index.js';
 import { useAuth } from './AuthContext.js';
 
 export const ALL_ACCOUNTS_ID = 'all';
 export const DEFAULT_ACCOUNT_ID = 'default-account';
+const DEFAULT_TIMEZONE = 'America/New_York';
+const TIMEZONE_STORAGE_KEY = 'settings.timezone';
+
+const SUPPORTED_TIMEZONE_SET = (() => {
+  const intlWithSupportedValues = Intl as unknown as { supportedValuesOf?: (key: string) => string[] };
+  const zones = intlWithSupportedValues.supportedValuesOf?.('timeZone') ?? [];
+
+  if (!zones.includes(DEFAULT_TIMEZONE)) {
+    zones.push(DEFAULT_TIMEZONE);
+  }
+
+  return new Set(zones);
+})();
 
 const DEFAULT_ACCOUNT: TradingAccount = {
   id: DEFAULT_ACCOUNT_ID,
   name: 'Default Account',
   broker: '',
+  credentials: '',
   type: 'Futures',
+  status: 'Live',
   color: '#3b82f6',
   createdAt: new Date(0).toISOString(),
 };
@@ -17,9 +32,48 @@ const DEFAULT_ACCOUNT: TradingAccount = {
 const DEFAULT_PREFERENCES: AppPreferences = {
   dateFormat: 'dd/MM/yyyy',
   currencySymbol: '$',
+  timezone: DEFAULT_TIMEZONE,
   defaultTimeframe: '5m',
   defaultChartType: 'Candles',
+  sessionTimes: {
+    asia: { start: '19:00', end: '04:00' },
+    london: { start: '03:00', end: '11:30' },
+    preMarket: { start: '07:00', end: '09:30' },
+    newYork: { start: '09:30', end: '16:00' },
+  },
 };
+
+function normalizeSessionTimes(raw: unknown): AppPreferences['sessionTimes'] {
+  const isValidTime = (value: unknown): value is string => (
+    typeof value === 'string' && /^([01]\d|2[0-3]):([0-5]\d)$/.test(value)
+  );
+
+  const readTime = (value: unknown, fallback: string) => (isValidTime(value) ? value : fallback);
+  const input = typeof raw === 'object' && raw !== null ? raw as Record<string, unknown> : {};
+  const asia = typeof input.asia === 'object' && input.asia !== null ? input.asia as Record<string, unknown> : {};
+  const london = typeof input.london === 'object' && input.london !== null ? input.london as Record<string, unknown> : {};
+  const preMarket = typeof input.preMarket === 'object' && input.preMarket !== null ? input.preMarket as Record<string, unknown> : {};
+  const newYork = typeof input.newYork === 'object' && input.newYork !== null ? input.newYork as Record<string, unknown> : {};
+
+  return {
+    asia: {
+      start: readTime(asia.start, DEFAULT_PREFERENCES.sessionTimes.asia.start),
+      end: readTime(asia.end, DEFAULT_PREFERENCES.sessionTimes.asia.end),
+    },
+    london: {
+      start: readTime(london.start, DEFAULT_PREFERENCES.sessionTimes.london.start),
+      end: readTime(london.end, DEFAULT_PREFERENCES.sessionTimes.london.end),
+    },
+    preMarket: {
+      start: readTime(preMarket.start, DEFAULT_PREFERENCES.sessionTimes.preMarket.start),
+      end: readTime(preMarket.end, DEFAULT_PREFERENCES.sessionTimes.preMarket.end),
+    },
+    newYork: {
+      start: readTime(newYork.start, DEFAULT_PREFERENCES.sessionTimes.newYork.start),
+      end: readTime(newYork.end, DEFAULT_PREFERENCES.sessionTimes.newYork.end),
+    },
+  };
+}
 
 interface AppSettingsContextValue {
   accounts: TradingAccount[];
@@ -32,6 +86,7 @@ interface AppSettingsContextValue {
   updatePreferences: (updates: Partial<AppPreferences>) => void;
   getDefaultTradeAccountId: () => string;
   resolveTradeAccountId: (trade: Partial<Trade>) => string;
+  isTradeAccountAllocatable: (accountId: string) => boolean;
   decorateTrades: (trades: Trade[]) => Trade[];
   filterTradesBySelectedAccount: (trades: Trade[]) => Trade[];
   persistTradeAccount: (tradeId: string, accountId?: string) => void;
@@ -56,8 +111,25 @@ function getTradeAccountsKey(userId: string) {
   return `tw_trade_accounts_${userId}`;
 }
 
+function normalizeAccountStatus(
+  status: unknown,
+  fallbackStatus: TradingAccountStatus = 'Eval'
+): TradingAccountStatus {
+  return status === 'Eval' || status === 'Funded' || status === 'Live' || status === 'Blown'
+    ? status
+    : fallbackStatus;
+}
+
 function ensureDefaultAccount(accounts: TradingAccount[]): TradingAccount[] {
-  const withoutDuplicates = accounts.filter((account, index, collection) => (
+  const normalizedAccounts = accounts.map(account => ({
+    ...account,
+    status: normalizeAccountStatus(
+      account.status,
+      account.id === DEFAULT_ACCOUNT_ID ? DEFAULT_ACCOUNT.status : 'Eval'
+    ),
+  }));
+
+  const withoutDuplicates = normalizedAccounts.filter((account, index, collection) => (
     collection.findIndex(candidate => candidate.id === account.id) === index
   ));
 
@@ -86,14 +158,23 @@ function loadPreferences(userId: string): AppPreferences {
 
   try {
     const raw = window.localStorage.getItem(getPreferencesKey(userId));
-    if (!raw) return DEFAULT_PREFERENCES;
-    const parsed = JSON.parse(raw) as Partial<AppPreferences>;
+    const parsed = raw ? JSON.parse(raw) as Partial<AppPreferences> : {};
+    const rawTimezone = window.localStorage.getItem(TIMEZONE_STORAGE_KEY) ?? parsed.timezone ?? DEFAULT_TIMEZONE;
+    const normalizedTimezone = SUPPORTED_TIMEZONE_SET.has(rawTimezone) ? rawTimezone : DEFAULT_TIMEZONE;
+
     return {
       ...DEFAULT_PREFERENCES,
       ...parsed,
+      timezone: normalizedTimezone,
+      sessionTimes: normalizeSessionTimes(parsed.sessionTimes),
     };
   } catch {
-    return DEFAULT_PREFERENCES;
+    const fallbackTimezone = window.localStorage.getItem(TIMEZONE_STORAGE_KEY) ?? DEFAULT_TIMEZONE;
+    return {
+      ...DEFAULT_PREFERENCES,
+      timezone: SUPPORTED_TIMEZONE_SET.has(fallbackTimezone) ? fallbackTimezone : DEFAULT_TIMEZONE,
+      sessionTimes: DEFAULT_PREFERENCES.sessionTimes,
+    };
   }
 }
 
@@ -154,6 +235,11 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
   }, [preferences, user]);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(TIMEZONE_STORAGE_KEY, preferences.timezone);
+  }, [preferences.timezone]);
+
+  useEffect(() => {
     if (!user) return;
     window.localStorage.setItem(getSelectedAccountKey(user.id), selectedAccountId);
   }, [selectedAccountId, user]);
@@ -164,14 +250,35 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
   }, [tradeAccounts, user]);
 
   const validAccountIds = useMemo(() => new Set(accounts.map(account => account.id)), [accounts]);
+  const accountById = useMemo(
+    () => new Map(accounts.map(account => [account.id, account] as const)),
+    [accounts]
+  );
+  const firstAllocatableAccountId = useMemo(
+    () => accounts.find(account => account.status !== 'Blown')?.id ?? DEFAULT_ACCOUNT_ID,
+    [accounts]
+  );
+
+  const isTradeAccountAllocatable = useCallback((accountId: string) => {
+    const account = accountById.get(accountId);
+    return Boolean(account && account.status !== 'Blown');
+  }, [accountById]);
 
   const getDefaultTradeAccountId = useCallback(() => {
-    if (selectedAccountId !== ALL_ACCOUNTS_ID && validAccountIds.has(selectedAccountId)) {
+    if (
+      selectedAccountId !== ALL_ACCOUNTS_ID
+      && validAccountIds.has(selectedAccountId)
+      && isTradeAccountAllocatable(selectedAccountId)
+    ) {
       return selectedAccountId;
     }
 
-    return DEFAULT_ACCOUNT_ID;
-  }, [selectedAccountId, validAccountIds]);
+    if (isTradeAccountAllocatable(DEFAULT_ACCOUNT_ID)) {
+      return DEFAULT_ACCOUNT_ID;
+    }
+
+    return firstAllocatableAccountId;
+  }, [firstAllocatableAccountId, isTradeAccountAllocatable, selectedAccountId, validAccountIds]);
 
   const resolveTradeAccountId = useCallback((trade: Partial<Trade>) => {
     const accountCandidate = trade.accountId || trade.account_id || (trade.id ? tradeAccounts[trade.id] : undefined);
@@ -263,6 +370,7 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
     updatePreferences,
     getDefaultTradeAccountId,
     resolveTradeAccountId,
+    isTradeAccountAllocatable,
     decorateTrades,
     filterTradesBySelectedAccount,
     persistTradeAccount,
@@ -277,6 +385,7 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
     updatePreferences,
     getDefaultTradeAccountId,
     resolveTradeAccountId,
+    isTradeAccountAllocatable,
     decorateTrades,
     filterTradesBySelectedAccount,
     persistTradeAccount,

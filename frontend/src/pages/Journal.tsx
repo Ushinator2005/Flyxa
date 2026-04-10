@@ -458,18 +458,21 @@ export default function Journal() {
   }
 
   return (
-    <div className="animate-fade-in -m-8" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+    <div
+      className="animate-fade-in -m-8 flex flex-col lg:min-h-[calc(100vh-3.5rem)]"
+      style={{ fontFamily: "'DM Sans', sans-serif" }}
+    >
 
       {/* ── Timeline section ─────────────────────────────────────────────── */}
-      <section style={{ padding: '20px 32px 16px' }}>
+      <section style={{ padding: '16px 32px 10px', flexShrink: 0 }}>
 
         {/* Header row */}
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '14px' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '10px' }}>
           <div>
             <h1 style={{ fontSize: '18px', fontWeight: 600, color: '#c9d3e0', margin: 0, lineHeight: 1.2 }}>
               Daily Journal
             </h1>
-            <p style={{ fontSize: '12px', color: '#3d4e62', marginTop: '5px' }}>
+            <p style={{ fontSize: '12px', color: '#3d4e62', marginTop: '4px' }}>
               Your private trading log — pick up where you left off.
             </p>
           </div>
@@ -500,7 +503,7 @@ export default function Journal() {
         </div>
 
         {/* Search bar */}
-        <div style={{ position: 'relative', marginBottom: '14px' }}>
+        <div style={{ position: 'relative', marginBottom: '10px' }}>
           <Search
             size={14}
             style={{
@@ -535,8 +538,9 @@ export default function Journal() {
         </div>
 
         {/* Entry list */}
+        <div style={{ maxHeight: 'min(24vh, 280px)', overflowY: 'auto', paddingRight: '2px' }}>
         {grouped.length === 0 ? (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '40px 0', gap: '10px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px 0', gap: '10px' }}>
             <PenLine size={22} style={{ color: '#2d3d52' }} />
             <p style={{ fontSize: '13px', color: '#4a5a6e', margin: 0 }}>
               {search ? 'No matching entries' : 'No entries yet'}
@@ -547,9 +551,9 @@ export default function Journal() {
           </div>
         ) : (
           grouped.map(([month, monthEntries]) => (
-            <div key={month} style={{ marginBottom: '20px' }}>
+            <div key={month} style={{ marginBottom: '14px' }}>
               {/* Month separator */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
                 <span
                   style={{
                     fontSize: '10px',
@@ -581,6 +585,7 @@ export default function Journal() {
             </div>
           ))
         )}
+        </div>
       </section>
 
       {/* ── Divider ──────────────────────────────────────────────────────── */}
@@ -588,7 +593,15 @@ export default function Journal() {
 
       {/* ── Detail panel ─────────────────────────────────────────────────── */}
       {selected && (
-        <section style={{ padding: '28px 32px' }}>
+        <section
+          style={{
+            padding: '18px 32px 32px',
+            display: 'flex',
+            flex: 1,
+            flexDirection: 'column',
+            minHeight: 0,
+          }}
+        >
 
           {/* Section label */}
           <p
@@ -598,7 +611,7 @@ export default function Journal() {
               color: '#3b82f6',
               textTransform: 'uppercase',
               letterSpacing: '0.1em',
-              marginBottom: '16px',
+              marginBottom: '10px',
             }}
           >
             Entry
@@ -610,8 +623,8 @@ export default function Journal() {
               display: 'flex',
               alignItems: 'flex-start',
               justifyContent: 'space-between',
-              gap: '24px',
-              marginBottom: '20px',
+              gap: '18px',
+              marginBottom: '12px',
               flexWrap: 'wrap',
             }}
           >
@@ -721,7 +734,7 @@ export default function Journal() {
           </div>
 
           {/* Mood toggles */}
-          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '24px' }}>
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '12px' }}>
             {JOURNAL_MOODS.map(mood => {
               const isActive = moodByEntryId[selected.id] === mood;
               const ms = MOOD_STYLES[mood];
@@ -760,11 +773,15 @@ export default function Journal() {
 
           {/* Writing area */}
           <div
+            className="min-h-[500px] lg:h-[55vh]"
             style={{
               background: '#111620',
               border: '1px solid #1a2336',
               borderRadius: '12px',
               overflow: 'hidden',
+              display: 'flex',
+              flex: 1,
+              flexDirection: 'column',
             }}
           >
             {/* Title input */}
@@ -816,7 +833,8 @@ export default function Journal() {
               style={{
                 display: 'block',
                 width: '100%',
-                minHeight: '220px',
+                flex: 1,
+                minHeight: 0,
                 padding: '18px',
                 background: 'transparent',
                 border: 'none',
