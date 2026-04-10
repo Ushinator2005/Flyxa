@@ -1,9 +1,5 @@
 import {
   ArrowRight,
-  BarChart3,
-  Brain,
-  FileText,
-  Target,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import BackgroundCanvas from '../components/BackgroundCanvas.js';
@@ -90,16 +86,26 @@ const heroInsightStats = [
   { label: 'Best window', value: '9:30-10:15', detail: 'where your cleanest executions happen' },
 ];
 
-const heroBehaviorBars = [
-  { label: 'Waited for confirmation', value: '+2.3R avg', width: '78%', color: '#3BC8FF' },
-  { label: 'Impulse re-entry', value: '-1.4R avg', width: '36%', color: '#FF4D4D' },
-];
+const socialProofAvatars = ['JT', 'RP', 'DL', 'SK', 'MN'];
 
-const heroFocusItems = [
-  'Log your pre-open emotion before the first trade',
-  'Tag every second entry after a stop-out',
-  'Review only range mornings this week',
-];
+function SocialProofRow({ text, className = '' }: { text: string; className?: string }) {
+  return (
+    <div className={`mt-4 inline-flex items-center gap-3 ${className}`}>
+      <div className="flex items-center">
+        {socialProofAvatars.map((initials, index) => (
+          <span
+            key={initials}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[#1C2030] bg-[#111824] text-[10px] font-semibold tracking-[0.06em] text-[#C8CDD6]"
+            style={{ marginLeft: index === 0 ? 0 : '-10px', zIndex: socialProofAvatars.length - index }}
+          >
+            {initials}
+          </span>
+        ))}
+      </div>
+      <p className="text-sm text-[#8A8F98]">{text}</p>
+    </div>
+  );
+}
 
 export default function LandingPage() {
   const storyStripTop = [...storyStripQuotes.slice(0, 3), ...storyStripQuotes.slice(0, 3)];
@@ -190,7 +196,7 @@ export default function LandingPage() {
               <div className="grid items-center gap-14 lg:grid-cols-2 lg:gap-16">
                 <Reveal className="max-w-[560px]">
                   <h1 className="font-['Syne'] text-[clamp(3rem,6vw,5.2rem)] font-extrabold leading-[0.94] tracking-[-0.05em] text-white">
-                    You don&apos;t have a strategy problem. You have a <span className="text-[#3BC8FF]">review</span> problem.
+                    Stop losing to <span className="text-[#3BC8FF]">last week&apos;s you.</span>
                   </h1>
 
                   <p className="mt-8 max-w-[480px] text-[17px] leading-[1.65] text-[#8A8F98]">
@@ -204,128 +210,61 @@ export default function LandingPage() {
                     >
                       Start reviewing free <ArrowRight size={16} />
                     </Link>
-                    <p className="mt-5 text-sm text-[#8A8F98]">Joined by 240 futures traders this week</p>
+                    <SocialProofRow text="Joined by 240 futures traders this week" />
                   </div>
                 </Reveal>
 
                 <Reveal delay={120}>
-                  <div className="mx-auto w-full max-w-[620px]">
-                    <div className="relative overflow-hidden rounded-[40px] border border-white/[0.08] bg-[#0D1218] p-4 sm:p-6">
-                      <div className="pointer-events-none absolute -right-16 top-10 h-40 w-40 rounded-full bg-[#3BC8FF]/[0.05] blur-3xl" />
-                      <div className="pointer-events-none absolute -left-12 bottom-8 h-28 w-28 rounded-full bg-white/[0.03] blur-2xl" />
-
-                      <div className="flex items-center justify-between border-b border-white/[0.06] pb-4">
-                        <div>
-                          <p className="text-[11px] uppercase tracking-[0.22em] text-[#8A8F98]">Flyxa review</p>
-                          <p className="mt-2 text-sm font-medium text-white">Pattern surfaced from your last 7 sessions</p>
-                        </div>
+                  <div className="mx-auto w-full max-w-[620px] space-y-4">
+                    <div className="relative overflow-hidden rounded-[32px] border border-white/[0.08] bg-[#0D1218] p-6">
+                      <div className="pointer-events-none absolute -right-20 top-8 h-36 w-36 rounded-full bg-[#3BC8FF]/[0.05] blur-3xl" />
+                      <div className="flex items-center justify-between">
+                        <p className="text-[11px] uppercase tracking-[0.22em] text-[#8A8F98]">Flyxa review</p>
                         <div className="rounded-full border border-[#3BC8FF]/20 bg-[#3BC8FF]/8 px-3 py-1 text-[11px] font-medium text-[#3BC8FF]">
                           Behavior pattern found
                         </div>
                       </div>
 
-                      <div className="mt-6 grid gap-4 lg:grid-cols-[minmax(0,1.12fr)_220px] lg:items-start">
-                        <div className="space-y-4">
-                          <div className="rounded-[32px] border border-white/[0.06] bg-[#111824] p-5">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.2em] text-[#8A8F98]">
-                                <FileText size={14} />
-                                AI review summary
-                              </div>
-                              <span className="rounded-full border border-white/[0.08] px-3 py-1 text-[11px] text-[#8A8F98]">
-                                7 sessions analyzed
-                              </span>
-                            </div>
-                            <p className="mt-5 text-[1.35rem] font-medium leading-9 text-white">
-                              You make money when you wait for confirmation. You give it back when you force a second trade on range mornings.
-                            </p>
-                            <p className="mt-4 max-w-[460px] text-sm leading-7 text-[#8A8F98]">
-                              Flyxa connected your notes, trade history, and emotional tags to show the pattern you kept feeling but could not prove.
-                            </p>
-                            <div className="mt-5 flex flex-wrap gap-2">
-                              <span className="inline-flex items-center gap-2 rounded-full border border-[#3BC8FF]/18 bg-[#3BC8FF]/8 px-3 py-1.5 text-xs text-[#C8D7E6]">
-                                Trend mornings +2.3R avg
-                              </span>
-                              <span className="rounded-full border border-white/[0.06] bg-white/[0.03] px-3 py-1.5 text-xs text-[#8A8F98]">
-                                Range re-entries -1.4R avg
-                              </span>
-                            </div>
-                          </div>
+                      <p className="mt-5 text-[30px] leading-[1.2] text-[#C8CDD6]">Pattern surfaced from your last 7 sessions</p>
+                      <p className="mt-6 max-w-[540px] text-[49px] font-medium leading-[1.26] text-white">
+                        You make money when you wait for confirmation. You give it back when you force a second trade on range mornings.
+                      </p>
+                      <p className="mt-6 text-[30px] leading-[1.45] text-[#6D7484]">
+                        Flyxa connected your notes, trade history, and emotional tags to show the pattern you kept feeling but could not prove.
+                      </p>
 
-                          <div className="ml-0 rounded-[34px] border border-white/[0.06] bg-[#111824] p-5 sm:ml-8">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.2em] text-[#8A8F98]">
-                                <BarChart3 size={14} />
-                                P&L by behavior
-                              </div>
-                              <span className="text-sm font-medium text-[#3BC8FF]">+4.8R reclaimed</span>
-                            </div>
-                            <div className="mt-5 rounded-[26px] border border-white/[0.05] bg-[#0C121B] p-4">
-                              <div className="space-y-4">
-                                {heroBehaviorBars.map(item => (
-                                  <div key={item.label}>
-                                    <div className="flex items-center justify-between gap-4 text-sm">
-                                      <span className="text-[#C8D7E6]">{item.label}</span>
-                                      <span style={{ color: item.color }} className="font-medium">
-                                        {item.value}
-                                      </span>
-                                    </div>
-                                    <div className="mt-2 h-2.5 rounded-full bg-white/[0.05]">
-                                      <div
-                                        className="h-full rounded-full"
-                                        style={{ width: item.width, backgroundColor: item.color }}
-                                      />
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-
-                              <div className="mt-5 h-16">
-                                <svg viewBox="0 0 320 64" className="h-full w-full" fill="none" aria-hidden="true">
-                                  <path d="M4 52H316" stroke="rgba(138,143,152,0.12)" strokeWidth="1" />
-                                  <path d="M4 42 42 46 78 32 114 34 150 22 188 24 226 10 264 16 316 4" stroke="#3BC8FF" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-                                  <path d="M4 42 42 46 78 32 114 34 150 22 188 24 226 10 264 16 316 4" stroke="#3BC8FF" strokeOpacity="0.16" strokeWidth="9" strokeLinecap="round" strokeLinejoin="round" />
-                                </svg>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="space-y-4 lg:pt-8">
-                          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-                            {heroInsightStats.map(stat => (
-                              <div
-                                key={stat.label}
-                                className="rounded-[999px] border border-white/[0.06] bg-[#111824] px-5 py-4"
-                              >
-                                <p className="text-[11px] uppercase tracking-[0.22em] text-[#8A8F98]">{stat.label}</p>
-                                <p className="mt-3 font-['Syne'] text-[1.9rem] font-bold tracking-[-0.04em] text-white">
-                                  {stat.value}
-                                </p>
-                                <p className="mt-2 text-xs text-[#8A8F98]">{stat.detail}</p>
-                              </div>
-                            ))}
-                          </div>
-
-                          <div className="rounded-[32px] border border-white/[0.06] bg-[#111824] p-5">
-                            <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.2em] text-[#8A8F98]">
-                              <Brain size={14} />
-                              What changes next
-                            </div>
-                            <div className="mt-4 rounded-[24px] border border-[#3BC8FF]/16 bg-[#3BC8FF]/6 px-4 py-4">
-                              <p className="text-sm font-medium text-white">Keep the first pullback. Cut the emotional re-entry.</p>
-                              <div className="mt-4 space-y-2.5">
-                                {heroFocusItems.map(item => (
-                                  <div key={item} className="flex items-start gap-3 rounded-[16px] border border-white/[0.06] bg-[#0D1218]/70 px-3 py-3">
-                                    <Target size={14} className="mt-0.5 shrink-0 text-[#3BC8FF]" />
-                                    <p className="text-xs leading-6 text-[#C8D7E6]">{item}</p>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
+                      <div className="mt-6 flex flex-wrap gap-2">
+                        <span className="inline-flex items-center gap-2 rounded-[12px] border border-[#22c55e]/30 bg-[#22c55e]/10 px-4 py-2 text-[24px] text-[#4ade80]">
+                          Trend mornings +2.3R avg
+                        </span>
+                        <span className="rounded-[12px] border border-[#ef4444]/30 bg-[#ef4444]/10 px-4 py-2 text-[24px] text-[#f87171]">
+                          Range re-entries -1.4R avg
+                        </span>
                       </div>
+                    </div>
+
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      {heroInsightStats.map((stat, index) => (
+                        <div
+                          key={stat.label}
+                          className="rounded-[24px] border border-white/[0.08] bg-[#0D1629] px-5 py-4"
+                        >
+                          <p className="text-[11px] uppercase tracking-[0.22em] text-[#8A8F98]">{stat.label}</p>
+                          <p className="mt-3 font-['Syne'] text-[44px] font-bold leading-[1.05] tracking-[-0.04em] text-white">
+                            {stat.value}
+                          </p>
+                          <p className="mt-2 text-sm text-[#8A8F98]">{stat.detail}</p>
+                          <div className="mt-4 h-2 rounded-full bg-white/[0.07]">
+                            <div
+                              className="h-2 rounded-full"
+                              style={{
+                                width: index === 0 ? '84%' : '92%',
+                                backgroundColor: index === 0 ? '#22c55e' : '#3BC8FF',
+                              }}
+                            />
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 </Reveal>
@@ -593,9 +532,10 @@ export default function LandingPage() {
                 >
                   Start reviewing free <ArrowRight size={16} className="ml-2" />
                 </Link>
-                <p className="mt-5 text-sm text-[#8A8F98]">
-                  No credit card | Cancel anytime | Used by 240+ futures traders
-                </p>
+                <div className="mt-1">
+                  <SocialProofRow text="Used by 240+ futures traders" className="justify-center" />
+                </div>
+                <p className="mt-3 text-sm text-[#8A8F98]">No credit card | Cancel anytime</p>
               </div>
             </Reveal>
           </section>

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { CalendarDays, Clock3, Expand, ImagePlus, Sparkles, Wand2, X, Upload } from 'lucide-react';
 import TradeForm from './TradeForm.js';
@@ -74,6 +74,13 @@ const DEFAULT_FOCUS_CROPS: CropPreset[] = [
   { name: 'stop-label-focus', x: 0.83, y: 0.28, width: 0.17, height: 0.08 },
   { name: 'target-label-focus', x: 0.83, y: 0.52, width: 0.17, height: 0.08 },
 ];
+
+const ACCOUNT_STATUS_STYLES = {
+  Eval: 'border-blue-400/30 bg-blue-500/10 text-blue-300',
+  Funded: 'border-amber-400/30 bg-amber-500/10 text-amber-300',
+  Live: 'border-emerald-400/30 bg-emerald-500/10 text-emerald-300',
+  Blown: 'border-red-400/30 bg-red-500/10 text-red-300',
+} as const;
 
 function loadImage(file: File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -429,7 +436,7 @@ interface Props {
 }
 
 export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTrade, prefillTrade }: Props) {
-  const { accounts, getDefaultTradeAccountId, resolveTradeAccountId } = useAppSettings();
+  const { accounts, getDefaultTradeAccountId, isTradeAccountAllocatable, resolveTradeAccountId } = useAppSettings();
   const getInitialTradeAccountId = useCallback(() => {
     const baseTrade = editTrade ?? prefillTrade ?? null;
     if (baseTrade?.accountId || baseTrade?.account_id || baseTrade?.id) {
@@ -468,6 +475,17 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
   const [currentTime, setCurrentTime] = useState(() => editTrade?.trade_time ?? prefillTrade?.trade_time ?? '');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const accountById = useMemo(() => new Map(accounts.map(account => [account.id, account] as const)), [accounts]);
+  const existingTradeAccountId = editTrade ? resolveTradeAccountId(editTrade) : null;
+  const selectedTradeAccount = accountById.get(tradeAccountId);
+  const selectedTradeAccountIsAllocatable = tradeAccountId ? isTradeAccountAllocatable(tradeAccountId) : false;
+  const hasAllocatableAccount = useMemo(
+    () => accounts.some(account => isTradeAccountAllocatable(account.id)),
+    [accounts, isTradeAccountAllocatable]
+  );
+  const selectedTradeAccountStatusClass = selectedTradeAccount
+    ? ACCOUNT_STATUS_STYLES[selectedTradeAccount.status]
+    : null;
 
   const getFallbackScanDate = () => new Date().toISOString().split('T')[0];
   const getFallbackScanTime = () =>
@@ -619,6 +637,16 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
   }, [handleImageSelected]);
 
   const handleSave = async (data: Partial<Trade>) => {
+    if (!tradeAccountId || !selectedTradeAccount) {
+      alert('Select an account before saving this trade.');
+      return;
+    }
+
+    if (!selectedTradeAccountIsAllocatable && tradeAccountId !== existingTradeAccountId) {
+      alert(`${selectedTradeAccount.name} is marked as Blown and cannot be allocated to a trade.`);
+      return;
+    }
+
     setSaving(true);
     try {
       await onSave({
@@ -870,11 +898,32 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
                       onChange={e => setTradeAccountId(e.target.value)}
                     >
                       {accounts.map(account => (
-                        <option key={account.id} value={account.id}>
-                          {account.name}
+                        <option
+                          key={account.id}
+                          value={account.id}
+                          disabled={account.status === 'Blown' && account.id !== tradeAccountId}
+                        >
+                          {account.name}{account.status === 'Blown' ? ' (Blown)' : ''}
                         </option>
                       ))}
                     </select>
+                    {selectedTradeAccount && selectedTradeAccountStatusClass && (
+                      <div className="mt-2 flex items-center gap-2">
+                        <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${selectedTradeAccountStatusClass}`}>
+                          {selectedTradeAccount.status}
+                        </span>
+                        {!selectedTradeAccountIsAllocatable && tradeAccountId !== existingTradeAccountId && (
+                          <span className="text-xs text-red-300">
+                            Blown accounts can&apos;t be allocated to new trades.
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {!hasAllocatableAccount && (
+                      <p className="mt-2 text-xs text-red-300">
+                        Every account is marked as Blown right now. Change one account status before saving a trade.
+                      </p>
+                    )}
                   </div>
                   <label className="label">Contracts</label>
                   <input

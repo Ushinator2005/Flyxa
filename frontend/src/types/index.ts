@@ -156,19 +156,42 @@ export interface ExtractedTradeData {
 }
 
 export type TradingAccountType = 'Futures' | 'Forex' | 'Stocks';
+export type TradingAccountStatus = 'Eval' | 'Funded' | 'Live' | 'Blown';
 
 export interface TradingAccount {
   id: string;
   name: string;
   broker?: string;
+  credentials?: string;
   type: TradingAccountType;
+  status: TradingAccountStatus;
   color: string;
   createdAt: string;
 }
 
 export interface AppPreferences {
   dateFormat: 'dd/MM/yyyy' | 'MM/dd/yyyy' | 'yyyy-MM-dd';
-  currencySymbol: '$' | '€' | '£' | 'A$';
+  currencySymbol: '$' | 'â‚¬' | 'Â£' | 'A$';
+  timezone: string;
   defaultTimeframe: '1m' | '5m' | '15m' | '1h';
   defaultChartType: 'Candles' | 'Line' | 'Area';
+  sessionTimes: {
+    asia: {
+      start: string;
+      end: string;
+    };
+    london: {
+      start: string;
+      end: string;
+    };
+    preMarket: {
+      start: string;
+      end: string;
+    };
+    newYork: {
+      start: string;
+      end: string;
+    };
+  };
 }
+

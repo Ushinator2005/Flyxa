@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useTrades } from '../hooks/useTrades.js';
+import { useAppSettings } from '../contexts/AppSettingsContext.js';
 
 type ViewKey = 'weekly' | 'patterns' | 'pre-session' | 'emotional' | 'ask';
 type InsightTone = 'pattern' | 'psychology' | 'edge' | 'risk';
@@ -165,13 +167,6 @@ const suggestedQuestions = [
   'When am I most likely to revenge trade?',
 ];
 
-const rightPanelStats = [
-  { label: 'Net R', value: '+3.2R', detail: '', valueClass: 'text-[#00C97A]' },
-  { label: 'Win rate', value: '57%', detail: '13 of 23 trades', valueClass: 'text-white' },
-  { label: 'Avg winner', value: '+1.8R', detail: '', valueClass: 'text-[#00C97A]' },
-  { label: 'Avg loser', value: '-0.9R', detail: '', valueClass: 'text-[#E24B4A]' },
-];
-
 const scoreBreakdown = [
   { label: 'Plan adherence', value: 82, color: '#00C97A' },
   { label: 'Risk discipline', value: 71, color: '#00C97A' },
@@ -255,12 +250,12 @@ function MatrixCell({
   return <td className={`px-4 py-3 text-sm ${className}`}>{value}</td>;
 }
 
-function WeeklyDebriefView() {
+function WeeklyDebriefView({ summaryLine }: { summaryLine: string }) {
   return (
     <div className="space-y-5">
       <div>
         <h2 className="text-[22px] font-medium text-white">Week of Apr 1 - Apr 7, 2026</h2>
-        <p className="mt-2 text-[13px] text-[#8A8F98]">8 sessions · 23 trades logged · Generated Apr 7</p>
+        <p className="mt-2 text-[13px] text-[#8A8F98]">{summaryLine}</p>
         <div className="mt-4 flex flex-wrap gap-2">
           {['ES', 'NQ'].map(symbol => (
             <span
@@ -531,7 +526,22 @@ function AskFlyxaView({
   );
 }
 
-function RightPanel({ onAskShortcut }: { onAskShortcut: () => void }) {
+function RightPanel({
+  onAskShortcut,
+  winRateText,
+  winRateDetail,
+}: {
+  onAskShortcut: () => void;
+  winRateText: string;
+  winRateDetail: string;
+}) {
+  const rightPanelStats = [
+    { label: 'Net R', value: '+3.2R', detail: '', valueClass: 'text-[#00C97A]' },
+    { label: 'Win rate', value: winRateText, detail: winRateDetail, valueClass: 'text-white' },
+    { label: 'Avg winner', value: '+1.8R', detail: '', valueClass: 'text-[#00C97A]' },
+    { label: 'Avg loser', value: '-0.9R', detail: '', valueClass: 'text-[#E24B4A]' },
+  ];
+
   return (
     <div className="flex h-full flex-col gap-6">
       <section>
@@ -610,9 +620,31 @@ function RightPanel({ onAskShortcut }: { onAskShortcut: () => void }) {
 }
 
 export default function AICoach() {
+  const { trades } = useTrades();
+  const { filterTradesBySelectedAccount } = useAppSettings();
   const [activeView, setActiveView] = useState<ViewKey>('weekly');
   const [intention, setIntention] = useState('');
   const [askInput, setAskInput] = useState('');
+  const filteredTrades = useMemo(() => filterTradesBySelectedAccount(trades), [filterTradesBySelectedAccount, trades]);
+  const loggedTrades = filteredTrades.length;
+  const sessionCount = useMemo(() => {
+    const uniqueTradeDates = new Set(
+      filteredTrades
+        .map(trade => trade.trade_date || trade.created_at?.slice(0, 10) || '')
+        .filter(Boolean)
+    );
+    return uniqueTradeDates.size;
+  }, [filteredTrades]);
+  const wins = useMemo(() => filteredTrades.filter(trade => trade.pnl > 0).length, [filteredTrades]);
+  const losses = useMemo(() => filteredTrades.filter(trade => trade.pnl < 0).length, [filteredTrades]);
+  const scoredTrades = wins + losses;
+  const winRate = scoredTrades > 0 ? (wins / scoredTrades) * 100 : 0;
+  const generatedDate = useMemo(
+    () => new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+    []
+  );
+  const weeklySummaryLine = `${sessionCount} sessions - ${loggedTrades} trades logged - Generated ${generatedDate}`;
+  const headerSummaryLine = `Based on ${sessionCount} sessions - ${loggedTrades} logged trades`;
 
   return (
     <div className="animate-fade-in -m-8 h-[calc(100vh-3.5rem)] overflow-hidden bg-[#080B10] text-white">
@@ -660,7 +692,7 @@ export default function AICoach() {
           <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
             <div>
               <h1 className="text-[22px] font-medium text-white">Week of Apr 1 - Apr 7, 2026</h1>
-              <p className="mt-2 text-[13px] text-[#8A8F98]">Based on 8 sessions · 23 logged trades</p>
+              <p className="mt-2 text-[13px] text-[#8A8F98]">{headerSummaryLine}</p>
             </div>
 
             <div className="flex items-center gap-2">
@@ -676,7 +708,7 @@ export default function AICoach() {
 
         <main className="min-h-0 md:col-[2] md:row-[2] md:h-full md:overflow-y-auto">
           <div className="h-full px-5 py-5 md:p-5">
-            {activeView === 'weekly' && <WeeklyDebriefView />}
+            {activeView === 'weekly' && <WeeklyDebriefView summaryLine={weeklySummaryLine} />}
             {activeView === 'patterns' && <PatternLibraryView />}
             {activeView === 'pre-session' && (
               <PreSessionBriefView intention={intention} onChangeIntention={setIntention} />
@@ -687,7 +719,11 @@ export default function AICoach() {
         </main>
 
         <aside className="border-t border-[#1C2030] px-5 py-5 md:col-[3] md:row-[2] md:h-full md:overflow-y-auto md:border-l md:border-t-0 md:p-5">
-          <RightPanel onAskShortcut={() => setActiveView('ask')} />
+          <RightPanel
+            onAskShortcut={() => setActiveView('ask')}
+            winRateText={`${winRate.toFixed(0)}%`}
+            winRateDetail={`${wins} of ${loggedTrades} trades`}
+          />
         </aside>
       </div>
     </div>
