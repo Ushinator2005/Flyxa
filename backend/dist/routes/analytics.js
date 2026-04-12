@@ -20,6 +20,28 @@ function calcConsecutive(trades) {
     }
     return { wins: maxWins, losses: maxLosses };
 }
+function normalizeConfluences(value) {
+    const rawValues = Array.isArray(value)
+        ? value
+        : typeof value === 'string'
+            ? value.split(',')
+            : [];
+    const deduped = new Set();
+    const normalized = [];
+    for (const entry of rawValues) {
+        if (typeof entry !== 'string')
+            continue;
+        const cleaned = entry.trim().replace(/\s+/g, ' ');
+        if (!cleaned)
+            continue;
+        const key = cleaned.toLowerCase();
+        if (deduped.has(key))
+            continue;
+        deduped.add(key);
+        normalized.push(cleaned);
+    }
+    return normalized;
+}
 // GET /summary
 router.get('/summary', auth_1.authMiddleware, async (req, res, next) => {
     try {
@@ -178,6 +200,63 @@ router.get('/by-instrument', auth_1.authMiddleware, async (req, res, next) => {
             netPnL: data.pnl,
             profitFactor: data.grossLoss !== 0 ? data.grossProfit / Math.abs(data.grossLoss) : data.grossProfit > 0 ? 999 : 0,
         }));
+        res.json(result);
+    }
+    catch (err) {
+        next(err);
+    }
+});
+// GET /by-confluence
+router.get('/by-confluence', auth_1.authMiddleware, async (req, res, next) => {
+    try {
+        const { data: trades, error } = await supabase_1.supabase
+            .from('trades')
+            .select('confluences, pnl, exit_reason')
+            .eq('user_id', req.userId);
+        if (error)
+            throw error;
+        const confluenceStats = {};
+        for (const trade of (trades || [])) {
+            const confluences = normalizeConfluences(trade.confluences);
+            if (!confluences.length)
+                continue;
+            for (const confluence of confluences) {
+                const key = confluence.toLowerCase();
+                if (!confluenceStats[key]) {
+                    confluenceStats[key] = {
+                        label: confluence,
+                        total: 0,
+                        wins: 0,
+                        pnl: 0,
+                        grossProfit: 0,
+                        grossLoss: 0,
+                    };
+                }
+                confluenceStats[key].total++;
+                confluenceStats[key].pnl += trade.pnl;
+                if (trade.exit_reason === 'TP') {
+                    confluenceStats[key].wins++;
+                    confluenceStats[key].grossProfit += trade.pnl;
+                }
+                else {
+                    confluenceStats[key].grossLoss += trade.pnl;
+                }
+            }
+        }
+        const result = Object.values(confluenceStats)
+            .map(stat => ({
+            confluence: stat.label,
+            trades: stat.total,
+            winRate: stat.total > 0 ? (stat.wins / stat.total) * 100 : 0,
+            netPnL: stat.pnl,
+            avgPnL: stat.total > 0 ? stat.pnl / stat.total : 0,
+            profitFactor: stat.grossLoss !== 0
+                ? stat.grossProfit / Math.abs(stat.grossLoss)
+                : stat.grossProfit > 0
+                    ? 999
+                    : 0,
+        }))
+            .sort((a, b) => b.netPnL - a.netPnL);
         res.json(result);
     }
     catch (err) {

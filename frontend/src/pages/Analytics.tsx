@@ -45,6 +45,8 @@ const TIME_WINDOWS = [
   { label: '14:00', start: 840, end: 930 },
   { label: '15:30', start: 930, end: 960 },
 ] as const;
+const DASHBOARD_GREEN = '#34d399';
+const DASHBOARD_RED = '#f87171';
 
 function parseTradeDateTime(trade: Trade): Date | null {
   const datePart = trade.trade_date || trade.created_at?.slice(0, 10);
@@ -151,6 +153,28 @@ function formatDateLabel(date: string): string {
   const parsed = new Date(`${date}T00:00:00`);
   if (Number.isNaN(parsed.getTime())) return date;
   return parsed.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function normalizeConfluences(value: unknown): string[] {
+  const rawValues = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(',')
+      : [];
+  const deduped = new Set<string>();
+  const normalized: string[] = [];
+
+  for (const entry of rawValues) {
+    if (typeof entry !== 'string') continue;
+    const cleaned = entry.trim().replace(/\s+/g, ' ');
+    if (!cleaned) continue;
+    const key = cleaned.toLowerCase();
+    if (deduped.has(key)) continue;
+    deduped.add(key);
+    normalized.push(cleaned);
+  }
+
+  return normalized;
 }
 
 function MetricCard({
@@ -281,8 +305,8 @@ export default function Analytics() {
     }
 
     return [
-      { name: 'Wins', value: metrics.wins.length, color: '#22c55e' },
-      { name: 'Losses', value: metrics.losses.length, color: '#ef4444' },
+      { name: 'Wins', value: metrics.wins.length, color: DASHBOARD_GREEN },
+      { name: 'Losses', value: metrics.losses.length, color: DASHBOARD_RED },
     ];
   }, [metrics.losses.length, metrics.wins.length]);
 
@@ -435,6 +459,42 @@ export default function Analytics() {
     }));
   }, [filteredTrades]);
 
+  const confluenceRows = useMemo(() => {
+    const grouped = new Map<string, {
+      label: string;
+      trades: number;
+      wins: number;
+      netPnL: number;
+    }>();
+
+    filteredTrades.forEach(trade => {
+      const confluences = normalizeConfluences(trade.confluences);
+      if (!confluences.length) return;
+
+      confluences.forEach(confluence => {
+        const key = confluence.toLowerCase();
+        const current = grouped.get(key) ?? {
+          label: confluence,
+          trades: 0,
+          wins: 0,
+          netPnL: 0,
+        };
+        current.trades += 1;
+        current.netPnL += trade.pnl;
+        if (trade.pnl > 0) current.wins += 1;
+        grouped.set(key, current);
+      });
+    });
+
+    return Array.from(grouped.values())
+      .map(row => ({
+        ...row,
+        winRate: row.trades > 0 ? (row.wins / row.trades) * 100 : 0,
+        avgPnL: row.trades > 0 ? row.netPnL / row.trades : 0,
+      }))
+      .sort((a, b) => b.netPnL - a.netPnL);
+  }, [filteredTrades]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -445,6 +505,11 @@ export default function Analytics() {
 
   const periodSubtitle = period === 'ALL' ? 'all time' : period === 'YTD' ? 'year to date' : period.toLowerCase();
   const winLossTotal = metrics.wins.length + metrics.losses.length;
+  const strongestConfluences = confluenceRows.filter(row => row.netPnL > 0).slice(0, 5);
+  const weakestConfluences = confluenceRows
+    .filter(row => row.netPnL < 0)
+    .sort((a, b) => a.netPnL - b.netPnL)
+    .slice(0, 5);
 
   return (
     <div className="animate-fade-in space-y-5">
@@ -484,7 +549,7 @@ export default function Analytics() {
               ? `Live for ${periodSubtitle}`
               : `${netPnLChange >= 0 ? '+' : ''}${netPnLChange.toFixed(1)}% vs previous period`
           }
-          valueClassName={metrics.netPnL >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]'}
+          valueClassName={metrics.netPnL >= 0 ? 'text-emerald-400' : 'text-red-400'}
         />
         <MetricCard
           label="Win Rate"
@@ -502,13 +567,13 @@ export default function Analytics() {
           label="Avg Win"
           value={formatSignedCurrency(metrics.avgWin)}
           subtitle={`vs ${formatCurrency(metrics.losses.length ? Math.abs(safeAverage(metrics.losses.map(trade => trade.pnl))) : 0)} avg loss`}
-          valueClassName="text-[#22c55e]"
+          valueClassName="text-emerald-400"
         />
         <MetricCard
           label="Exp. Value"
           value={formatSignedCurrency(metrics.expectedValue)}
           subtitle="Per trade"
-          valueClassName={metrics.expectedValue >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]'}
+          valueClassName={metrics.expectedValue >= 0 ? 'text-emerald-400' : 'text-red-400'}
         />
         <MetricCard
           label="Total Trades"
@@ -524,7 +589,7 @@ export default function Analytics() {
             <h2 className="text-2xl font-semibold text-[#e2ebfb] md:text-[32px]">Cumulative P&amp;L</h2>
             <div className="flex items-center gap-4 text-sm text-[#6d82a7] md:text-[20px]">
               <span className="inline-flex items-center gap-2">
-                <span className="h-3 w-3 rounded-full bg-[#22c55e]" />
+                <span className="h-3 w-3 rounded-full bg-emerald-400" />
                 P&amp;L
               </span>
               <span className="inline-flex items-center gap-2">
@@ -539,8 +604,8 @@ export default function Analytics() {
               <AreaChart data={equityCurveData} margin={{ top: 8, right: 10, left: 2, bottom: 2 }}>
                 <defs>
                   <linearGradient id="pnl-fill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#22c55e" stopOpacity={0.22} />
-                    <stop offset="100%" stopColor="#22c55e" stopOpacity={0.04} />
+                    <stop offset="0%" stopColor={DASHBOARD_GREEN} stopOpacity={0.22} />
+                    <stop offset="100%" stopColor={DASHBOARD_GREEN} stopOpacity={0.04} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid stroke="#1a2943" vertical={false} />
@@ -561,7 +626,7 @@ export default function Analytics() {
                 <Area
                   type="monotone"
                   dataKey="cumulative"
-                  stroke="#22c55e"
+                  stroke={DASHBOARD_GREEN}
                   strokeWidth={3}
                   fill="url(#pnl-fill)"
                   dot={false}
@@ -608,17 +673,17 @@ export default function Analytics() {
             <div className="space-y-3 text-base md:text-[20px]">
               <div className="flex items-center justify-between gap-5">
                 <span className="inline-flex items-center gap-2 text-[#6d82a7]">
-                  <span className="h-3 w-3 rounded-full bg-[#22c55e]" />
+                  <span className="h-3 w-3 rounded-full bg-emerald-400" />
                   Wins
                 </span>
-                <span className="text-[#22c55e]">{metrics.wins.length}</span>
+                <span className="text-emerald-400">{metrics.wins.length}</span>
               </div>
               <div className="flex items-center justify-between gap-5">
                 <span className="inline-flex items-center gap-2 text-[#6d82a7]">
-                  <span className="h-3 w-3 rounded-full bg-[#ef4444]" />
+                  <span className="h-3 w-3 rounded-full bg-red-400" />
                   Losses
                 </span>
-                <span className="text-[#ef4444]">{metrics.losses.length}</span>
+                <span className="text-red-400">{metrics.losses.length}</span>
               </div>
               <div className="border-t border-[#22324d] pt-3 text-[13px]">
                 <div className="mb-2 flex items-center justify-between gap-3 text-[#6d82a7]">
@@ -650,11 +715,11 @@ export default function Analytics() {
                     className="h-2.5 rounded-full"
                     style={{
                       width: `${Math.max(6, row.ratio * 100)}%`,
-                      backgroundColor: row.pnl >= 0 ? '#22c55e' : '#ef4444',
+                      backgroundColor: row.pnl >= 0 ? DASHBOARD_GREEN : DASHBOARD_RED,
                     }}
                   />
                 </div>
-                <span className={`text-right text-base tabular-nums whitespace-nowrap md:text-[16px] ${row.pnl >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]'}`}>
+                <span className={`text-right text-base tabular-nums whitespace-nowrap md:text-[16px] ${row.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                   {formatSignedCurrency(row.pnl)}
                 </span>
               </div>
@@ -673,11 +738,11 @@ export default function Analytics() {
                     className="h-2.5 rounded-full"
                     style={{
                       width: `${Math.max(6, row.ratio * 100)}%`,
-                      backgroundColor: row.pnl >= 0 ? '#22c55e' : '#ef4444',
+                      backgroundColor: row.pnl >= 0 ? DASHBOARD_GREEN : DASHBOARD_RED,
                     }}
                   />
                 </div>
-                <span className={`text-right text-base tabular-nums whitespace-nowrap md:text-[16px] ${row.pnl >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]'}`}>
+                <span className={`text-right text-base tabular-nums whitespace-nowrap md:text-[16px] ${row.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                   {formatSignedCurrency(row.pnl)}
                 </span>
               </div>
@@ -695,7 +760,7 @@ export default function Analytics() {
                 key={`${outcome}-${index}`}
                 className="h-8 w-2.5 rounded-full"
                 style={{
-                  backgroundColor: outcome > 0 ? '#22c55e' : outcome < 0 ? '#ef4444' : '#334155',
+                  backgroundColor: outcome > 0 ? DASHBOARD_GREEN : outcome < 0 ? DASHBOARD_RED : '#334155',
                 }}
               />
             ))}
@@ -704,21 +769,21 @@ export default function Analytics() {
           <div className="mt-5 grid grid-cols-2 gap-4 text-sm md:text-[15px]">
             <div>
               <p className="text-[#6d82a7]">CURRENT</p>
-              <p className={streakStats.currentType >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]'}>
+              <p className={streakStats.currentType >= 0 ? 'text-emerald-400' : 'text-red-400'}>
                 {streakStats.currentLength}{streakStats.currentType >= 0 ? 'W' : 'L'} streak
               </p>
             </div>
             <div>
               <p className="text-[#6d82a7]">BEST</p>
-              <p className="text-[#22c55e]">{streakStats.bestWin}W streak</p>
+              <p className="text-emerald-400">{streakStats.bestWin}W streak</p>
             </div>
             <div>
               <p className="text-[#6d82a7]">WORST LOSS</p>
-              <p className="text-[#ef4444]">{streakStats.worstLoss}L streak</p>
+              <p className="text-red-400">{streakStats.worstLoss}L streak</p>
             </div>
             <div>
               <p className="text-[#6d82a7]">LARGEST LOSS</p>
-              <p className="text-[#ef4444]">{metrics.largestLoss < 0 ? formatCurrency(metrics.largestLoss) : '$0.00'}</p>
+              <p className="text-red-400">{metrics.largestLoss < 0 ? formatCurrency(metrics.largestLoss) : '$0.00'}</p>
             </div>
           </div>
         </section>
@@ -740,9 +805,9 @@ export default function Analytics() {
                   backgroundColor: row.avgPnL === null
                     ? '#1a2943'
                     : row.avgPnL >= 0
-                      ? `rgba(34,197,94,${0.3 + (row.ratio * 0.42)})`
-                      : `rgba(239,68,68,${0.3 + (row.ratio * 0.42)})`,
-                  color: row.avgPnL === null ? '#6d82a7' : row.avgPnL >= 0 ? '#dcfce7' : '#fecaca',
+                      ? `rgba(52,211,153,${0.3 + (row.ratio * 0.42)})`
+                      : `rgba(248,113,113,${0.3 + (row.ratio * 0.42)})`,
+                  color: row.avgPnL === null ? '#6d82a7' : row.avgPnL >= 0 ? DASHBOARD_GREEN : DASHBOARD_RED,
                 }}
               >
                 {row.avgPnL === null ? '--' : formatSignedCurrency(row.avgPnL)}
@@ -756,14 +821,61 @@ export default function Analytics() {
           <div className="flex items-center gap-2 text-xs text-[#6d82a7] md:text-[14px]">
             <span>Loss</span>
             <span className="h-3 w-6 rounded bg-[#7f1d1d]" />
-            <span className="h-3 w-6 rounded bg-[#b91c1c]" />
+            <span className="h-3 w-6 rounded bg-red-400" />
             <span className="h-3 w-6 rounded bg-[#1a2943]" />
             <span className="h-3 w-6 rounded bg-[#166534]" />
-            <span className="h-3 w-6 rounded bg-[#16a34a]" />
-            <span className="h-3 w-6 rounded bg-[#22c55e]" />
+            <span className="h-3 w-6 rounded bg-emerald-400" />
+            <span className="h-3 w-6 rounded bg-emerald-400" />
             <span>Profit</span>
           </div>
         </div>
+      </section>
+
+      <section className="rounded-2xl border border-[#22324d] bg-[#0a1428] p-5">
+        <div className="mb-5 flex items-center justify-between gap-3">
+          <h3 className="text-2xl font-semibold text-[#e2ebfb] md:text-[30px]">Confluence Performance</h3>
+          <p className="text-xs text-[#6d82a7] md:text-[16px]">Ranked by net P&amp;L contribution</p>
+        </div>
+
+        {confluenceRows.length === 0 ? (
+          <p className="text-sm text-[#6d82a7]">Add confluences on trades to unlock this breakdown.</p>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+              <p className="text-xs uppercase tracking-[0.14em] text-emerald-300">Most Profitable</p>
+              <div className="mt-3 space-y-2.5">
+                {strongestConfluences.length > 0 ? strongestConfluences.map(row => (
+                  <div key={row.label} className="flex items-center justify-between gap-2 rounded-lg border border-white/5 bg-[#0a1428] px-3 py-2">
+                    <div>
+                      <p className="text-sm text-[#e2ebfb]">{row.label}</p>
+                      <p className="text-xs text-[#6d82a7]">{row.trades} trades | {row.winRate.toFixed(0)}% win</p>
+                    </div>
+                    <p className="text-sm font-semibold text-emerald-400">{formatSignedCurrency(row.netPnL)}</p>
+                  </div>
+                )) : (
+                  <p className="text-xs text-[#6d82a7]">No profitable confluences in this period.</p>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4">
+              <p className="text-xs uppercase tracking-[0.14em] text-red-300">Most Costly</p>
+              <div className="mt-3 space-y-2.5">
+                {weakestConfluences.length > 0 ? weakestConfluences.map(row => (
+                  <div key={row.label} className="flex items-center justify-between gap-2 rounded-lg border border-white/5 bg-[#0a1428] px-3 py-2">
+                    <div>
+                      <p className="text-sm text-[#e2ebfb]">{row.label}</p>
+                      <p className="text-xs text-[#6d82a7]">{row.trades} trades | {row.winRate.toFixed(0)}% win</p>
+                    </div>
+                    <p className="text-sm font-semibold text-red-400">{formatSignedCurrency(row.netPnL)}</p>
+                  </div>
+                )) : (
+                  <p className="text-xs text-[#6d82a7]">No losing confluences in this period.</p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </section>
     </div>
   );

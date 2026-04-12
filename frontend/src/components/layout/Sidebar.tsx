@@ -10,6 +10,7 @@ import {
   FileText,
   LogOut,
   Menu,
+  Trophy,
   X,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext.js';
@@ -18,11 +19,12 @@ import FlyxaLogo from '../common/FlyxaLogo.js';
 const navItems = [
   { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { path: '/scanner', icon: Scan, label: 'Trade Journal' },
-  { path: '/coach', icon: Brain, label: 'Flyxa AI' },
+  { path: '/flyxa-ai', icon: Brain, label: 'Flyxa AI' },
   { path: '/analytics', icon: BarChart2, label: 'Analytics' },
   { path: '/backtest', icon: Target, label: 'Backtest' },
   { path: '/psychology', icon: Heart, label: 'Psychology' },
   { path: '/journal', icon: FileText, label: 'Daily Journal' },
+  { path: '/achievements', icon: Trophy, label: 'Achievements' },
 ];
 
 export default function Sidebar() {
@@ -117,3 +119,4 @@ export default function Sidebar() {
     </>
   );
 }
+

@@ -7,6 +7,9 @@ const pageNames: Record<string, string> = {
   '/': 'Dashboard',
   '/scanner': 'Trade Journal',
   '/coach': 'Flyxa AI',
+  '/flyxa-ai': 'Flyxa AI',
+  '/flyxa-ai/patterns': 'Pattern library',
+  '/flyxa-ai/pre-session': 'Pre-session brief',
   '/analytics': 'Analytics',
   '/chart': 'Backtest',
   '/backtest': 'Backtest',
@@ -55,3 +58,4 @@ export default function Header() {
     </header>
   );
 }
+

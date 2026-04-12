@@ -35,6 +35,28 @@ function calcRR(t: Trade): string {
   return `1:${(reward / risk).toFixed(2)}`;
 }
 
+function normalizeConfluences(value: unknown): string[] {
+  const rawValues = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(',')
+      : [];
+  const deduped = new Set<string>();
+  const normalized: string[] = [];
+
+  for (const entry of rawValues) {
+    if (typeof entry !== 'string') continue;
+    const cleaned = entry.trim().replace(/\s+/g, ' ');
+    if (!cleaned) continue;
+    const key = cleaned.toLowerCase();
+    if (deduped.has(key)) continue;
+    deduped.add(key);
+    normalized.push(cleaned);
+  }
+
+  return normalized;
+}
+
 function formatTradeDate(value: unknown): string {
   if (typeof value !== 'string' || !value.trim()) return 'â€”';
   const parsed = parseISO(value);
@@ -98,7 +120,11 @@ export default function TradeScanner() {
 
     if (search) {
       const q = search.toLowerCase();
-      list = list.filter(t => (t.symbol ?? '').toLowerCase().includes(q));
+      list = list.filter(t => {
+        const symbolMatch = (t.symbol ?? '').toLowerCase().includes(q);
+        const confluenceMatch = normalizeConfluences(t.confluences).some(confluence => confluence.toLowerCase().includes(q));
+        return symbolMatch || confluenceMatch;
+      });
     }
 
     if (filterResult === 'Win')   list = list.filter(t => t.pnl > 0);
@@ -229,7 +255,7 @@ export default function TradeScanner() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-slate-700/60">
-                {['DATE','SYMBOL','DIRECTION','ENTRY','EXIT','SIZE','POINTS','P&L','R:R','PSYCHOLOGY',''].map(h => (
+                {['DATE','SYMBOL','DIRECTION','ENTRY','EXIT','SIZE','POINTS','P&L','R:R','CONFLUENCES','PSYCHOLOGY',''].map(h => (
                   <th key={h} className="text-left px-5 py-4 text-sm font-semibold text-slate-500 tracking-wider whitespace-nowrap">
                     {h}
                   </th>
@@ -238,13 +264,13 @@ export default function TradeScanner() {
             </thead>
             <tbody className="divide-y divide-slate-700/30">
               {loading ? (
-                <tr><td colSpan={11} className="text-center text-slate-500 text-base py-14">Loading trades...</td></tr>
+                <tr><td colSpan={12} className="text-center text-slate-500 text-base py-14">Loading trades...</td></tr>
               ) : error ? (
-                <tr><td colSpan={11} className="text-center text-red-300 text-base py-14">
+                <tr><td colSpan={12} className="text-center text-red-300 text-base py-14">
                   Couldn&apos;t load your trades right now. Please refresh or sign in again.
                 </td></tr>
               ) : filtered.length === 0 ? (
-                <tr><td colSpan={11} className="text-center text-slate-500 text-base py-14">
+                <tr><td colSpan={12} className="text-center text-slate-500 text-base py-14">
                   {trades.length === 0 ? 'No trades yet — click Add Trade to get started.' : 'No trades match your filters.'}
                 </td></tr>
               ) : filtered.map(t => {
@@ -253,6 +279,7 @@ export default function TradeScanner() {
                 const rr    = calcRR(t);
                 const mood  = t.emotional_state;
                 const emoji = mood ? (MOOD_EMOJI[mood] ?? '😐') : null;
+                const confluences = normalizeConfluences(t.confluences);
 
                 return (
                   <tr key={t.id} className="hover:bg-slate-700/20 transition-colors group">
@@ -293,6 +320,28 @@ export default function TradeScanner() {
                     </td>
                     {/* R:R */}
                     <td className="px-5 py-4 text-slate-300 text-base">{rr}</td>
+                    {/* Confluences */}
+                    <td className="px-5 py-4">
+                      {confluences.length > 0 ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          {confluences.slice(0, 3).map(confluence => (
+                            <span
+                              key={`${t.id}-${confluence}`}
+                              className="inline-flex items-center rounded-full border border-blue-400/25 bg-blue-500/10 px-2.5 py-1 text-xs text-blue-200"
+                            >
+                              {confluence}
+                            </span>
+                          ))}
+                          {confluences.length > 3 && (
+                            <span className="inline-flex items-center rounded-full border border-slate-600/70 bg-slate-700/30 px-2.5 py-1 text-xs text-slate-300">
+                              +{confluences.length - 3}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-slate-500">--</span>
+                      )}
+                    </td>
                     {/* Psychology */}
                     <td className="px-5 py-4 text-base text-slate-400">
                       {emoji && mood ? (

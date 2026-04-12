@@ -1375,6 +1375,7 @@ Trade Duration: ${trade.trade_length_seconds ? Math.round(trade.trade_length_sec
 Emotional State: ${trade.emotional_state}
 Confidence Level: ${trade.confidence_level}/10
 Followed Plan: ${trade.followed_plan ? 'Yes' : 'No'}
+Confluences: ${Array.isArray(trade.confluences) && trade.confluences.length > 0 ? trade.confluences.join(', ') : 'None tagged'}
 Pre-trade Notes: ${trade.pre_trade_notes || 'None'}
 Post-trade Notes: ${trade.post_trade_notes || 'None'}
 
@@ -1407,6 +1408,7 @@ async function analyzePatterns(trades) {
         emotional_state: t.emotional_state,
         confidence: t.confidence_level,
         followed_plan: t.followed_plan,
+        confluences: Array.isArray(t.confluences) ? t.confluences : [],
         rr: t.sl_price && t.entry_price && t.tp_price
             ? (Math.abs(t.tp_price - t.entry_price) / Math.abs(t.sl_price - t.entry_price)).toFixed(2)
             : 'N/A',
@@ -1433,9 +1435,10 @@ Provide a comprehensive pattern analysis covering:
 5. Risk management patterns
 6. Time-of-day and session edge analysis
 7. Confidence calibration (do high confidence trades perform better?)
-8. Most critical behavioural improvements needed
-9. Top 3 strengths to capitalise on
-10. Top 3 weaknesses that are costing the most money`,
+8. Confluence performance (which tagged confluences are most profitable vs most costly)
+9. Most critical behavioural improvements needed
+10. Top 3 strengths to capitalise on
+11. Top 3 weaknesses that are costing the most money`,
             },
         ],
     });
@@ -1450,6 +1453,20 @@ async function generateWeeklyReport(trades, weekStart, weekEnd) {
     const losses = trades.filter(t => t.exit_reason === 'SL');
     const netPnL = trades.reduce((sum, t) => sum + t.pnl, 0);
     const winRate = trades.length > 0 ? (wins.length / trades.length * 100).toFixed(1) : '0';
+    const confluenceBuckets = trades.reduce((acc, trade) => {
+        const tags = Array.isArray(trade.confluences) ? trade.confluences : [];
+        tags.forEach(tag => {
+            if (typeof tag !== 'string' || !tag.trim())
+                return;
+            const key = tag.trim().toLowerCase();
+            if (!acc[key]) {
+                acc[key] = { count: 0, pnl: 0 };
+            }
+            acc[key].count += 1;
+            acc[key].pnl += trade.pnl;
+        });
+        return acc;
+    }, {});
     const response = await anthropic.messages.create({
         model: MODEL,
         temperature: MODEL_TEMPERATURE,
@@ -1468,6 +1485,11 @@ Summary Statistics:
 - Win Rate: ${winRate}%
 - Net P&L: $${netPnL.toFixed(2)}
 
+Confluence Breakdown:
+${JSON.stringify(Object.entries(confluenceBuckets)
+                    .map(([confluence, data]) => ({ confluence, trades: data.count, net_pnl: data.pnl }))
+                    .sort((a, b) => b.net_pnl - a.net_pnl), null, 2)}
+
 Individual Trades:
 ${JSON.stringify(trades.map(t => ({
                     date: t.trade_date,
@@ -1480,6 +1502,7 @@ ${JSON.stringify(trades.map(t => ({
                     emotional_state: t.emotional_state,
                     confidence: t.confidence_level,
                     followed_plan: t.followed_plan,
+                    confluences: Array.isArray(t.confluences) ? t.confluences : [],
                 })), null, 2)}
 
 Create a report with these sections:
@@ -1492,6 +1515,7 @@ Create a report with these sections:
 ## Psychological Performance
 ## Plan Adherence Analysis
 ## Key Patterns Observed
+## Confluence Performance (best vs worst tagged confluences)
 ## Goals for Next Week
 ## Action Items (specific, numbered list)`,
             },
@@ -1591,6 +1615,7 @@ ${JSON.stringify({
                     emotional_state: trade.emotional_state,
                     confidence_level: trade.confidence_level,
                     followed_plan: trade.followed_plan,
+                    confluences: Array.isArray(trade.confluences) ? trade.confluences : [],
                     pre_trade_notes: trade.pre_trade_notes,
                     post_trade_notes: trade.post_trade_notes,
                 }, null, 2)}

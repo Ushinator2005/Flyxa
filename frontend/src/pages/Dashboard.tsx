@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { DollarSign, Target, BarChart2, TrendingUp, Hash } from 'lucide-react';
+import { DollarSign, Target, BarChart2, TrendingUp, Hash, Flame } from 'lucide-react';
 import { PieChart, Pie, Cell } from 'recharts';
 import EquityCurve from '../components/dashboard/EquityCurve.js';
 import MonthlyHeatmap from '../components/dashboard/MonthlyHeatmap.js';
@@ -14,6 +14,7 @@ import {
   formatTradeDateLabel,
   getTradeRiskReward,
 } from '../utils/tradeAnalytics.js';
+import { computeStreaks } from '../utils/streaks.js';
 
 const RING_UNIFIED_COLOR = '#34d399';
 
@@ -29,6 +30,7 @@ export default function Dashboard() {
   const { filterTradesBySelectedAccount, selectedAccountId, accounts } = useAppSettings();
   const filteredTrades = useMemo(() => filterTradesBySelectedAccount(trades), [filterTradesBySelectedAccount, trades]);
   const summary = useMemo(() => buildAnalyticsSummary(filteredTrades), [filteredTrades]);
+  const streakStats = useMemo(() => computeStreaks(filteredTrades), [filteredTrades]);
   const equityCurve = useMemo(() => buildEquityCurve(filteredTrades), [filteredTrades]);
   const recentTrades = useMemo(() => buildRecentTrades(filteredTrades), [filteredTrades]);
   const winLossRingData = useMemo(() => {
@@ -124,7 +126,7 @@ export default function Dashboard() {
         <p className="mt-1 text-sm text-slate-400">Overview of your trading performance for {selectedAccountName}</p>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         {stats.map(stat => (
           <div key={stat.label} className="glass-card p-5 flex flex-col gap-3">
             <div className="flex items-center justify-between">
@@ -158,6 +160,28 @@ export default function Dashboard() {
             )}
           </div>
         ))}
+
+        {/* Win streak card */}
+        <div className={`glass-card p-5 flex flex-col gap-3 ${streakStats.currentWinStreak > 0 ? 'border-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.1)]' : ''}`}>
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-slate-400">Win Streak</span>
+            <Flame
+              size={16}
+              className={streakStats.currentWinStreak > 0 ? 'text-emerald-400' : 'text-slate-600'}
+            />
+          </div>
+          <div className="flex items-end gap-2">
+            <span className={`text-3xl font-bold tracking-tight ${streakStats.currentWinStreak > 0 ? 'text-emerald-400' : 'text-slate-500'}`}>
+              {streakStats.currentWinStreak}
+            </span>
+            {streakStats.currentWinStreak > 0 && (
+              <span className="text-xs text-slate-500 mb-1">in a row</span>
+            )}
+          </div>
+          <p className="text-xs text-slate-600">
+            Best: <span className="text-slate-400">{streakStats.bestWinStreak}</span>
+          </p>
+        </div>
       </div>
 
       <div className="glass-card p-6">

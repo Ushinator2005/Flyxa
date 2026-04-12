@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+﻿import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Check, ChevronDown, Monitor, Palette, Plus, Trash2, Wallet, X } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext.js';
 import { DEFAULT_ACCOUNT_ID, useAppSettings } from '../contexts/AppSettingsContext.js';
@@ -100,7 +100,74 @@ const formatTimezoneOptionLabel = (timezone: string) => {
   return `${getUtcOffset(timezone)} ${cityLabel}`;
 };
 
-// ─── sub-components ──────────────────────────────────────────────────────────
+const SESSION_COLORS: Record<SessionTimeKey, string> = {
+  asia: '#f5a623',
+  london: '#4f8ef7',
+  preMarket: '#a78bfa',
+  newYork: '#34d399',
+};
+
+function hexToRgba(hex: string, alpha: number): string {
+  const normalized = hex.replace('#', '');
+  if (normalized.length !== 6) return `rgba(79,142,247,${alpha})`;
+  const r = parseInt(normalized.slice(0, 2), 16);
+  const g = parseInt(normalized.slice(2, 4), 16);
+  const b = parseInt(normalized.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function toMinutes(value: string): number {
+  if (!/^([01]\d|2[0-3]):([0-5]\d)$/.test(value)) {
+    return 0;
+  }
+
+  const [hours, minutes] = value.split(':').map(Number);
+  return (hours * 60) + minutes;
+}
+
+function getSessionDurationMinutes(start: string, end: string): number {
+  const startMinutes = toMinutes(start);
+  const endMinutes = toMinutes(end);
+  const diff = endMinutes - startMinutes;
+  if (diff > 0) return diff;
+  if (diff < 0) return (1440 - startMinutes) + endMinutes;
+  return 1440;
+}
+
+function formatSessionWindow(start: string, end: string): string {
+  const hours = getSessionDurationMinutes(start, end) / 60;
+  const normalized = Number.isInteger(hours) ? `${hours}` : hours.toFixed(1).replace(/\.0$/, '');
+  return `${normalized}h window`;
+}
+
+function getSessionTimelineSegments(start: string, end: string): Array<{ left: number; width: number }> {
+  const startMinutes = toMinutes(start);
+  const endMinutes = toMinutes(end);
+
+  if (startMinutes === endMinutes) {
+    return [{ left: 0, width: 100 }];
+  }
+
+  if (endMinutes > startMinutes) {
+    return [{
+      left: (startMinutes / 1440) * 100,
+      width: ((endMinutes - startMinutes) / 1440) * 100,
+    }];
+  }
+
+  return [
+    {
+      left: (startMinutes / 1440) * 100,
+      width: ((1440 - startMinutes) / 1440) * 100,
+    },
+    {
+      left: 0,
+      width: (endMinutes / 1440) * 100,
+    },
+  ];
+}
+
+// â”€â”€â”€ sub-components â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function SectionDivider({ label }: { label: string }) {
   return (
@@ -185,7 +252,65 @@ function StyledSelect({
   );
 }
 
-function StyledTimeInput({
+function WorkspaceSelect({
+  value,
+  onChange,
+  children,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  children: React.ReactNode;
+}) {
+  const [focused, setFocused] = useState(false);
+  const [hovered, setHovered] = useState(false);
+
+  return (
+    <div className="relative">
+      <select
+        value={value}
+        onChange={event => onChange(event.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        style={{
+          width: '100%',
+          appearance: 'none',
+          colorScheme: 'dark',
+          background: '#0a0f1c',
+          border: `1px solid ${focused ? '#4f8ef7' : hovered ? '#2a3f63' : '#1e2d48'}`,
+          borderRadius: '8px',
+          padding: '10px 36px 10px 12px',
+          color: '#c8d8f0',
+          fontSize: '13px',
+          fontWeight: 500,
+          outline: 'none',
+          boxShadow: focused ? '0 0 0 3px rgba(79,142,247,0.12)' : 'none',
+          transition: 'border-color 0.15s, box-shadow 0.15s',
+        }}
+      >
+        {children}
+      </select>
+      <span
+        style={{
+          position: 'absolute',
+          right: '11px',
+          top: '50%',
+          transform: 'translateY(-50%)',
+          pointerEvents: 'none',
+          display: 'inline-flex',
+          color: '#5f7395',
+        }}
+      >
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+          <path d="M2.25 4.5L6 8.25L9.75 4.5" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </span>
+    </div>
+  );
+}
+
+function SessionTimeField({
   value,
   onChange,
 }: {
@@ -193,27 +318,50 @@ function StyledTimeInput({
   onChange: (value: string) => void;
 }) {
   const [focused, setFocused] = useState(false);
+  const [hovered, setHovered] = useState(false);
 
   return (
-    <input
-      type="time"
-      value={value}
-      onChange={event => onChange(event.target.value)}
-      onFocus={() => setFocused(true)}
-      onBlur={() => setFocused(false)}
-      style={{
-        width: '100%',
-        background: '#070c18',
-        border: `1px solid ${focused ? '#2563eb' : 'rgba(255,255,255,0.12)'}`,
-        borderRadius: '8px',
-        padding: '10px 12px',
-        color: '#e2e8f0',
-        fontSize: '13px',
-        outline: 'none',
-        boxShadow: focused ? '0 0 0 3px rgba(37,99,235,0.15)' : 'none',
-        transition: 'border-color 0.15s, box-shadow 0.15s',
-      }}
-    />
+    <div className="relative">
+      <input
+        type="time"
+        value={value}
+        onChange={event => onChange(event.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        style={{
+          width: '100%',
+          colorScheme: 'dark',
+          background: '#0a0f1c',
+          border: `1px solid ${focused ? '#4f8ef7' : hovered ? '#2a3f63' : '#1e2d48'}`,
+          borderRadius: '8px',
+          padding: '10px 36px 10px 12px',
+          color: '#c8d8f0',
+          fontSize: '13px',
+          fontWeight: 500,
+          outline: 'none',
+          boxShadow: focused ? '0 0 0 3px rgba(79,142,247,0.12)' : 'none',
+          transition: 'border-color 0.15s, box-shadow 0.15s',
+        }}
+      />
+      <span
+        style={{
+          position: 'absolute',
+          right: '11px',
+          top: '50%',
+          transform: 'translateY(-50%)',
+          pointerEvents: 'none',
+          display: 'inline-flex',
+          color: '#5f7395',
+        }}
+      >
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <circle cx="12" cy="12" r="8" stroke="currentColor" strokeWidth="1.75" />
+          <path d="M12 8V12L14.6 13.4" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </span>
+    </div>
   );
 }
 
@@ -319,7 +467,7 @@ function SectionCard({
   );
 }
 
-// ─── main page ────────────────────────────────────────────────────────────────
+// â”€â”€â”€ main page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export default function Settings() {
   const { theme, setTheme } = useTheme();
@@ -495,7 +643,7 @@ export default function Settings() {
   return (
     <div className="space-y-6 animate-fade-in">
 
-      {/* ── Page header ── */}
+      {/* â”€â”€ Page header â”€â”€ */}
       <div>
         <h1 style={{ fontSize: '22px', fontWeight: 600, color: '#f1f5f9', lineHeight: 1.2 }}>Settings</h1>
         <p style={{ marginTop: '6px', fontSize: '13px', color: 'rgba(100,116,139,0.9)' }}>
@@ -503,7 +651,7 @@ export default function Settings() {
         </p>
       </div>
 
-      {/* ── Nav cards ── */}
+      {/* â”€â”€ Nav cards â”€â”€ */}
       <div
         style={{
           position: 'sticky',
@@ -573,40 +721,76 @@ export default function Settings() {
         })}
       </div>
 
-      {/* ── General section ── */}
+      {/* â”€â”€ General section â”€â”€ */}
       <section ref={generalRef} style={{ scrollMarginTop: '140px' }}>
         <SectionDivider label="General" />
         <SectionCard
           title="Workspace preferences"
           subtitle="Control the global look and formatting defaults for the app."
         >
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '16px' }}>
+          <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
             <label>
-              <FieldLabel>Theme</FieldLabel>
-              <StyledSelect
+              <span
+                style={{
+                  display: 'block',
+                  marginBottom: '6px',
+                  fontSize: '10px',
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.08em',
+                  color: '#3d4f6e',
+                }}
+              >
+                Theme
+              </span>
+              <WorkspaceSelect
                 value={theme}
                 onChange={v => setTheme(v as 'dark' | 'light')}
               >
                 <option value="dark">Dark</option>
                 <option value="light">Light</option>
-              </StyledSelect>
+              </WorkspaceSelect>
             </label>
 
             <label>
-              <FieldLabel>Date format</FieldLabel>
-              <StyledSelect
+              <span
+                style={{
+                  display: 'block',
+                  marginBottom: '6px',
+                  fontSize: '10px',
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.08em',
+                  color: '#3d4f6e',
+                }}
+              >
+                Date Format
+              </span>
+              <WorkspaceSelect
                 value={preferences.dateFormat}
                 onChange={v => updatePreferences({ dateFormat: v as typeof preferences.dateFormat })}
               >
                 <option value="dd/MM/yyyy">DD/MM/YYYY</option>
                 <option value="MM/dd/yyyy">MM/DD/YYYY</option>
                 <option value="yyyy-MM-dd">YYYY-MM-DD</option>
-              </StyledSelect>
+              </WorkspaceSelect>
             </label>
 
             <label>
-              <FieldLabel>Currency symbol</FieldLabel>
-              <StyledSelect
+              <span
+                style={{
+                  display: 'block',
+                  marginBottom: '6px',
+                  fontSize: '10px',
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.08em',
+                  color: '#3d4f6e',
+                }}
+              >
+                Currency Symbol
+              </span>
+              <WorkspaceSelect
                 value={preferences.currencySymbol}
                 onChange={v => updatePreferences({ currencySymbol: v as typeof preferences.currencySymbol })}
               >
@@ -614,12 +798,24 @@ export default function Settings() {
                 <option value="€">€ EUR</option>
                 <option value="£">£ GBP</option>
                 <option value="A$">A$ AUD</option>
-              </StyledSelect>
+              </WorkspaceSelect>
             </label>
 
             <label>
-              <FieldLabel>Timezone</FieldLabel>
-              <StyledSelect
+              <span
+                style={{
+                  display: 'block',
+                  marginBottom: '6px',
+                  fontSize: '10px',
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.08em',
+                  color: '#3d4f6e',
+                }}
+              >
+                Timezone
+              </span>
+              <WorkspaceSelect
                 value={preferences.timezone}
                 onChange={value => updatePreferences({ timezone: value })}
               >
@@ -630,7 +826,7 @@ export default function Settings() {
                     ))}
                   </optgroup>
                 ))}
-              </StyledSelect>
+              </WorkspaceSelect>
             </label>
           </div>
         </SectionCard>
@@ -641,44 +837,127 @@ export default function Settings() {
             subtitle="Set your default Asia, London, Pre Market, and New York trading windows."
           >
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '16px' }}>
-              {SESSION_TIME_FIELDS.map(session => (
-                <div
-                  key={session.key}
-                  style={{
-                    border: '1px solid rgba(30,41,59,0.9)',
-                    borderRadius: '10px',
-                    padding: '12px',
-                    background: '#0a1222',
-                  }}
-                >
-                  <p style={{ fontSize: '12px', fontWeight: 600, color: '#f1f5f9', marginBottom: '10px' }}>
-                    {session.label}
-                  </p>
+              {SESSION_TIME_FIELDS.map(session => {
+                const sessionColor = SESSION_COLORS[session.key];
+                const startValue = preferences.sessionTimes[session.key].start;
+                const endValue = preferences.sessionTimes[session.key].end;
+                const timelineSegments = getSessionTimelineSegments(startValue, endValue);
 
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '10px' }}>
-                    <label>
-                      <FieldLabel>Start</FieldLabel>
-                      <StyledTimeInput
-                        value={preferences.sessionTimes[session.key].start}
-                        onChange={value => handleSessionTimeChange(session.key, 'start', value)}
-                      />
-                    </label>
-                    <label>
-                      <FieldLabel>End</FieldLabel>
-                      <StyledTimeInput
-                        value={preferences.sessionTimes[session.key].end}
-                        onChange={value => handleSessionTimeChange(session.key, 'end', value)}
-                      />
-                    </label>
+                return (
+                  <div
+                    key={session.key}
+                    style={{
+                      border: '1px solid #1a2035',
+                      borderRadius: '10px',
+                      padding: '14px',
+                      background: '#0a0f1c',
+                    }}
+                  >
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <span
+                          style={{
+                            width: '8px',
+                            height: '8px',
+                            borderRadius: '999px',
+                            background: sessionColor,
+                            boxShadow: `0 0 0 5px ${hexToRgba(sessionColor, 0.22)}`,
+                          }}
+                        />
+                        <p style={{ fontSize: '12px', fontWeight: 600, color: '#f1f5f9' }}>
+                          {session.label}
+                        </p>
+                      </div>
+                      <span
+                        style={{
+                          border: `1px solid ${hexToRgba(sessionColor, 0.45)}`,
+                          background: hexToRgba(sessionColor, 0.12),
+                          color: sessionColor,
+                          borderRadius: '999px',
+                          padding: '3px 8px',
+                          fontSize: '10px',
+                          fontWeight: 600,
+                          letterSpacing: '0.04em',
+                          textTransform: 'uppercase',
+                        }}
+                      >
+                        {formatSessionWindow(startValue, endValue)}
+                      </span>
+                    </div>
+
+                    <div className="mb-3">
+                      <div
+                        style={{
+                          position: 'relative',
+                          height: '4px',
+                          borderRadius: '999px',
+                          background: '#141c2e',
+                          overflow: 'hidden',
+                        }}
+                      >
+                        {timelineSegments.map((segment, index) => (
+                          <span
+                            key={`${session.key}-${index}`}
+                            style={{
+                              position: 'absolute',
+                              top: 0,
+                              bottom: 0,
+                              left: `${segment.left}%`,
+                              width: `${segment.width}%`,
+                              borderRadius: '999px',
+                              background: sessionColor,
+                            }}
+                          />
+                        ))}
+                      </div>
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
+                          marginTop: '6px',
+                        }}
+                      >
+                        {['12A', '6A', '12P', '6P', '12A'].map(tick => (
+                          <span
+                            key={`${session.key}-${tick}`}
+                            style={{
+                              textAlign: 'center',
+                              fontSize: '9px',
+                              color: '#293552',
+                              fontFamily: 'Geist Mono, Menlo, Monaco, Consolas, monospace',
+                            }}
+                          >
+                            {tick}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '10px' }}>
+                      <label>
+                        <FieldLabel>Start</FieldLabel>
+                        <SessionTimeField
+                          value={startValue}
+                          onChange={value => handleSessionTimeChange(session.key, 'start', value)}
+                        />
+                      </label>
+                      <label>
+                        <FieldLabel>End</FieldLabel>
+                        <SessionTimeField
+                          value={endValue}
+                          onChange={value => handleSessionTimeChange(session.key, 'end', value)}
+                        />
+                      </label>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </SectionCard>
         </div>
       </section>
 
-      {/* ── Display section ── */}
+      {/* â”€â”€ Display section â”€â”€ */}
       <section ref={displayRef} style={{ scrollMarginTop: '140px' }}>
         <SectionDivider label="Display" />
         <SectionCard
@@ -714,7 +993,7 @@ export default function Settings() {
         </SectionCard>
       </section>
 
-      {/* ── Accounts section ── */}
+      {/* â”€â”€ Accounts section â”€â”€ */}
       <section ref={accountsRef} style={{ scrollMarginTop: '140px' }}>
         <SectionDivider label="Accounts" />
         <SectionCard
@@ -1164,3 +1443,5 @@ export default function Settings() {
     </div>
   );
 }
+
+

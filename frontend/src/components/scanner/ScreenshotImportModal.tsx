@@ -8,6 +8,7 @@ import { lookupContract } from '../../constants/futuresContracts.js';
 import { useAppSettings } from '../../contexts/AppSettingsContext.js';
 
 const DRAFT_KEY = 'tw_scanner_draft';
+const DRAFT_IMAGE_KEY = 'tw_scanner_draft_image';
 
 const SYMBOL_MAP: Record<string, string> = {
   NQM26:'NQ',NQH26:'NQ',NQU26:'NQ',NQZ26:'NQ',
@@ -464,7 +465,10 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
     return null;
   });
   const [aiFields, setAiFields]           = useState<Set<string>>(new Set());
-  const [imagePreview, setImagePreview]   = useState<string | null>(null);
+  const [imagePreview, setImagePreview]   = useState<string | null>(() => {
+    if (editTrade) return editTrade.screenshot_url ?? null;
+    try { return localStorage.getItem(DRAFT_IMAGE_KEY) ?? null; } catch { return null; }
+  });
   const [fullscreenPreview, setFullscreenPreview] = useState(false);
   const [isDragging, setIsDragging]       = useState(false);
   const [saving, setSaving]              = useState(false);
@@ -502,7 +506,11 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
 
     setCurrentDate(editTrade?.trade_date ?? prefillTrade?.trade_date ?? '');
     setCurrentTime(editTrade?.trade_time ?? prefillTrade?.trade_time ?? '');
-    setImagePreview(editTrade?.screenshot_url ?? null);
+    if (editTrade) {
+      setImagePreview(editTrade.screenshot_url ?? null);
+    } else {
+      try { setImagePreview(localStorage.getItem(DRAFT_IMAGE_KEY) ?? null); } catch { setImagePreview(null); }
+    }
     setContractInputValue(getInitialContractSize());
     setTradeAccountId(getInitialTradeAccountId());
     setAiFields(new Set());
@@ -536,6 +544,8 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
   const reset = () => {
     setFormData(editTrade ?? prefillTrade ?? null);
     setAiFields(new Set());
+    localStorage.removeItem(DRAFT_KEY);
+    localStorage.removeItem(DRAFT_IMAGE_KEY);
     setImagePreview(editTrade?.screenshot_url ?? null);
     setFullscreenPreview(false);
     setScanError('');
@@ -570,7 +580,13 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
     setScanning(true);
 
     const reader = new FileReader();
-    reader.onload = e => setImagePreview(e.target?.result as string);
+    reader.onload = e => {
+      const preview = e.target?.result as string;
+      setImagePreview(preview);
+      if (!editTrade) {
+        try { localStorage.setItem(DRAFT_IMAGE_KEY, preview); } catch { /* quota exceeded — skip */ }
+      }
+    };
     reader.readAsDataURL(file);
 
     try {
@@ -655,6 +671,7 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
         screenshot_url: imagePreview ?? editTrade?.screenshot_url ?? undefined,
       });
       localStorage.removeItem(DRAFT_KEY);
+      localStorage.removeItem(DRAFT_IMAGE_KEY);
       handleClose();
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to save trade');

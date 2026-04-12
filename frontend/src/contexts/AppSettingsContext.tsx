@@ -43,6 +43,41 @@ const DEFAULT_PREFERENCES: AppPreferences = {
   },
 };
 
+const DEFAULT_CONFLUENCE_OPTIONS = [
+  'Liquidity sweep',
+  'VWAP reclaim',
+  'HTF bias',
+  'Session high/low sweep',
+  'Market structure shift',
+  'Order block retest',
+  'Volume confirmation',
+];
+
+function normalizeConfluenceOption(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim().replace(/\s+/g, ' ');
+  if (!trimmed) return null;
+  return trimmed.slice(0, 64);
+}
+
+function normalizeConfluenceOptions(values: unknown): string[] {
+  const source = Array.isArray(values) ? values : [];
+  const deduped = new Set<string>();
+  const normalized: string[] = [];
+
+  for (const value of source) {
+    const cleaned = normalizeConfluenceOption(value);
+    if (!cleaned) continue;
+    const key = cleaned.toLowerCase();
+    if (deduped.has(key)) continue;
+    deduped.add(key);
+    normalized.push(cleaned);
+    if (normalized.length >= 64) break;
+  }
+
+  return normalized.length ? normalized : [...DEFAULT_CONFLUENCE_OPTIONS];
+}
+
 function normalizeSessionTimes(raw: unknown): AppPreferences['sessionTimes'] {
   const isValidTime = (value: unknown): value is string => (
     typeof value === 'string' && /^([01]\d|2[0-3]):([0-5]\d)$/.test(value)
@@ -78,11 +113,15 @@ function normalizeSessionTimes(raw: unknown): AppPreferences['sessionTimes'] {
 interface AppSettingsContextValue {
   accounts: TradingAccount[];
   preferences: AppPreferences;
+  confluenceOptions: string[];
   selectedAccountId: string;
   setSelectedAccountId: (accountId: string) => void;
   addAccount: (account: Omit<TradingAccount, 'id' | 'createdAt'>) => void;
   updateAccount: (accountId: string, updates: Partial<Omit<TradingAccount, 'id' | 'createdAt'>>) => void;
   deleteAccount: (accountId: string) => void;
+  addConfluenceOption: (option: string) => void;
+  updateConfluenceOption: (index: number, option: string) => void;
+  deleteConfluenceOption: (index: number) => void;
   updatePreferences: (updates: Partial<AppPreferences>) => void;
   getDefaultTradeAccountId: () => string;
   resolveTradeAccountId: (trade: Partial<Trade>) => string;
@@ -109,6 +148,10 @@ function getSelectedAccountKey(userId: string) {
 
 function getTradeAccountsKey(userId: string) {
   return `tw_trade_accounts_${userId}`;
+}
+
+function getConfluenceOptionsKey(userId: string) {
+  return `tw_confluence_options_${userId}`;
 }
 
 function normalizeAccountStatus(
@@ -198,10 +241,23 @@ function loadTradeAccounts(userId: string): Record<string, string> {
   }
 }
 
+function loadConfluenceOptions(userId: string): string[] {
+  if (typeof window === 'undefined') return [...DEFAULT_CONFLUENCE_OPTIONS];
+
+  try {
+    const raw = window.localStorage.getItem(getConfluenceOptionsKey(userId));
+    if (!raw) return [...DEFAULT_CONFLUENCE_OPTIONS];
+    return normalizeConfluenceOptions(JSON.parse(raw) as unknown);
+  } catch {
+    return [...DEFAULT_CONFLUENCE_OPTIONS];
+  }
+}
+
 export function AppSettingsProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const [accounts, setAccounts] = useState<TradingAccount[]>([DEFAULT_ACCOUNT]);
   const [preferences, setPreferences] = useState<AppPreferences>(DEFAULT_PREFERENCES);
+  const [confluenceOptions, setConfluenceOptions] = useState<string[]>([...DEFAULT_CONFLUENCE_OPTIONS]);
   const [selectedAccountId, setSelectedAccountIdState] = useState<string>(ALL_ACCOUNTS_ID);
   const [tradeAccounts, setTradeAccounts] = useState<Record<string, string>>({});
 
@@ -209,6 +265,7 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
     if (!user) {
       setAccounts([DEFAULT_ACCOUNT]);
       setPreferences(DEFAULT_PREFERENCES);
+      setConfluenceOptions([...DEFAULT_CONFLUENCE_OPTIONS]);
       setSelectedAccountIdState(ALL_ACCOUNTS_ID);
       setTradeAccounts({});
       return;
@@ -217,6 +274,7 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
     const nextAccounts = loadAccounts(user.id);
     setAccounts(nextAccounts);
     setPreferences(loadPreferences(user.id));
+    setConfluenceOptions(loadConfluenceOptions(user.id));
     setTradeAccounts(loadTradeAccounts(user.id));
 
     const storedSelection = loadSelectedAccount(user.id);
@@ -248,6 +306,11 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
     if (!user) return;
     window.localStorage.setItem(getTradeAccountsKey(user.id), JSON.stringify(tradeAccounts));
   }, [tradeAccounts, user]);
+
+  useEffect(() => {
+    if (!user) return;
+    window.localStorage.setItem(getConfluenceOptionsKey(user.id), JSON.stringify(confluenceOptions));
+  }, [confluenceOptions, user]);
 
   const validAccountIds = useMemo(() => new Set(accounts.map(account => account.id)), [accounts]);
   const accountById = useMemo(
@@ -343,6 +406,29 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
     setPreferences(current => ({ ...current, ...updates }));
   }, []);
 
+  const addConfluenceOption = useCallback((option: string) => {
+    const normalizedOption = normalizeConfluenceOption(option);
+    if (!normalizedOption) return;
+
+    setConfluenceOptions(current => normalizeConfluenceOptions([...current, normalizedOption]));
+  }, []);
+
+  const updateConfluenceOption = useCallback((index: number, option: string) => {
+    const normalizedOption = normalizeConfluenceOption(option);
+    if (!normalizedOption) return;
+
+    setConfluenceOptions(current => normalizeConfluenceOptions(
+      current.map((entry, entryIndex) => (entryIndex === index ? normalizedOption : entry))
+    ));
+  }, []);
+
+  const deleteConfluenceOption = useCallback((index: number) => {
+    setConfluenceOptions(current => {
+      const next = current.filter((_, entryIndex) => entryIndex !== index);
+      return next.length ? next : [...DEFAULT_CONFLUENCE_OPTIONS];
+    });
+  }, []);
+
   const persistTradeAccount = useCallback((tradeId: string, accountId?: string) => {
     if (!accountId) return;
     setTradeAccounts(current => ({
@@ -362,11 +448,15 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
   const value = useMemo<AppSettingsContextValue>(() => ({
     accounts,
     preferences,
+    confluenceOptions,
     selectedAccountId,
     setSelectedAccountId,
     addAccount,
     updateAccount,
     deleteAccount,
+    addConfluenceOption,
+    updateConfluenceOption,
+    deleteConfluenceOption,
     updatePreferences,
     getDefaultTradeAccountId,
     resolveTradeAccountId,
@@ -378,10 +468,14 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
   }), [
     accounts,
     preferences,
+    confluenceOptions,
     selectedAccountId,
     addAccount,
     updateAccount,
     deleteAccount,
+    addConfluenceOption,
+    updateConfluenceOption,
+    deleteConfluenceOption,
     updatePreferences,
     getDefaultTradeAccountId,
     resolveTradeAccountId,

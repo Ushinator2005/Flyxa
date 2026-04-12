@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { BrainCircuit, FileText, ShieldCheck, Sparkles, Target, TrendingDown, TrendingUp } from 'lucide-react';
+import { BrainCircuit, FileText, Plus, ShieldCheck, Sparkles, Target, TrendingDown, TrendingUp, X } from 'lucide-react';
 import { Trade } from '../../types/index.js';
-import { formatCurrency, formatDuration } from '../../utils/calculations.js';
+import { formatCurrency } from '../../utils/calculations.js';
 import { lookupContract, FuturesContract } from '../../constants/futuresContracts.js';
+import { useAppSettings } from '../../contexts/AppSettingsContext.js';
 
 interface Props {
   initialData?: Partial<Trade>;
@@ -16,6 +17,29 @@ interface Props {
 }
 
 const emotionalStates = ['Calm', 'Confident', 'Anxious', 'Revenge Trading', 'FOMO', 'Overconfident', 'Tired'];
+
+function normalizeConfluences(value: unknown): string[] {
+  const rawValues = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(',')
+      : [];
+  const deduped = new Set<string>();
+  const normalized: string[] = [];
+
+  for (const entry of rawValues) {
+    if (typeof entry !== 'string') continue;
+    const cleaned = entry.trim().replace(/\s+/g, ' ');
+    if (!cleaned) continue;
+    const key = cleaned.toLowerCase();
+    if (deduped.has(key)) continue;
+    deduped.add(key);
+    normalized.push(cleaned.slice(0, 64));
+    if (normalized.length >= 12) break;
+  }
+
+  return normalized;
+}
 
 const defaultForm: Partial<Trade> = {
   symbol: '',
@@ -35,8 +59,17 @@ const defaultForm: Partial<Trade> = {
   confidence_level: 7,
   pre_trade_notes: '',
   post_trade_notes: '',
+  confluences: [],
   followed_plan: true,
 };
+
+function buildFormState(initialData?: Partial<Trade>): Partial<Trade> {
+  return {
+    ...defaultForm,
+    ...initialData,
+    confluences: normalizeConfluences(initialData?.confluences),
+  };
+}
 
 export default function TradeForm({
   initialData,
@@ -48,17 +81,20 @@ export default function TradeForm({
   onCancel,
   isLoading,
 }: Props) {
-  const [form, setForm] = useState<Partial<Trade>>({ ...defaultForm, ...initialData });
+  const { confluenceOptions } = useAppSettings();
+  const [form, setForm] = useState<Partial<Trade>>(() => buildFormState(initialData));
   const [submitError, setSubmitError] = useState('');
+  const [selectedConfluence, setSelectedConfluence] = useState('');
   const [matchedContract, setMatchedContract] = useState<FuturesContract | undefined>(
     () => lookupContract(initialData?.symbol || '')
   );
 
   useEffect(() => {
-    setForm({ ...defaultForm, ...initialData });
+    setForm(buildFormState(initialData));
     const contract = lookupContract(initialData?.symbol || '');
     setMatchedContract(contract);
     setSubmitError('');
+    setSelectedConfluence('');
   }, [initialData]);
 
   const calcPnL = (): number => {
@@ -134,11 +170,35 @@ export default function TradeForm({
       return;
     }
 
-    onSubmit({ ...form, trade_date: tradeDate, trade_time: tradeTime, exit_price: normalizedExitPrice });
+    onSubmit({
+      ...form,
+      confluences: normalizeConfluences(form.confluences),
+      trade_date: tradeDate,
+      trade_time: tradeTime,
+      exit_price: normalizedExitPrice,
+    });
   };
 
   const pnl = calcPnL();
   const rr = calcRR();
+  const confluences = normalizeConfluences(form.confluences);
+  const availableConfluenceOptions = confluenceOptions.filter(
+    option => !confluences.some(confluence => confluence.toLowerCase() === option.toLowerCase())
+  );
+
+  const addConfluence = () => {
+    if (!selectedConfluence) {
+      return;
+    }
+
+    const nextConfluences = normalizeConfluences([...confluences, selectedConfluence]);
+    set('confluences', nextConfluences);
+    setSelectedConfluence('');
+  };
+
+  const removeConfluence = (indexToRemove: number) => {
+    set('confluences', confluences.filter((_, index) => index !== indexToRemove));
+  };
 
   const AIBadge = ({ field }: { field: string }) => aiFields.has(field) ? (
     <span className="inline-flex items-center gap-0.5 text-xs text-blue-400 ml-1 font-normal">
@@ -277,9 +337,40 @@ export default function TradeForm({
           </div>
           <div>
             <label className="label">Duration <AIBadge field="trade_length_seconds" /></label>
-            <div className="input-field bg-slate-700/30 cursor-default text-slate-400 flex items-center border-2 border-amber-500 shadow-[0_0_6px_rgba(245,158,11,0.5)]">
-              {form.trade_length_seconds ? formatDuration(form.trade_length_seconds) : '—'}
-              {form.candle_count ? <span className="ml-2 text-slate-500">({form.candle_count} candles)</span> : ''}
+            <div className="flex rounded-lg border border-slate-700 bg-slate-900/60 overflow-hidden h-11">
+              <div className="flex-1 flex items-center">
+                <input
+                  type="number"
+                  min={0}
+                  max={23}
+                  value={Math.floor((form.trade_length_seconds || 0) / 3600)}
+                  onChange={e => {
+                    const h = Math.max(0, parseInt(e.target.value) || 0);
+                    const m = Math.floor(((form.trade_length_seconds || 0) % 3600) / 60);
+                    set('trade_length_seconds', h * 3600 + m * 60);
+                  }}
+                  className="w-full bg-transparent text-center text-sm text-slate-200 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  placeholder="0"
+                />
+                <span className="pr-2 text-xs font-medium text-slate-500">h</span>
+              </div>
+              <div className="w-px bg-slate-700/80" />
+              <div className="flex-1 flex items-center">
+                <input
+                  type="number"
+                  min={0}
+                  max={59}
+                  value={Math.floor(((form.trade_length_seconds || 0) % 3600) / 60)}
+                  onChange={e => {
+                    const m = Math.max(0, parseInt(e.target.value) || 0);
+                    const h = Math.floor((form.trade_length_seconds || 0) / 3600);
+                    set('trade_length_seconds', h * 3600 + m * 60);
+                  }}
+                  className="w-full bg-transparent text-center text-sm text-slate-200 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  placeholder="0"
+                />
+                <span className="pr-2 text-xs font-medium text-slate-500">m</span>
+              </div>
             </div>
           </div>
         </div>
@@ -337,6 +428,59 @@ export default function TradeForm({
               </button>
             ))}
           </div>
+        </div>
+      </div>
+
+      {/* Confluences */}
+      <div className={panelClass}>
+        <SectionLabel icon={<Sparkles size={16} />}>Confluences</SectionLabel>
+        <div className="space-y-3">
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <select
+              className={`${numericFieldClass} flex-1`}
+              value={selectedConfluence}
+              onChange={e => setSelectedConfluence(e.target.value)}
+            >
+              <option value="">Select confluence</option>
+              {availableConfluenceOptions.map(option => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={addConfluence}
+              disabled={!selectedConfluence}
+              className="inline-flex h-11 items-center justify-center gap-1.5 rounded-lg border border-blue-500/40 bg-blue-500/15 px-4 text-sm font-medium text-blue-200 transition hover:border-blue-400/60 hover:bg-blue-500/25 disabled:cursor-not-allowed disabled:border-slate-600 disabled:bg-slate-700/40 disabled:text-slate-400"
+            >
+              <Plus size={14} />
+              Add
+            </button>
+          </div>
+          {confluences.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {confluences.map((confluence, index) => (
+                <span
+                  key={`${confluence}-${index}`}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-blue-400/25 bg-blue-500/10 px-3 py-1 text-xs text-blue-200"
+                >
+                  {confluence}
+                  <button
+                    type="button"
+                    onClick={() => removeConfluence(index)}
+                    className="inline-flex h-4 w-4 items-center justify-center rounded-full text-blue-200/80 transition hover:bg-blue-500/20 hover:text-white"
+                    aria-label={`Remove ${confluence}`}
+                  >
+                    <X size={10} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-slate-500">Pick confirmations that were present when you entered this trade.</p>
+          )}
+          {availableConfluenceOptions.length === 0 && (
+            <p className="text-xs text-slate-500">No additional options available. Manage this list in Settings.</p>
+          )}
         </div>
       </div>
 

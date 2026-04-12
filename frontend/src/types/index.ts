@@ -23,6 +23,7 @@ export interface Trade {
   confidence_level: number;
   pre_trade_notes: string;
   post_trade_notes: string;
+  confluences?: string[];
   followed_plan: boolean;
   session: 'Asia' | 'London' | 'New York' | 'Other';
   created_at: string;

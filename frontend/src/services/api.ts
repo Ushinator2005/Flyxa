@@ -106,6 +106,7 @@ export const analyticsApi = {
   getEquityCurve: () => api.get('/api/analytics/equity-curve'),
   getBySession: () => api.get('/api/analytics/by-session'),
   getByInstrument: () => api.get('/api/analytics/by-instrument'),
+  getByConfluence: () => api.get('/api/analytics/by-confluence'),
   getByDayOfWeek: () => api.get('/api/analytics/by-day-of-week'),
   getByTimeOfDay: () => api.get('/api/analytics/by-time-of-day'),
   getMonthlyHeatmap: (year: number, month: number) =>

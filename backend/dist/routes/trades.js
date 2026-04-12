@@ -40,6 +40,30 @@ function isMissingColumnError(error, column) {
         message.includes("'trades'") &&
         message.includes('schema cache');
 }
+function normalizeConfluences(value) {
+    const rawValues = Array.isArray(value)
+        ? value
+        : typeof value === 'string'
+            ? value.split(',')
+            : [];
+    const deduped = new Set();
+    const normalized = [];
+    for (const entry of rawValues) {
+        if (typeof entry !== 'string')
+            continue;
+        const cleaned = entry.trim().replace(/\s+/g, ' ');
+        if (!cleaned)
+            continue;
+        const key = cleaned.toLowerCase();
+        if (deduped.has(key))
+            continue;
+        deduped.add(key);
+        normalized.push(cleaned.slice(0, 64));
+        if (normalized.length >= 12)
+            break;
+    }
+    return normalized;
+}
 // GET all trades for user
 router.get('/', auth_1.authMiddleware, async (req, res, next) => {
     try {
@@ -60,7 +84,7 @@ router.get('/', auth_1.authMiddleware, async (req, res, next) => {
 // POST create trade
 router.post('/', auth_1.authMiddleware, async (req, res, next) => {
     try {
-        const { symbol, screenshot_url, accountId, account_id, direction, entry_price, sl_price, tp_price, exit_reason, contract_size, point_value, trade_date, trade_time, trade_length_seconds, candle_count, timeframe_minutes, emotional_state, confidence_level, pre_trade_notes, post_trade_notes, followed_plan, } = req.body;
+        const { symbol, screenshot_url, accountId, account_id, direction, entry_price, sl_price, tp_price, exit_reason, contract_size, point_value, trade_date, trade_time, trade_length_seconds, candle_count, timeframe_minutes, emotional_state, confidence_level, pre_trade_notes, post_trade_notes, confluences, followed_plan, } = req.body;
         if (typeof symbol !== 'string' ||
             !symbol.trim() ||
             !isTradeDirection(direction) ||
@@ -86,6 +110,7 @@ router.post('/', auth_1.authMiddleware, async (req, res, next) => {
             : (entry_price - normalizedExitPrice) * normalizedContractSize * normalizedPointValue;
         // Determine session
         const session = getSession(trade_time);
+        const normalizedConfluences = normalizeConfluences(confluences);
         const insertPayload = {
             user_id: req.userId,
             symbol,
@@ -113,6 +138,7 @@ router.post('/', auth_1.authMiddleware, async (req, res, next) => {
             confidence_level,
             pre_trade_notes: pre_trade_notes || '',
             post_trade_notes: post_trade_notes || '',
+            ...(normalizedConfluences.length > 0 ? { confluences: normalizedConfluences } : {}),
             followed_plan: followed_plan !== undefined ? followed_plan : true,
             session,
         };
@@ -122,8 +148,11 @@ router.post('/', auth_1.authMiddleware, async (req, res, next) => {
             .select()
             .single();
         // Allow trade saves to continue until the live database has the new screenshot column.
-        if (error && (isMissingColumnError(error, 'screenshot_url') || isMissingColumnError(error, 'account_id'))) {
-            const { screenshot_url: _ignoredScreenshotUrl, account_id: _ignoredAccountId, ...fallbackInsertPayload } = insertPayload;
+        if (error &&
+            (isMissingColumnError(error, 'screenshot_url') ||
+                isMissingColumnError(error, 'account_id') ||
+                isMissingColumnError(error, 'confluences'))) {
+            const { screenshot_url: _ignoredScreenshotUrl, account_id: _ignoredAccountId, confluences: _ignoredConfluences, ...fallbackInsertPayload } = insertPayload;
             ({ data, error } = await supabase_1.supabase
                 .from('trades')
                 .insert(fallbackInsertPayload)
@@ -181,6 +210,11 @@ router.put('/:id', auth_1.authMiddleware, async (req, res, next) => {
             nextUpdateData.account_id = nextUpdateData.accountId;
         }
         delete nextUpdateData.accountId;
+        const existingRecord = existing;
+        const shouldPersistConfluences = 'confluences' in updateData || Array.isArray(existingRecord.confluences);
+        if (shouldPersistConfluences) {
+            nextUpdateData.confluences = normalizeConfluences(merged.confluences);
+        }
         nextUpdateData.exit_price = normalizedExitPrice;
         nextUpdateData.pnl = merged.direction === 'Long'
             ? (normalizedExitPrice - merged.entry_price) * normalizedContractSize * normalizedPointValue
@@ -194,8 +228,9 @@ router.put('/:id', auth_1.authMiddleware, async (req, res, next) => {
             .single();
         if (error &&
             ((isMissingColumnError(error, 'screenshot_url') && 'screenshot_url' in nextUpdateData) ||
-                (isMissingColumnError(error, 'account_id') && ('account_id' in nextUpdateData || 'accountId' in nextUpdateData)))) {
-            const { screenshot_url: _ignoredScreenshotUrl, account_id: _ignoredAccountId, accountId: _ignoredAccountIdAlias, ...fallbackUpdateData } = nextUpdateData;
+                (isMissingColumnError(error, 'account_id') && ('account_id' in nextUpdateData || 'accountId' in nextUpdateData)) ||
+                (isMissingColumnError(error, 'confluences') && 'confluences' in nextUpdateData))) {
+            const { screenshot_url: _ignoredScreenshotUrl, account_id: _ignoredAccountId, accountId: _ignoredAccountIdAlias, confluences: _ignoredConfluences, ...fallbackUpdateData } = nextUpdateData;
             ({ data, error } = await supabase_1.supabase
                 .from('trades')
                 .update(fallbackUpdateData)

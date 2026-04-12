@@ -4,8 +4,12 @@ import Layout from './components/layout/Layout.js';
 import Auth from './pages/Auth.js';
 import Dashboard from './pages/Dashboard.js';
 import TradeScanner from './pages/TradeScanner.js';
-import AICoach from './pages/AICoach.js';
+import FlyxaAI from './pages/FlyxaAI.js';
+import FlyxaAIPatterns from './pages/FlyxaAIPatterns.js';
+import FlyxaAIPreSession from './pages/FlyxaAIPreSession.js';
+import FlyxaAIEmotionalFingerprint from './pages/FlyxaAIEmotionalFingerprint.js';
 import Analytics from './pages/Analytics.js';
+import Achievements from './pages/Achievements.js';
 import PsychologyTracker from './pages/PsychologyTracker.js';
 import Journal from './pages/Journal.js';
 import Chart from './pages/Chart.js';
@@ -47,8 +51,13 @@ export default function App() {
       <Route element={<ProtectedLayout />}>
         <Route path="/" element={<Dashboard />} />
         <Route path="/scanner" element={<TradeScanner />} />
-        <Route path="/coach" element={<AICoach />} />
+        <Route path="/flyxa-ai" element={<FlyxaAI />} />
+        <Route path="/flyxa-ai/patterns" element={<FlyxaAIPatterns />} />
+        <Route path="/flyxa-ai/pre-session" element={<FlyxaAIPreSession />} />
+        <Route path="/flyxa-ai/emotional-fingerprint" element={<FlyxaAIEmotionalFingerprint />} />
+        <Route path="/coach" element={<Navigate to="/flyxa-ai" replace />} />
         <Route path="/analytics" element={<Analytics />} />
+        <Route path="/achievements" element={<Achievements />} />
         <Route path="/backtest" element={<Chart />} />
         <Route path="/chart" element={<Navigate to="/backtest" replace />} />
         <Route path="/psychology" element={<PsychologyTracker />} />
