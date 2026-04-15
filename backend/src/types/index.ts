@@ -11,7 +11,7 @@ export interface Trade {
   exit_price: number;
   sl_price: number;
   tp_price: number;
-  exit_reason: 'TP' | 'SL';
+  exit_reason: 'TP' | 'SL' | 'BE';
   pnl: number;
   contract_size: number;
   point_value: number;

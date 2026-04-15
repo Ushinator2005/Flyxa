@@ -1,24 +1,7 @@
 <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <linearGradient id="flyxa-gradient" x1="12" y1="14" x2="53" y2="52" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#7DD3FC" />
-      <stop offset="0.48" stop-color="#3B82F6" />
-      <stop offset="1" stop-color="#F97316" />
-    </linearGradient>
-    <radialGradient id="flyxa-glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(25 20) rotate(51.245) scale(37.3499)">
-      <stop stop-color="#E0F2FE" stop-opacity="0.95" />
-      <stop offset="1" stop-color="#0F172A" stop-opacity="0" />
-    </radialGradient>
-    <linearGradient id="flyxa-stroke" x1="10" y1="10" x2="53" y2="53" gradientUnits="userSpaceOnUse">
-      <stop stop-color="white" stop-opacity="0.28" />
-      <stop offset="1" stop-color="white" stop-opacity="0.02" />
-    </linearGradient>
-  </defs>
-
-  <rect x="5" y="5" width="54" height="54" rx="18" fill="#081120" />
-  <rect x="5" y="5" width="54" height="54" rx="18" fill="url(#flyxa-glow)" />
-  <rect x="5.5" y="5.5" width="53" height="53" rx="17.5" stroke="url(#flyxa-stroke)" />
-  <path d="M16 44 28.7 16.9c.8-1.7 3-2.2 4.6-1.1l6.5 4.7c1.5 1.1 1.9 3.2.9 4.8L33 36.3h16.4c2 0 3 2.4 1.7 3.8L40.4 50.8c-.7.7-1.6 1.1-2.6 1.1H18.7c-2 0-3.4-2.1-2.7-3.9Z" fill="url(#flyxa-gradient)" />
-  <path d="M31.2 24.2 24.4 38h9.4l10.5-10.7H35c-1.4 0-2.7-.7-3.8-1.9Z" fill="white" fill-opacity="0.18" />
-  <path d="M24.8 41.9h13.9" stroke="white" stroke-opacity="0.38" stroke-width="2.3" stroke-linecap="round" />
+  <rect x="0" y="0" width="64" height="64" fill="#020912"/>
+  <line x1="4" y1="38" x2="21" y2="38" stroke="#082b4a" stroke-width="1.6" stroke-linecap="round"/>
+  <line x1="21" y1="38" x2="37" y2="22" stroke="#12a8f3" stroke-width="1.8" stroke-linecap="round"/>
+  <line x1="37" y1="22" x2="57" y2="22" stroke="#12a8f3" stroke-width="1.8" stroke-linecap="round"/>
+  <circle cx="21" cy="38" r="3" fill="#12a8f3"/>
 </svg>

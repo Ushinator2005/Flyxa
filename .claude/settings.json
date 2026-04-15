@@ -12,7 +12,13 @@
       "Bash(sed -n '47,50p' Settings.tsx)",
       "Bash(sed -n '988,991p' Chart.tsx)",
       "Bash(sed -n '431,435p' Analytics.tsx)",
-      "Bash(sed -n '617,621p' AICoach.tsx)"
+      "Bash(sed -n '617,621p' AICoach.tsx)",
+      "Bash(npm run *)",
+      "Bash(echo \"Backend PID: $!\")",
+      "Bash(echo \"Frontend PID: $!\")",
+      "Read(//tmp/**)",
+      "Bash(npm install *)",
+      "Bash(echo \"exit: $?\")"
     ]
   }
 }

@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { AppPreferences, Trade, TradingAccount, TradingAccountStatus } from '../types/index.js';
 import { useAuth } from './AuthContext.js';
+import { deriveTradeSessionLabel } from '../utils/sessionTimes.js';
 
 export const ALL_ACCOUNTS_ID = 'all';
 export const DEFAULT_ACCOUNT_ID = 'default-account';
@@ -355,7 +356,8 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
   const decorateTrades = useCallback((trades: Trade[]) => trades.map(trade => ({
     ...trade,
     accountId: resolveTradeAccountId(trade),
-  })), [resolveTradeAccountId]);
+    session: deriveTradeSessionLabel(trade, preferences.sessionTimes),
+  })), [preferences.sessionTimes, resolveTradeAccountId]);
 
   const filterTradesBySelectedAccount = useCallback((trades: Trade[]) => {
     const decorated = decorateTrades(trades);

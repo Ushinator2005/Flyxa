@@ -88,11 +88,11 @@ export default function Auth() {
         <div className="grid w-full gap-12 lg:grid-cols-[minmax(0,1fr)_440px] lg:items-start lg:gap-16">
           <section className="relative flex flex-col justify-center lg:pb-72">
             <FlyxaLogo
-              size={56}
+              size={62}
               showWordmark
-              className="mb-4"
-              wordmarkClassName="text-3xl sm:text-4xl"
-              subtitleClassName="text-[11px] uppercase tracking-[0.3em] text-slate-500 sm:text-xs"
+              className="mb-5 min-w-[360px]"
+              wordmarkClassName="text-[3.1rem] font-extrabold tracking-[-0.06em] sm:text-[3.4rem]"
+              subtitleClassName="text-[11px] tracking-[0.56em] sm:text-xs"
             />
 
             <p className="mb-8 text-sm text-slate-500">

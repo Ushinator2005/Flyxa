@@ -11,6 +11,7 @@ import {
   LogOut,
   Menu,
   Trophy,
+  ListTodo,
   X,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext.js';
@@ -24,6 +25,7 @@ const navItems = [
   { path: '/backtest', icon: Target, label: 'Backtest' },
   { path: '/psychology', icon: Heart, label: 'Psychology' },
   { path: '/journal', icon: FileText, label: 'Daily Journal' },
+  { path: '/goals', icon: ListTodo, label: 'Goals' },
   { path: '/achievements', icon: Trophy, label: 'Achievements' },
 ];
 
@@ -38,9 +40,9 @@ export default function Sidebar() {
         <FlyxaLogo
           size={38}
           showWordmark
-          subtitle="Futures Journal"
+          subtitle="Trading Intelligence"
           wordmarkClassName="text-lg"
-          subtitleClassName="text-xs uppercase tracking-[0.24em] text-slate-500"
+          subtitleClassName="text-[10px] uppercase tracking-[0.5em] text-[#1f6570]"
         />
       </div>
 
@@ -87,20 +89,20 @@ export default function Sidebar() {
     <>
       <button
         onClick={() => setMobileOpen(true)}
-        className="theme-mobile-menu lg:hidden fixed top-4 left-4 z-50 p-2 bg-slate-800 rounded-lg text-slate-300"
+        className="theme-mobile-menu md:hidden fixed top-4 left-4 z-50 p-2 bg-slate-800 rounded-lg text-slate-300"
       >
         <Menu size={20} />
       </button>
 
       {mobileOpen && (
         <div
-          className="lg:hidden fixed inset-0 bg-black/60 z-40"
+          className="md:hidden fixed inset-0 bg-black/60 z-40"
           onClick={() => setMobileOpen(false)}
         />
       )}
 
       <aside
-        className={`theme-sidebar lg:hidden fixed top-0 left-0 h-full w-64 bg-slate-900 border-r border-slate-700/50 z-50 transform transition-transform duration-300 ${
+        className={`theme-sidebar md:hidden fixed top-0 left-0 h-full w-64 bg-slate-900 border-r border-slate-700/50 z-50 transform transition-transform duration-300 ${
           mobileOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
@@ -113,10 +115,9 @@ export default function Sidebar() {
         {sidebarContent}
       </aside>
 
-      <aside className="theme-sidebar hidden lg:flex flex-col w-60 min-h-screen bg-slate-900 border-r border-slate-700/50 flex-shrink-0">
+      <aside className="theme-sidebar hidden md:flex flex-col w-60 min-h-screen bg-slate-900 border-r border-slate-700/50 flex-shrink-0">
         {sidebarContent}
       </aside>
     </>
   );
 }
-

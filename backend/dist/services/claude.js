@@ -39,21 +39,23 @@ const MANUAL_READING_PROCESS = `Read the chart in this exact order:
 
 3. CRITICAL — Identify the three price levels attached to the P&L box boundaries:
    - GREY pill/box label on the right-side price axis = entry price. On the right axis you will see several colored pill-shaped labels: a GREEN one (live price — ignore it), a RED one (stop loss), and a GREY one (entry). The GREY pill label is at the boundary between the pink and teal zones. Read the number printed inside that grey pill exactly — it is the entry price. Do not read axis gridline text, do not interpolate between gridlines. The grey pill label is the same style as the red and green pills, just grey colored.
-   - RED label on the right-side price axis = stop loss (the far edge of the pink zone)
-   - The TAKE PROFIT is the far edge of the teal zone.
+   - RED label on the right-side price axis = stop loss (the OUTERMOST far edge of the pink zone — the edge furthest from entry, NOT any intermediate level inside the pink zone).
+   - The TAKE PROFIT is the OUTERMOST far edge of the teal zone (the edge furthest from entry).
 
    HOW TO FIND THE TAKE PROFIT:
-   a. Locate the teal box on the chart. Its far edge (top for Long, bottom for Short) is the TP level.
-   b. Trace that far edge horizontally to the right-axis price scale to read the price.
-   c. The TP is often where the teal box aligns with a horizontal line drawn on the chart.
-   d. There may be a small teal/green label AT THAT EXACT EDGE — use it if visible.
-   e. NEVER use the live/current-price label as the TP. The live price label is the topmost or bottom-most floating green label that shows the most recent market price — it is NOT attached to the P&L box and will be at a very different price from the teal box edge. If a green label is far outside the P&L box range, it is the live price — ignore it.
-   f. If target-label-focus is attached, that crop is centered on the TP level. If you see a green label aligned with the teal box edge in that crop, use it as tp_price even if it resembles the live/current-price label.
+   a. Locate the teal box. Find its ABSOLUTE outermost edge (top edge for Long, bottom edge for Short). That is the TP level — it is the boundary where the teal box ends.
+   b. Trace that outermost edge horizontally to the right-axis price scale to read the price.
+   c. IGNORE any dashed lines, horizontal lines, or colored markers drawn INSIDE the teal box body — those are NOT the TP. The TP is only at the outermost boundary of the teal box itself.
+   d. IGNORE any horizontal lines drawn on the chart that cross the chart area but do not coincide with the actual outer edge of the teal box.
+   e. There may be a small teal/green label AT THAT OUTERMOST EDGE — use it if visible.
+   f. NEVER use the live/current-price label as the TP. The live price label is the topmost or bottom-most floating green label that shows the most recent market price — it is NOT attached to the P&L box and will be at a very different price from the teal box edge. If a green label is far outside the P&L box range, it is the live price — ignore it.
+   g. If target-label-focus is attached, that crop is centered on the TP level. If you see a green label aligned with the teal box OUTER edge in that crop, use it as tp_price even if it resembles the live/current-price label.
 
 4. Confirm direction from box layout:
    - Long: teal zone ABOVE entry, pink zone BELOW entry → tp_price > entry_price
    - Short: pink zone ABOVE entry, teal zone BELOW entry → tp_price < entry_price
    If your identified tp_price is outside the visible teal box, you have the wrong label — re-read step 3.
+   If tp_price equals an intermediate level inside the teal zone rather than its outermost edge, you have the wrong label — re-read step 3.
 
 5. Read the entry time from the x-axis using the left edge of the P&L box.
 6. Starting at the entry candle, move candle by candle to decide whether stop loss or take profit is touched first.
@@ -692,7 +694,9 @@ Critical rules:
 - Do not use nearby gridline text
 - Do not use unrelated horizontal drawing lines
 - The grey entry label can be lower-contrast than the red and green labels; still use the printed grey pill value
-- If the green target label is centered in target-label-focus and aligns with the teal box edge, treat it as tp_price even if it resembles a current-price label
+- If the green target label is centered in target-label-focus and aligns with the OUTERMOST teal box edge, treat it as tp_price even if it resembles a current-price label
+- If there are dashed lines, colored markers, or intermediate green labels INSIDE the body of the teal zone (between entry and the outer edge), they are NOT the TP — ignore them and use only the label at the absolute outer boundary of the teal box
+- Similarly, if there are multiple red labels visible, only use the one at the outermost edge of the pink zone (furthest from entry) as sl_price; ignore any intermediate red labels inside the pink zone
 
 Return ONLY a raw JSON object with these exact keys:
 direction, entry_price, sl_price, tp_price`;

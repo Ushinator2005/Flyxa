@@ -325,6 +325,7 @@ function JournalOverlay({
 
 export default function MonthlyHeatmap({ trades = [] }: { trades?: Trade[] }) {
   const now = new Date();
+  const today = useMemo(() => new Date(), []);
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([]);
@@ -490,6 +491,9 @@ export default function MonthlyHeatmap({ trades = [] }: { trades?: Trade[] }) {
             const tradeCount = counts[day] ?? 0;
             const journalEntry = journals[day];
             const hasJournal = !!journalEntry;
+            const isToday = day === today.getDate()
+              && month === today.getMonth() + 1
+              && year === today.getFullYear();
             const title = [
               pnl !== undefined ? `${day} - ${formatCurrency(pnl)}` : `${day} - No trades`,
               hasJournal ? 'Daily journal completed' : undefined,
@@ -512,9 +516,24 @@ export default function MonthlyHeatmap({ trades = [] }: { trades?: Trade[] }) {
                 }}
                 className={`relative flex flex-col border-b border-r border-slate-700/50 p-2 transition-colors last:border-r-0 ${getCellBg(pnl)} ${
                   hasJournal ? 'cursor-pointer hover:ring-1 hover:ring-blue-400/40 hover:ring-inset' : ''
+                } ${
+                  isToday ? 'bg-cyan-500/[0.04]' : ''
                 }`}
               >
-                <span className="text-xs leading-none text-slate-400">{day}</span>
+                {isToday && (
+                  <span
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-0 border border-cyan-400/45"
+                  />
+                )}
+                {isToday ? (
+                  <span className="inline-flex flex-col items-start text-xs font-semibold leading-none text-cyan-400">
+                    <span>{day}</span>
+                    <span className="mt-1 h-[3px] w-[3px] self-start rounded-full bg-cyan-400" />
+                  </span>
+                ) : (
+                  <span className="text-xs leading-none text-slate-400">{day}</span>
+                )}
                 {pnl !== undefined && (
                   <div className="mt-auto flex flex-col gap-0.5">
                     <span className={`text-xs font-semibold ${pnl >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>

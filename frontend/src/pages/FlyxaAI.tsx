@@ -1,5 +1,5 @@
 import { CSSProperties, useMemo } from 'react';
-import { HelpCircle } from 'lucide-react';
+import { Clock3 } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import LoadingSpinner from '../components/common/LoadingSpinner.js';
 import { useTrades } from '../hooks/useTrades.js';
@@ -52,22 +52,41 @@ type WeeklyDebriefData = {
 };
 
 
-const insightTypeStyles: Record<InsightType, { accent: string; badgeBg: string; badgeText: string }> = {
-  risk: { accent: '#ef4444', badgeBg: 'rgba(239,68,68,0.1)', badgeText: '#ef4444' },
-  pattern: { accent: '#4a9eff', badgeBg: 'rgba(74,158,255,0.1)', badgeText: '#4a9eff' },
-  psychology: { accent: '#f59e0b', badgeBg: 'rgba(245,158,11,0.1)', badgeText: '#f59e0b' },
-  edge: { accent: '#22c55e', badgeBg: 'rgba(34,197,94,0.1)', badgeText: '#22c55e' },
+const colors = {
+  d0: 'var(--d0, #070a0f)',
+  d1: 'var(--d1, #0c1018)',
+  d2: 'var(--d2, #111620)',
+  d3: 'var(--d3, #171d28)',
+  d4: 'var(--d4, #1e2535)',
+  b0: 'var(--b0, rgba(255,255,255,0.055))',
+  b1: 'var(--b1, rgba(255,255,255,0.10))',
+  t0: 'var(--t0, #dde4ec)',
+  t1: 'var(--t1, #8a94a0)',
+  t2: 'var(--t2, #4a5260)',
+  acc: 'var(--acc, #00d4a8)',
+  grn: 'var(--grn, #22d68a)',
+  red: 'var(--red, #f05252)',
+  amb: 'var(--amb, #f5a623)',
+  blu: 'var(--blu, #4a9eff)',
+  mono: 'var(--mono, \'SF Mono\', \'Fira Code\', ui-monospace, monospace)',
 };
 
-const sectionLabelStyle: CSSProperties = {
-  fontSize: 9,
-  fontWeight: 600,
-  letterSpacing: '0.1em',
+const insightTypeStyles: Record<InsightType, { accent: string }> = {
+  risk: { accent: colors.red },
+  pattern: { accent: colors.blu },
+  psychology: { accent: colors.amb },
+  edge: { accent: colors.grn },
+};
+
+const tinyMetaLabelStyle: CSSProperties = {
+  fontSize: 9.5,
+  fontWeight: 500,
+  letterSpacing: '0.12em',
   textTransform: 'uppercase',
-  color: '#64748b',
+  color: colors.t2,
 };
 
-const cardBorder = '1px solid rgba(255,255,255,0.07)';
+const cardBorder = `1px solid ${colors.b0}`;
 
 function avg(values: number[]) {
   return values.length ? values.reduce((s, v) => s + v, 0) / values.length : 0;
@@ -84,7 +103,8 @@ function addDays(date: Date, days: number) {
   return next;
 }
 
-function parseTradeDate(trade: Trade): Date | null {
+function parseTradeDate(trade?: Partial<Trade> | null): Date | null {
+  if (!trade) return null;
   if (trade.trade_date) {
     const parsed = new Date(`${trade.trade_date}T00:00:00`);
     if (!Number.isNaN(parsed.getTime())) return parsed;
@@ -99,7 +119,8 @@ function parseTradeDate(trade: Trade): Date | null {
   return null;
 }
 
-function parseTradeDateTime(trade: Trade): Date | null {
+function parseTradeDateTime(trade?: Partial<Trade> | null): Date | null {
+  if (!trade) return null;
   if (trade.trade_date) {
     const time = trade.trade_time?.length === 5 ? `${trade.trade_time}:00` : (trade.trade_time || '00:00:00');
     const parsed = new Date(`${trade.trade_date}T${time}`);
@@ -112,14 +133,15 @@ function parseTradeDateTime(trade: Trade): Date | null {
   return null;
 }
 
-function tradeMinutes(trade: Trade): number | null {
+function tradeMinutes(trade?: Partial<Trade> | null): number | null {
+  if (!trade) return null;
   if (!trade.trade_time) return null;
   const [h, m] = trade.trade_time.split(':').map(Number);
   if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
   return (h * 60) + m;
 }
 
-function tradeSessionKey(trade: Trade) {
+function tradeSessionKey(trade?: Partial<Trade> | null) {
   const date = parseTradeDate(trade);
   return date ? date.toISOString().slice(0, 10) : '';
 }
@@ -155,16 +177,22 @@ function normalizeConfluences(value: unknown): string[] {
   return normalized;
 }
 
-function tradeR(trade: Trade): number {
-  const riskPoints = Math.abs(trade.entry_price - trade.sl_price);
+function tradeR(trade?: Partial<Trade> | null): number {
+  if (!trade) return 0;
+  const entryPrice = Number(trade.entry_price ?? 0);
+  const stopPrice = Number(trade.sl_price ?? 0);
+  const pnl = Number(trade.pnl ?? 0);
+  const riskPoints = Math.abs(entryPrice - stopPrice);
   if (riskPoints > 0) {
-    const size = trade.contract_size > 0 ? trade.contract_size : 1;
-    const pointValue = trade.point_value > 0 ? trade.point_value : 1;
+    const contractSize = Number(trade.contract_size ?? 0);
+    const pointVal = Number(trade.point_value ?? 0);
+    const size = contractSize > 0 ? contractSize : 1;
+    const pointValue = pointVal > 0 ? pointVal : 1;
     const riskCash = riskPoints * size * pointValue;
-    if (riskCash > 0) return trade.pnl / riskCash;
+    if (riskCash > 0) return pnl / riskCash;
   }
-  if (trade.pnl > 0) return 1;
-  if (trade.pnl < 0) return -1;
+  if (pnl > 0) return 1;
+  if (pnl < 0) return -1;
   return 0;
 }
 
@@ -243,22 +271,29 @@ function processBreakdown(trades: Trade[]) {
 }
 
 function statToneColor(tone: WeeklyStat['tone']) {
-  if (tone === 'positive') return '#34d399';
-  if (tone === 'negative') return '#f87171';
-  if (tone === 'info') return '#4a9eff';
-  return '#e2e8f0';
+  if (tone === 'positive') return colors.grn;
+  if (tone === 'negative') return colors.red;
+  if (tone === 'info') return colors.amb;
+  return colors.t0;
 }
 
-function tagStyle(tone: TagTone): CSSProperties {
-  if (tone === 'positive') return { color: '#34d399', backgroundColor: 'rgba(52,211,153,0.1)', border: '1px solid rgba(52,211,153,0.2)' };
-  if (tone === 'negative') return { color: '#f87171', backgroundColor: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.2)' };
-  return { color: '#94a3b8', backgroundColor: 'rgba(148,163,184,0.1)', border: '1px solid rgba(148,163,184,0.2)' };
+function tagStyle(_tone: TagTone): CSSProperties {
+  return {
+    color: colors.t1,
+    backgroundColor: colors.d3,
+    border: `1px solid ${colors.b0}`,
+    borderRadius: 4,
+    padding: '3px 8px',
+    fontSize: 10.5,
+    lineHeight: 1.3,
+    fontFamily: colors.mono,
+  };
 }
 
 function breakdownColor(value: number) {
-  if (value >= 75) return '#22c55e';
-  if (value >= 55) return '#f59e0b';
-  return '#ef4444';
+  if (value >= 80) return colors.grn;
+  if (value >= 40) return colors.amb;
+  return colors.red;
 }
 
 function escapeRegExp(value: string) {
@@ -270,10 +305,25 @@ function renderBodyWithHighlights(body: string, keyPhrases: string[]) {
   const lookup = new Set(keyPhrases.map(k => k.toLowerCase()));
   const pattern = new RegExp(`(${keyPhrases.map(escapeRegExp).join('|')})`, 'gi');
   return body.split(pattern).map((segment, idx) => (
-    <span key={`${segment}-${idx}`} style={{ color: lookup.has(segment.toLowerCase()) ? '#64748b' : '#475569' }}>
+    <span key={`${segment}-${idx}`} style={{ color: lookup.has(segment.toLowerCase()) ? colors.t0 : colors.t1 }}>
       {segment}
     </span>
   ));
+}
+
+function rewriteInsightDescription(insight: WeeklyInsight): string {
+  const anchor = insight.tags[0]?.label ?? insight.frequency;
+
+  if (insight.type === 'risk') {
+    return `This pattern is creating avoidable downside. Use "${anchor}" as a hard caution trigger and wait for full confirmation before committing size.`;
+  }
+  if (insight.type === 'pattern') {
+    return 'This setup is repeating often enough to systematize. Build a checklist from this signal and only execute when every condition is present.';
+  }
+  if (insight.type === 'psychology') {
+    return 'Your emotional state is shifting outcomes. Define a reset rule for this state, pause entries when it appears, and re-enter only after objective criteria return.';
+  }
+  return 'This is a repeatable edge. Prioritize this context in your session plan and keep risk constant so the edge can compound cleanly.';
 }
 
 function buildData(trades: Trade[]): WeeklyDebriefData {
@@ -610,56 +660,229 @@ export default function FlyxaAI() {
     () => filterTradesBySelectedAccount(trades),
     [filterTradesBySelectedAccount, trades]
   );
-  const weeklyDebriefData = useMemo(
-    () => buildData(accountTrades),
+  const safeAccountTrades = useMemo(
+    () => accountTrades.filter((trade): trade is Trade => Boolean(trade)),
     [accountTrades]
+  );
+  const weeklyDebriefData = useMemo(
+    () => buildData(safeAccountTrades),
+    [safeAccountTrades]
   );
 
   const sessionsProgress = Math.min(100, (weeklyDebriefData.nextDebrief.sessionsLogged / weeklyDebriefData.nextDebrief.sessionsTarget) * 100);
   const processScoreNumeric = Number.parseInt(weeklyDebriefData.stats.processScore.value, 10);
-  const statsColumns = [
-    weeklyDebriefData.stats.netR,
+  const boundedScore = Math.max(0, Math.min(100, Number.isFinite(processScoreNumeric) ? processScoreNumeric : 0));
+  const dedupedFocusItems = Array.from(new Set(weeklyDebriefData.focusItems));
+  const remainingSessions = Math.max(0, weeklyDebriefData.nextDebrief.sessionsTarget - weeklyDebriefData.nextDebrief.sessionsLogged);
+
+  const themeVars = {
+    '--d0': '#070a0f',
+    '--d1': '#0c1018',
+    '--d2': '#111620',
+    '--d3': '#171d28',
+    '--d4': '#1e2535',
+    '--b0': 'rgba(255,255,255,0.055)',
+    '--b1': 'rgba(255,255,255,0.10)',
+    '--t0': '#dde4ec',
+    '--t1': '#8a94a0',
+    '--t2': '#4a5260',
+    '--acc': '#00d4a8',
+    '--grn': '#22d68a',
+    '--red': '#f05252',
+    '--amb': '#f5a623',
+    '--blu': '#4a9eff',
+    '--mono': '\'SF Mono\', \'Fira Code\', ui-monospace, monospace',
+  } as CSSProperties;
+
+  const weeklyWindow = useMemo(() => {
+    const ordered = [...safeAccountTrades].sort((a, b) => (parseTradeDateTime(a)?.getTime() ?? 0) - (parseTradeDateTime(b)?.getTime() ?? 0));
+    const anchor = parseTradeDate(ordered[ordered.length - 1]) ?? new Date();
+    const weekEnd = addDays(anchor, 0);
+    const weekStart = addDays(weekEnd, -6);
+    const prevStart = addDays(weekStart, -7);
+    const prevEnd = addDays(weekStart, -1);
+
+    const inRange = (trade: Trade, start: Date, end: Date) => {
+      const date = parseTradeDate(trade);
+      return Boolean(date && date.getTime() >= start.getTime() && date.getTime() <= end.getTime());
+    };
+
+    const weeklyTrades = ordered.filter(trade => inRange(trade, weekStart, weekEnd));
+    const previousTrades = ordered.filter(trade => inRange(trade, prevStart, prevEnd));
+    return { weeklyTrades, previousTrades };
+  }, [safeAccountTrades]);
+
+  const previousWeekNetR = useMemo(
+    () => summarize(weeklyWindow.previousTrades).netR,
+    [weeklyWindow.previousTrades]
+  );
+  const netRNumeric = Number.parseFloat(weeklyDebriefData.stats.netR.value.replace(/[^\d.+-]/g, '')) || 0;
+  const weakestProcess = useMemo(
+    () => [...weeklyDebriefData.processBreakdown].sort((a, b) => a.value - b.value)[0],
+    [weeklyDebriefData.processBreakdown]
+  );
+  const violationsByWeakestMetric = Math.max(
+    0,
+    Math.round((weeklyWindow.weeklyTrades.length * (100 - (weakestProcess?.value ?? 0))) / 100)
+  );
+  const violationType = weakestProcess?.label === 'Entry patience'
+    ? 'Entry timing'
+    : weakestProcess?.label === 'Post-loss mgmt'
+      ? 'Post-loss impulse'
+      : weakestProcess?.label === 'Size discipline'
+        ? 'Sizing drift'
+        : 'Plan drift';
+
+  const statCells = [
     weeklyDebriefData.stats.winRate,
     weeklyDebriefData.stats.avgWinner,
     weeklyDebriefData.stats.avgLoser,
     weeklyDebriefData.stats.processScore,
+    {
+      label: 'Rule Violations',
+      value: String(violationsByWeakestMetric),
+      subLabel: violationType,
+      tone: 'negative' as const,
+    },
   ];
+
+  const displayedInsights = weeklyDebriefData.insights.slice(0, 4);
+
+  const sparkline = useMemo(() => {
+    const width = 168;
+    const height = 42;
+    const padX = 6;
+    const padTop = 4;
+    const padBottom = 6;
+    const chartHeight = height - padTop - padBottom;
+    const rs = weeklyWindow.weeklyTrades.map(trade => tradeR(trade));
+    const cumulative: number[] = [0];
+    rs.forEach(r => cumulative.push((cumulative[cumulative.length - 1] ?? 0) + r));
+    const min = Math.min(0, ...cumulative);
+    const max = Math.max(0, ...cumulative);
+    const range = Math.max(1, max - min);
+    const xAt = (step: number) => padX + ((step / Math.max(1, cumulative.length - 1)) * (width - (padX * 2)));
+    const yAt = (value: number) => padTop + (((max - value) / range) * chartHeight);
+    const baselineY = yAt(0);
+
+    let stepPath = `M ${xAt(0)} ${yAt(cumulative[0])}`;
+    let areaPath = `M ${xAt(0)} ${baselineY} L ${xAt(0)} ${yAt(cumulative[0])}`;
+    for (let index = 1; index < cumulative.length; index += 1) {
+      stepPath += ` H ${xAt(index)} V ${yAt(cumulative[index])}`;
+      areaPath += ` H ${xAt(index)} V ${yAt(cumulative[index])}`;
+    }
+    areaPath += ` L ${xAt(cumulative.length - 1)} ${baselineY} Z`;
+
+    const dots = rs.map((delta, index) => {
+      const x = xAt(index + 1);
+      const y = yAt(cumulative[index + 1]);
+      const absDelta = Math.abs(delta);
+      const rounded = Math.abs(absDelta - Math.round(absDelta)) < 0.05 ? String(Math.round(absDelta)) : absDelta.toFixed(1);
+      return {
+        x,
+        y,
+        label: `${delta >= 0 ? '+' : '-'}${rounded}R`,
+      };
+    });
+
+    return { width, height, baselineY, stepPath, areaPath, dots };
+  }, [weeklyWindow.weeklyTrades]);
+
+  const bestTrade = useMemo(() => {
+    if (!weeklyWindow.weeklyTrades.length) return null;
+    const ranked = weeklyWindow.weeklyTrades
+      .map(trade => ({ trade, r: tradeR(trade) }))
+      .sort((a, b) => (b.r - a.r) || (b.trade.pnl - a.trade.pnl));
+    const top = ranked[0];
+    if (!top) return null;
+
+    const parsed = parseTradeDateTime(top.trade);
+    const dateLabel = parsed
+      ? parsed.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      : (top.trade.trade_date || '--');
+
+    return {
+      symbol: top.trade.symbol || 'N/A',
+      direction: top.trade.direction,
+      resultR: formatSignedR(top.r),
+      session: top.trade.session || 'Other',
+      time: top.trade.trade_time || '--:--',
+      date: dateLabel,
+      note: top.trade.pre_trade_notes?.trim() || 'Clean execution aligned with your process plan.',
+      journal: top.trade.post_trade_notes?.trim() || 'Journal note not captured for this trade yet.',
+    };
+  }, [weeklyWindow.weeklyTrades]);
+
+  const sessionBreakdownRows = useMemo(() => {
+    const labels = ['London', 'New York', 'Asia'] as const;
+    const rows = labels.map(label => {
+      const tradesForSession = weeklyWindow.weeklyTrades.filter(trade => trade.session === label);
+      const netR = tradesForSession.reduce((sum, trade) => sum + tradeR(trade), 0);
+      const scored = tradesForSession.filter(trade => trade.pnl !== 0);
+      const wins = scored.filter(trade => trade.pnl > 0).length;
+      const winRate = scored.length ? Math.round((wins / scored.length) * 100) : 0;
+      return { label, netR, winRate, trades: tradesForSession.length };
+    });
+    const maxAbs = Math.max(1, ...rows.map(row => Math.abs(row.netR)));
+    return rows.map(row => ({ ...row, barWidth: row.trades ? Math.max(8, (Math.abs(row.netR) / maxAbs) * 100) : 0 }));
+  }, [weeklyWindow.weeklyTrades]);
+
+  const weekGrade = boundedScore >= 90 ? 'A' : boundedScore >= 75 ? 'B' : boundedScore >= 60 ? 'C' : 'D';
+  const nextGrade = weekGrade === 'A' ? null : weekGrade === 'B' ? 'A' : weekGrade === 'C' ? 'B' : 'C';
+  const nextThreshold = weekGrade === 'A' ? null : weekGrade === 'B' ? 90 : weekGrade === 'C' ? 75 : 60;
+  const gradeHint = nextThreshold === null
+    ? 'You are in the top band. Maintain consistency across all four process metrics.'
+    : `${weakestProcess?.label ?? 'Execution quality'} is the fastest lever. Raise it by about ${Math.max(1, nextThreshold - boundedScore)} points to reach grade ${nextGrade}.`;
+
+  const actionItems = useMemo(() => {
+    const items: string[] = [];
+    if (weakestProcess?.label === 'Entry patience') items.push('Delay first entries until your setup confirms after the open instead of anticipating the move.');
+    if (weakestProcess?.label === 'Post-loss mgmt') items.push('After any loss, enforce a 15-minute reset and drop one size tier before the next entry.');
+    if (weakestProcess?.label === 'Size discipline') items.push('Keep position size fixed to baseline this week and block discretionary size increases.');
+    if (weakestProcess?.label === 'Plan adherence') items.push('Run a pre-entry checklist and skip any trade that misses even one planned condition.');
+    const riskInsight = displayedInsights.find(insight => insight.type === 'risk');
+    if (riskInsight) items.push(`Convert "${riskInsight.title}" into a hard no-trade rule when that condition appears.`);
+    const edgeInsight = displayedInsights.find(insight => insight.type === 'edge');
+    if (edgeInsight) items.push(`Prioritize the ${edgeInsight.badge.toLowerCase()} context first and keep risk fixed while it is working.`);
+    dedupedFocusItems.forEach(item => items.push(item));
+    return Array.from(new Set(items)).slice(0, 3);
+  }, [dedupedFocusItems, displayedInsights, weakestProcess?.label]);
 
   if (loading) {
     return (
-      <div className="animate-fade-in -m-8 flex h-[calc(100vh-3.5rem)] items-center justify-center bg-[#060a12]">
+      <div className="animate-fade-in flex h-[calc(100vh-3.5rem)] items-center justify-center rounded-2xl" style={{ ...themeVars, backgroundColor: colors.d0 }}>
         <LoadingSpinner size="lg" label="Analyzing your trade journal..." />
       </div>
     );
   }
 
   return (
-    <div className="animate-fade-in -m-8 h-[calc(100vh-3.5rem)] overflow-hidden bg-[#060a12] text-[#e2e8f0]">
-      <div className="grid h-full grid-cols-1 overflow-hidden lg:grid-cols-[200px_minmax(0,1fr)_220px]">
-        <aside className="min-h-0 overflow-y-auto border-r border-white/10 px-3 py-4" style={{ backgroundColor: '#080d18' }}>
-          <p style={sectionLabelStyle}>Flyxa AI</p>
-          <nav className="mt-4 space-y-1">
+    <div className="animate-fade-in h-[calc(100vh-3.5rem)] overflow-hidden rounded-2xl" style={{ ...themeVars, backgroundColor: colors.d0, color: colors.t0 }}>
+      <div className="grid h-full grid-cols-1 overflow-hidden lg:grid-cols-[178px_minmax(0,1fr)_252px]">
+        <aside className="min-h-0 overflow-y-auto border-r px-2 py-4" style={{ backgroundColor: colors.d1, borderColor: colors.b0 }}>
+          <div className="px-2">
+            <p className="text-[14px] font-bold tracking-[0.1em]" style={{ color: colors.t0 }}>FLYXA</p>
+            <p className="mt-0.5 text-[9.5px]" style={{ color: colors.t2 }}>Trading Intelligence</p>
+          </div>
+
+          <nav className="mt-4 space-y-0.5">
             {[
-              { key: 'weekly',      label: 'Weekly debrief',       to: '/flyxa-ai',                       end: true  },
-              { key: 'pattern',     label: 'Pattern library',       to: '/flyxa-ai/patterns',              end: false },
-              { key: 'pre-session', label: 'Pre-session brief',     to: '/flyxa-ai/pre-session',           end: false },
-              { key: 'emotional',   label: 'Emotional fingerprint', to: '/flyxa-ai/emotional-fingerprint', end: false },
-              { key: 'ask',         label: 'Ask Flyxa',             to: '/flyxa-ai/ask',                   end: false },
+              { key: 'weekly', label: 'Weekly debrief', to: '/flyxa-ai', end: true },
+              { key: 'pattern', label: 'Pattern library', to: '/flyxa-ai/patterns', end: false },
+              { key: 'pre-session', label: 'Pre-session brief', to: '/flyxa-ai/pre-session', end: false },
+              { key: 'emotional', label: 'Emotional fingerprint', to: '/flyxa-ai/emotional-fingerprint', end: false },
+              { key: 'ask', label: 'Ask Flyxa', to: '/flyxa-ai/ask', end: false },
             ].map(item => (
               <NavLink key={item.key} to={item.to} end={item.end}>
                 {({ isActive }) => (
                   <span
-                    className="flex w-full items-center gap-2 text-sm transition-colors"
+                    className="block border-l-2 px-2.5 py-2 text-[12.5px] transition-colors hover:bg-white/[0.04]"
                     style={{
-                      color: isActive ? '#c7d2fe' : '#94a3b8',
-                      backgroundColor: isActive ? 'rgba(74,158,255,0.12)' : 'transparent',
-                      borderRight: isActive ? '2px solid #4a9eff' : '2px solid transparent',
-                      padding: '0.5rem 0.75rem',
-                      borderRadius: 6,
-                      display: 'flex',
+                      borderLeftColor: isActive ? colors.acc : 'transparent',
+                      backgroundColor: isActive ? 'rgba(0,212,168,0.07)' : 'transparent',
+                      color: isActive ? colors.acc : colors.t1,
                     }}
                   >
-                    <span className="h-[7px] w-[7px] shrink-0 rounded-full" style={{ backgroundColor: isActive ? '#4a9eff' : '#64748b' }} />
                     {item.label}
                   </span>
                 )}
@@ -667,114 +890,192 @@ export default function FlyxaAI() {
             ))}
           </nav>
 
-          <div className="mt-6 border-t border-white/10 pt-4">
-            <p style={sectionLabelStyle}>History</p>
-            <div className="mt-3 space-y-2">
+          <div className="mt-6 border-t px-2 pt-4" style={{ borderColor: colors.b0 }}>
+            <p style={tinyMetaLabelStyle}>History</p>
+            <div className="mt-2.5 space-y-2">
               {weeklyDebriefData.history.map(item => (
-                <button key={item.label} type="button" className="w-full rounded-md border border-transparent px-2.5 py-2 text-left transition-colors hover:border-white/10 hover:bg-[#0d1526]">
-                  <p className="text-[12px] text-[#cbd5e1]">{item.label}</p>
-                  <div className="mt-1 flex items-center justify-between text-[11px]">
-                    <span style={{ color: item.resultR.startsWith('+') ? '#34d399' : '#f87171' }}>{item.resultR}</span>
-                    <span className="text-[#64748b]">{item.sessions} sessions</span>
-                  </div>
+                <button key={item.label} type="button" className="w-full px-0 py-0.5 text-left">
+                  <p className="text-[12px]" style={{ color: colors.t1 }}>{item.label}</p>
+                  <p className="mt-0.5 text-[10.5px]" style={{ color: colors.t2 }}>
+                    {item.resultR} &middot; {item.sessions} sessions
+                  </p>
                 </button>
               ))}
             </div>
           </div>
         </aside>
 
-        <main className="min-h-0 overflow-hidden border-r border-white/10" style={{ backgroundColor: '#060a12' }}>
+        <main className="min-h-0 overflow-hidden" style={{ backgroundColor: colors.d0 }}>
           <div className="flex h-full min-h-0 flex-col">
-            <div className="border-b border-white/10 px-5 py-5">
-              <p style={sectionLabelStyle}>Weekly Debrief</p>
-              <h1 className="mt-2 text-[22px] font-semibold text-[#e2e8f0]">{weeklyDebriefData.weekRange}</h1>
-              <p className="mt-1 text-[12px] text-[#64748b]">{weeklyDebriefData.sessionCount} sessions | {weeklyDebriefData.tradeCount} trades logged</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {weeklyDebriefData.instruments.length > 0 ? weeklyDebriefData.instruments.map(instrument => (
-                  <span key={instrument} className="rounded-full border border-white/10 px-2.5 py-1 text-[11px] text-[#cbd5e1]" style={{ backgroundColor: '#0d1526' }}>
-                    {instrument}
-                  </span>
-                )) : (
-                  <span className="rounded-full border border-white/10 px-2.5 py-1 text-[11px] text-[#64748b]" style={{ backgroundColor: '#0d1526' }}>
-                    No instruments this week
-                  </span>
-                )}
-              </div>
-            </div>
-
-            <section className="mx-5 mt-4 grid overflow-hidden rounded-xl" style={{ gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', backgroundColor: '#0d1526', border: cardBorder }}>
-              {statsColumns.map((stat, index) => (
-                <div key={stat.label} className="px-3 py-3" style={{ borderRight: index < statsColumns.length - 1 ? '1px solid rgba(255,255,255,0.07)' : 'none' }}>
-                  <p style={sectionLabelStyle}>{stat.label}</p>
-                  <p className="mt-1 text-[24px] font-semibold" style={{ color: statToneColor(stat.tone) }}>{stat.value}</p>
-                  <p className="mt-1 text-[11px] text-[#64748b]">{stat.subLabel}</p>
+            <section className="border-b px-6 py-5" style={{ borderColor: colors.b0 }}>
+              <div className="flex items-end justify-between gap-6">
+                <div className="min-w-0">
+                  <p className="text-[9.5px] uppercase tracking-[0.12em]" style={{ color: colors.t2 }}>Weekly debrief</p>
+                  <h1 className="mt-2 text-[24px] font-bold tracking-[-0.02em]" style={{ color: colors.t0 }}>
+                    {weeklyDebriefData.weekRange}
+                  </h1>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <span className="text-[12px]" style={{ color: colors.t2 }}>
+                      {weeklyDebriefData.sessionCount} sessions &middot; {weeklyDebriefData.tradeCount} trades
+                    </span>
+                    <span
+                      className="rounded-[4px] border px-2 py-[2px] text-[10.5px]"
+                      style={{ borderColor: colors.b1, backgroundColor: colors.d3, color: colors.t1, fontFamily: colors.mono }}
+                    >
+                      {weeklyDebriefData.instruments[0] ?? 'N/A'}
+                    </span>
+                  </div>
                 </div>
-              ))}
-            </section>
 
-            <section className="mx-5 mt-4 rounded-xl border-l-[1px] px-4 py-4" style={{ backgroundColor: '#0d1526', border: cardBorder, borderLeftColor: '#4a9eff', borderLeftWidth: 4 }}>
-              <div className="flex items-center gap-2">
-                <HelpCircle size={14} color="#4a9eff" />
-                <p style={{ ...sectionLabelStyle, color: '#4a9eff' }}>This Week&apos;s Question</p>
+                <div className="flex items-end gap-4">
+                  <svg width={sparkline.width} height={sparkline.height} viewBox={`0 0 ${sparkline.width} ${sparkline.height}`} className="shrink-0">
+                    <line x1={6} y1={sparkline.baselineY} x2={sparkline.width - 6} y2={sparkline.baselineY} stroke="rgba(255,255,255,0.05)" strokeWidth="0.5" />
+                    <path d={sparkline.areaPath} fill="rgba(34,214,138,0.07)" />
+                    <path d={sparkline.stepPath} fill="none" stroke={colors.grn} strokeWidth="1.5" />
+                    {sparkline.dots.map(dot => (
+                      <g key={`${dot.x}-${dot.y}-${dot.label}`}>
+                        <circle cx={dot.x} cy={dot.y} r={3} fill={colors.grn} />
+                        <text x={dot.x} y={dot.y - 6} textAnchor="middle" fontSize="9" style={{ fill: colors.grn, fontFamily: colors.mono }}>
+                          {dot.label}
+                        </text>
+                      </g>
+                    ))}
+                  </svg>
+                  <div className="pb-0.5">
+                    <p className="text-[9.5px] uppercase tracking-[0.12em]" style={{ color: colors.t2 }}>Net R</p>
+                    <p className="mt-0.5 text-[36px] font-bold leading-none tracking-[-0.03em]" style={{ color: netRNumeric >= 0 ? colors.grn : colors.red, fontFamily: colors.mono }}>
+                      {weeklyDebriefData.stats.netR.value}
+                    </p>
+                    <p className="mt-1 text-[10.5px]" style={{ color: colors.t2 }}>
+                      vs {formatSignedR(previousWeekNetR)} prev week
+                    </p>
+                  </div>
+                </div>
               </div>
-              <p className="mt-2 text-[13px] italic leading-[1.65] text-[#64748b]">{weeklyDebriefData.question}</p>
-              <button type="button" className="mt-3 text-[12px] font-medium text-[#4a9eff]">Respond to this -&gt;</button>
             </section>
 
-            <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 pt-4">
-              <div className="space-y-3">
-                {weeklyDebriefData.insights.map(insight => {
-                  const style = insightTypeStyles[insight.type];
-                  return (
-                    <article key={insight.title} className="grid overflow-hidden rounded-xl" style={{ gridTemplateColumns: '4px minmax(0, 1fr)', backgroundColor: '#0d1526', border: cardBorder }}>
-                      <div style={{ backgroundColor: style.accent }} />
-                      <div className="px-4 py-3">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="rounded-full px-2 py-1 text-[10px] font-semibold uppercase" style={{ letterSpacing: '0.08em', color: style.badgeText, backgroundColor: style.badgeBg, border: `1px solid ${style.badgeBg.replace('0.1', '0.3')}` }}>
-                            {insight.badge}
-                          </span>
-                          <span className="text-[11px] text-[#64748b]">{insight.frequency}</span>
-                        </div>
-                        <h3 className="mt-2 text-[14px] font-semibold text-[#e2e8f0]">{insight.title}</h3>
-                        <p className="mt-1.5 text-[12px] leading-[1.65] text-[#475569]">{renderBodyWithHighlights(insight.body, insight.keyPhrases)}</p>
-                        <div className="mt-3 flex items-center justify-between gap-3">
-                          <div className="flex flex-wrap gap-1.5">
-                            {insight.tags.map(tag => (
-                              <span key={tag.label} className="rounded-full px-2 py-[3px] text-[11px]" style={tagStyle(tag.tone)}>
-                                {tag.label}
-                              </span>
-                            ))}
+            <section className="border-t" style={{ borderColor: colors.b0 }}>
+              <div className="grid grid-cols-5 gap-px" style={{ backgroundColor: colors.b0 }}>
+                {statCells.map(stat => (
+                  <div key={stat.label} className="px-[15px] py-[13px]" style={{ backgroundColor: colors.d1 }}>
+                    <p className="text-[9px] uppercase tracking-[0.14em]" style={{ color: colors.t2 }}>{stat.label}</p>
+                    <p className="mt-1 text-[16px] font-bold" style={{ color: statToneColor(stat.tone), fontFamily: colors.mono }}>
+                      {stat.value}
+                    </p>
+                    <p className="mt-1 text-[10px]" style={{ color: colors.t2 }}>{stat.subLabel}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <div className="min-h-0 flex-1 overflow-y-auto border-t px-5 py-4" style={{ borderColor: colors.b0 }}>
+              <section>
+                <div className="flex items-center gap-3 rounded-[8px] px-[14px] py-3" style={{ backgroundColor: colors.d2, border: cardBorder }}>
+                  <div className="flex h-[26px] w-[26px] items-center justify-center rounded-[6px] border" style={{ backgroundColor: 'rgba(0,212,168,0.08)', borderColor: 'rgba(0,212,168,0.18)' }}>
+                    <Clock3 size={13} color={colors.acc} />
+                  </div>
+                  <p className="flex-1 text-[12.5px] leading-relaxed" style={{ color: colors.t1 }}>{weeklyDebriefData.question}</p>
+                  <button type="button" className="shrink-0 cursor-pointer text-[11.5px]" style={{ color: colors.acc }}>
+                    {'Respond '}&rarr;
+                  </button>
+                </div>
+              </section>
+
+              <section className="mt-4">
+                <p style={tinyMetaLabelStyle}>AI insights &middot; {displayedInsights.length} found this week</p>
+                <div className="mt-2 space-y-2">
+                  {displayedInsights.map(insight => {
+                    const style = insightTypeStyles[insight.type];
+                    return (
+                      <article key={insight.title} className="overflow-hidden rounded-[8px] border transition-colors hover:[border-color:var(--b1)]" style={{ borderColor: colors.b0 }}>
+                        <div className="h-[2px]" style={{ backgroundColor: style.accent }} />
+                        <div className="px-[14px] py-3" style={{ backgroundColor: colors.d2 }}>
+                          <div className="flex items-center justify-between gap-2">
+                            <span
+                              className="rounded-[4px] px-[7px] py-[2px] text-[9.5px] font-bold uppercase tracking-[0.05em]"
+                              style={{ color: style.accent, backgroundColor: `color-mix(in srgb, ${style.accent} 10%, transparent)` }}
+                            >
+                              {insight.badge}
+                            </span>
+                            <span className="text-[10.5px]" style={{ color: colors.t2 }}>
+                              {insight.frequency}
+                            </span>
                           </div>
-                          <button type="button" className="shrink-0 text-[11px] font-medium text-[#4a9eff]">{insight.actionLabel}</button>
+                          <h3 className="mb-1 mt-1 text-[14px] font-semibold leading-snug" style={{ color: colors.t0 }}>{insight.title}</h3>
+                          <p className="mb-2 text-[12px] leading-relaxed" style={{ color: colors.t1 }}>
+                            {renderBodyWithHighlights(rewriteInsightDescription(insight), insight.keyPhrases)}
+                          </p>
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex flex-wrap gap-1.5">
+                              {insight.tags.map(tag => (
+                                <span key={tag.label} style={tagStyle(tag.tone)}>
+                                  {tag.label}
+                                </span>
+                              ))}
+                            </div>
+                            <button type="button" className="shrink-0 cursor-pointer text-[11px] opacity-75 transition-opacity hover:opacity-100" style={{ color: colors.acc }}>
+                              {insight.actionLabel}
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              </section>
+
+              {bestTrade && (
+                <section className="mt-4 rounded-[8px] px-[14px] py-3" style={{ backgroundColor: colors.d2, border: cardBorder }}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="rounded-[4px] px-2 py-[2px] text-[10px] font-semibold" style={{ color: colors.amb, backgroundColor: 'rgba(245,166,35,0.12)' }}>
+                      &#9733; Top performer
+                    </span>
+                    <span className="text-[10.5px]" style={{ color: colors.t2 }}>
+                      {bestTrade.date} &middot; {bestTrade.session} &middot; {bestTrade.time}
+                    </span>
+                  </div>
+                  <div className="mt-2 flex items-end justify-between gap-2">
+                    <div>
+                      <p className="text-[15px] font-bold" style={{ color: colors.t0, fontFamily: colors.mono }}>{bestTrade.symbol}</p>
+                      <p className="text-[11px]" style={{ color: colors.t2 }}>{bestTrade.direction}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[15px] font-bold" style={{ color: colors.grn, fontFamily: colors.mono }}>{bestTrade.resultR}</p>
+                      <p className="text-[11px]" style={{ color: colors.t2 }}>{bestTrade.note}</p>
+                    </div>
+                  </div>
+                  <p className="mt-1 text-[11.5px] italic leading-snug" style={{ color: colors.t1 }}>{bestTrade.journal}</p>
+                </section>
+              )}
             </div>
           </div>
         </main>
 
-        <aside className="min-h-0 overflow-y-auto px-3 py-4" style={{ backgroundColor: '#080d18' }}>
-          <section className="rounded-xl px-3.5 py-3" style={{ backgroundColor: '#0d1526', border: cardBorder }}>
-            <p style={sectionLabelStyle}>Process Score</p>
-            <p className="mt-2 text-[30px] font-semibold text-[#e2e8f0]">{weeklyDebriefData.stats.processScore.value}</p>
-            <p className="text-[11px] text-[#64748b]">{weeklyDebriefData.stats.processScore.subLabel}</p>
-            <div className="mt-3 h-2 rounded-full bg-white/10">
-              <div className="h-2 rounded-full" style={{ width: `${processScoreNumeric}%`, backgroundColor: '#4a9eff' }} />
+        <aside className="min-h-0 overflow-y-auto border-l px-4 py-[18px]" style={{ backgroundColor: colors.d1, borderColor: colors.b0 }}>
+          <section className="rounded-[8px] px-[14px] py-[14px]" style={{ backgroundColor: colors.d2, border: cardBorder }}>
+            <div className="flex items-center gap-[14px]">
+              <p className="text-[52px] font-bold leading-none" style={{ color: colors.grn, fontFamily: colors.mono }}>{weekGrade}</p>
+              <div>
+                <p className="text-[9.5px] uppercase tracking-[0.12em]" style={{ color: colors.t2 }}>Process score</p>
+                <p className="mt-1 text-[14px] font-bold" style={{ color: colors.t0, fontFamily: colors.mono }}>{boundedScore}/100</p>
+                <p className="mt-1 text-[11px] leading-snug" style={{ color: colors.t1 }}>{gradeHint}</p>
+              </div>
             </div>
-            <div className="mt-4 space-y-2.5">
+          </section>
+
+          <section className="mt-4 rounded-[8px] px-[14px] py-3" style={{ backgroundColor: colors.d2, border: cardBorder }}>
+            <p style={tinyMetaLabelStyle}>Process breakdown</p>
+            <div className="mt-2.5 space-y-2.5">
               {weeklyDebriefData.processBreakdown.map(item => {
                 const color = breakdownColor(item.value);
                 return (
                   <div key={item.label}>
-                    <div className="mb-1 flex items-center justify-between text-[11px]">
-                      <span className="text-[#94a3b8]">{item.label}</span>
-                      <span style={{ color }}>{item.value}%</span>
+                    <div className="mb-1 flex items-center justify-between">
+                      <span className="text-[11.5px]" style={{ color: colors.t1 }}>{item.label}</span>
+                      <span className="text-[11.5px] font-bold" style={{ color, fontFamily: colors.mono }}>{item.value}%</span>
                     </div>
-                    <div className="h-1.5 rounded-full bg-white/10">
-                      <div className="h-1.5 rounded-full" style={{ width: `${item.value}%`, backgroundColor: color }} />
+                    <div className="h-[2px] rounded-[2px]" style={{ backgroundColor: colors.d4 }}>
+                      <div className="h-[2px] rounded-[2px]" style={{ width: `${item.value}%`, backgroundColor: color }} />
                     </div>
                   </div>
                 );
@@ -782,47 +1083,54 @@ export default function FlyxaAI() {
             </div>
           </section>
 
-          <section className="mt-3 rounded-xl px-3.5 py-3" style={{ backgroundColor: '#0d1526', border: '1px solid #4a9eff' }}>
-            <p style={sectionLabelStyle}>This Week&apos;s Focus</p>
-            <p className="mt-1 text-[12px] font-semibold text-[#4a9eff]">3 things to action</p>
-            <div className="mt-2.5 space-y-2">
-              {weeklyDebriefData.focusItems.map(item => (
-                <div key={item} className="flex items-start gap-2 text-[12px] leading-[1.5] text-[#94a3b8]">
-                  <span className="mt-1 h-1.5 w-1.5 rounded-full bg-[#4a9eff]" />
-                  <span>{item}</span>
+          <section className="mt-4 rounded-[8px] px-[14px] py-3" style={{ backgroundColor: colors.d2, border: cardBorder }}>
+            <p style={tinyMetaLabelStyle}>Session breakdown</p>
+            <div className="mt-2.5 space-y-2.5">
+              {sessionBreakdownRows.map(row => (
+                <div key={row.label}>
+                  <div className="mb-1 flex items-center gap-2">
+                    <span className="w-14 text-[11.5px]" style={{ color: colors.t1 }}>{row.label}</span>
+                    <div className="h-[3px] flex-1 rounded-[2px]" style={{ backgroundColor: colors.d4 }}>
+                      <div
+                        className="h-[3px] rounded-[2px]"
+                        style={{ width: `${row.barWidth}%`, backgroundColor: row.netR > 0 ? colors.grn : row.netR < 0 ? colors.red : colors.t2 }}
+                      />
+                    </div>
+                    <span className="w-11 text-right text-[11px]" style={{ color: row.netR > 0 ? colors.grn : colors.t2, fontFamily: colors.mono }}>
+                      {row.trades ? formatSignedR(row.netR) : '--'}
+                    </span>
+                    <span className="w-8 text-right text-[10px]" style={{ color: colors.t2 }}>
+                      {row.trades ? `${row.winRate}%` : '--'}
+                    </span>
+                  </div>
                 </div>
               ))}
             </div>
           </section>
 
-          <section className="mt-3 rounded-xl px-3.5 py-3" style={{ backgroundColor: '#0d1526', border: cardBorder }}>
-            <p style={sectionLabelStyle}>Confluences</p>
-            <p className="mt-1 text-[12px] text-[#94a3b8]">Top outcomes this week</p>
-            <div className="mt-2.5 space-y-2">
-              {weeklyDebriefData.confluences.length > 0 ? weeklyDebriefData.confluences.map(item => (
-                <div key={item.label} className="rounded-md border border-white/10 bg-[#0a101d] px-2.5 py-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-[12px] text-[#e2e8f0]">{item.label}</p>
-                    <span className={`text-[11px] font-medium ${item.netR >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                      {formatSignedR(item.netR)}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-[11px] text-[#64748b]">{item.trades} trades | {Math.round(item.winRate)}% win | {formatSignedR(item.avgR)} avg</p>
+          <section className="mt-4 rounded-[8px] px-[14px] py-3" style={{ backgroundColor: colors.d2, border: cardBorder }}>
+            <p style={tinyMetaLabelStyle}>3 things to action</p>
+            <div className="mt-2.5 space-y-2.5">
+              {actionItems.map((item, index) => (
+                <div key={`${index}-${item}`} className="flex items-start gap-2">
+                  <span className="w-5 text-[10px] font-bold opacity-65" style={{ color: colors.acc, fontFamily: colors.mono }}>
+                    {String(index + 1).padStart(2, '0')}
+                  </span>
+                  <span className="text-[12px] leading-relaxed" style={{ color: colors.t1 }}>{item}</span>
                 </div>
-              )) : (
-                <p className="text-[11px] text-[#64748b]">No confluence tags logged this week.</p>
-              )}
+              ))}
             </div>
           </section>
 
-          <section className="mt-3 rounded-xl px-3.5 py-3" style={{ backgroundColor: '#0d1526', border: cardBorder }}>
-            <p style={sectionLabelStyle}>Next Debrief</p>
-            <p className="mt-2 text-[12px] text-[#94a3b8]">Generates {weeklyDebriefData.nextDebrief.generatedOn}</p>
-            <p className="mt-2 text-[11px] text-[#64748b]">{weeklyDebriefData.nextDebrief.sessionsLogged} of {weeklyDebriefData.nextDebrief.sessionsTarget} sessions</p>
-            <div className="mt-2 h-2 rounded-full bg-white/10">
-              <div className="h-2 rounded-full bg-[#4a9eff]" style={{ width: `${sessionsProgress}%` }} />
+          <section className="mt-4 rounded-[8px] px-[14px] py-3" style={{ backgroundColor: colors.d2, border: cardBorder }}>
+            <p className="text-[12.5px] font-semibold" style={{ color: colors.t0 }}>Next debrief</p>
+            <p className="mt-1 text-[11px]" style={{ color: colors.t2 }}>{weeklyDebriefData.nextDebrief.generatedOn}</p>
+            <div className="mt-2 h-[2px] rounded-[2px]" style={{ backgroundColor: colors.d4 }}>
+              <div className="h-[2px] rounded-[2px]" style={{ width: `${sessionsProgress}%`, backgroundColor: colors.acc }} />
             </div>
-            <p className="mt-2 text-[11px] text-[#64748b]">{Math.max(0, weeklyDebriefData.nextDebrief.sessionsTarget - weeklyDebriefData.nextDebrief.sessionsLogged)} remaining</p>
+            <p className="mt-2 text-[10.5px]" style={{ color: colors.t2 }}>
+              {remainingSessions} sessions remaining
+            </p>
           </section>
         </aside>
       </div>

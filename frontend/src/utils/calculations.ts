@@ -1,4 +1,5 @@
 import { Trade } from '../types/index.js';
+import { DEFAULT_SESSION_TIMES, getSessionLabelForTime } from './sessionTimes.js';
 
 export function formatCurrency(value: number): string {
   const abs = Math.abs(value);
@@ -67,11 +68,7 @@ export function calcDrawdown(trades: Trade[]): { maxDrawdown: number; currentDra
 }
 
 export function getSession(time: string): string {
-  const [h] = time.split(':').map(Number);
-  if (h >= 0 && h < 8) return 'Asia';
-  if (h >= 8 && h < 13) return 'London';
-  if (h >= 13 && h < 21) return 'New York';
-  return 'Other';
+  return getSessionLabelForTime(time, DEFAULT_SESSION_TIMES, 'Other');
 }
 
 export function formatDuration(seconds: number): string {

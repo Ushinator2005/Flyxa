@@ -1,8 +1,7 @@
-import { useId } from 'react';
-
 interface FlyxaLogoProps {
   size?: number;
   showWordmark?: boolean;
+  mode?: 'compact' | 'banner';
   subtitle?: string;
   className?: string;
   wordmarkClassName?: string;
@@ -12,78 +11,81 @@ interface FlyxaLogoProps {
 export default function FlyxaLogo({
   size = 48,
   showWordmark = false,
+  mode = 'compact',
   subtitle,
   className = '',
   wordmarkClassName = '',
   subtitleClassName = '',
 }: FlyxaLogoProps) {
-  const gradientId = useId().replace(/:/g, '');
-  const glowId = `${gradientId}-glow`;
-  const strokeId = `${gradientId}-stroke`;
+  const palette = {
+    bg: '#020913',
+    lineDim: '#082b4a',
+    lineBright: '#12a8f3',
+    dot: '#12a8f3',
+    word: '#d5dce6',
+    subtitle: '#0e4b73',
+  };
+
+  const mark = (
+    <svg viewBox="0 0 120 120" fill="none" className="h-full w-full" aria-hidden="true">
+      <rect x="0" y="0" width="120" height="120" fill={palette.bg} />
+      <line x1="10" y1="72" x2="40" y2="72" stroke={palette.lineDim} strokeWidth="2" strokeLinecap="round" />
+      <line x1="40" y1="72" x2="68" y2="44" stroke={palette.lineBright} strokeWidth="2" strokeLinecap="round" />
+      <line x1="68" y1="44" x2="102" y2="44" stroke={palette.lineBright} strokeWidth="2" strokeLinecap="round" />
+      <circle cx="40" cy="72" r="5" fill={palette.dot} />
+    </svg>
+  );
+
+  if (!showWordmark) {
+    return (
+      <div className={`relative shrink-0 ${className}`.trim()} style={{ width: size, height: size }}>
+        {mark}
+      </div>
+    );
+  }
+
+  if (mode === 'compact') {
+    return (
+      <div className={`inline-flex flex-col ${className}`.trim()}>
+        <div className="flex items-center gap-3">
+          <div className="relative shrink-0" style={{ width: size, height: size }}>
+            {mark}
+          </div>
+          <div className={`auth-display text-xl font-bold leading-none tracking-[-0.04em] ${wordmarkClassName}`.trim()} style={{ color: palette.word }}>
+            fly<span style={{ color: palette.lineBright }}>x</span>a
+          </div>
+        </div>
+        <div className={`mt-2 w-full text-center text-[10px] uppercase tracking-[0.5em] ${subtitleClassName}`.trim()} style={{ color: palette.subtitle }}>
+          {subtitle || 'Trading Intelligence'}
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className={`flex items-center gap-3 ${className}`.trim()}>
-      <div className="relative shrink-0" style={{ width: size, height: size }}>
-        <div className="absolute inset-0 rounded-[28%] bg-[radial-gradient(circle_at_30%_30%,rgba(125,211,252,0.7),rgba(59,130,246,0.18)_52%,transparent_76%)] blur-md opacity-90" />
-        <svg
-          viewBox="0 0 64 64"
-          fill="none"
-          className="brand-mark relative h-full w-full"
-          aria-hidden="true"
-        >
-          <defs>
-            <linearGradient id={gradientId} x1="12" y1="14" x2="53" y2="52" gradientUnits="userSpaceOnUse">
-              <stop stopColor="#7dd3fc" />
-              <stop offset="0.48" stopColor="#3b82f6" />
-              <stop offset="1" stopColor="#f97316" />
-            </linearGradient>
-            <radialGradient id={glowId} cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(25 20) rotate(51.245) scale(37.3499)">
-              <stop stopColor="#e0f2fe" stopOpacity="0.95" />
-              <stop offset="1" stopColor="#0f172a" stopOpacity="0" />
-            </radialGradient>
-            <linearGradient id={strokeId} x1="10" y1="10" x2="53" y2="53" gradientUnits="userSpaceOnUse">
-              <stop stopColor="white" stopOpacity="0.28" />
-              <stop offset="1" stopColor="white" stopOpacity="0.02" />
-            </linearGradient>
-          </defs>
+    <div
+      className={`relative w-full min-w-0 overflow-hidden ${className}`.trim()}
+      style={{ backgroundColor: palette.bg, minHeight: Math.max(58, Math.round(size * 1.5)) }}
+    >
+      <svg viewBox="0 0 860 214" fill="none" className="pointer-events-none absolute inset-0 h-full w-full" preserveAspectRatio="none" aria-hidden="true">
+        <line x1="0" y1="126" x2="270" y2="126" stroke={palette.lineDim} strokeWidth="2" />
+        <line x1="270" y1="126" x2="355" y2="56" stroke={palette.lineBright} strokeWidth="2.5" />
+        <line x1="355" y1="56" x2="850" y2="56" stroke={palette.lineBright} strokeWidth="2.5" strokeLinecap="round" />
+        <line x1="24" y1="178" x2="270" y2="178" stroke="#042240" strokeWidth="2" />
+        <circle cx="270" cy="126" r="6.4" fill={palette.dot} />
+        <circle cx="95" cy="178" r="2.8" fill="#062849" />
+      </svg>
 
-          <rect x="5" y="5" width="54" height="54" rx="18" fill="#081120" />
-          <rect x="5" y="5" width="54" height="54" rx="18" fill={`url(#${glowId})`} />
-          <rect x="5.5" y="5.5" width="53" height="53" rx="17.5" stroke={`url(#${strokeId})`} />
-
-          <path
-            d="M16 44 28.7 16.9c.8-1.7 3-2.2 4.6-1.1l6.5 4.7c1.5 1.1 1.9 3.2.9 4.8L33 36.3h16.4c2 0 3 2.4 1.7 3.8L40.4 50.8c-.7.7-1.6 1.1-2.6 1.1H18.7c-2 0-3.4-2.1-2.7-3.9Z"
-            fill={`url(#${gradientId})`}
-          />
-          <path
-            d="M31.2 24.2 24.4 38h9.4l10.5-10.7H35c-1.4 0-2.7-.7-3.8-1.9Z"
-            fill="white"
-            fillOpacity="0.18"
-          />
-          <path
-            d="M24.8 41.9h13.9"
-            stroke="white"
-            strokeOpacity="0.38"
-            strokeWidth="2.3"
-            strokeLinecap="round"
-          />
-        </svg>
-      </div>
-
-      {showWordmark && (
-        <div className="min-w-0">
-          <div
-            className={`auth-display text-xl font-bold tracking-[-0.04em] text-white ${wordmarkClassName}`.trim()}
-          >
-            Flyxa
+      <div className="relative flex items-center justify-center px-6 py-5">
+        <div className="min-w-0 text-center">
+          <div className={`auth-display text-xl font-bold leading-none tracking-[-0.04em] ${wordmarkClassName}`.trim()} style={{ color: palette.word }}>
+            fly<span style={{ color: palette.lineBright }}>x</span>a
           </div>
-          {subtitle && (
-            <div className={`text-sm text-slate-400 ${subtitleClassName}`.trim()}>
-              {subtitle}
-            </div>
-          )}
+          <div className={`mt-2 text-[10px] uppercase tracking-[0.5em] ${subtitleClassName}`.trim()} style={{ color: palette.subtitle }}>
+            {subtitle || 'Trading Intelligence'}
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }

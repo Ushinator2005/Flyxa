@@ -8,6 +8,7 @@ interface Props {
 const sessionColors: Record<string, string> = {
   'London': 'bg-blue-500/20 text-blue-400 border-blue-500/30',
   'New York': 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
+  'Pre Market': 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30',
   'Asia': 'bg-purple-500/20 text-purple-400 border-purple-500/30',
   'Other': 'bg-slate-500/20 text-slate-400 border-slate-500/30',
 };

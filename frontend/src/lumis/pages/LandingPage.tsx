@@ -163,9 +163,11 @@ export default function LandingPage() {
               <div className="mx-auto grid max-w-[1240px] grid-cols-[auto_1fr] items-center gap-4 px-6 py-6 lg:grid-cols-[1fr_auto_1fr]">
                 <Link to="/auth" className="text-2xl font-extrabold tracking-[-0.04em]">
                   <FlyxaLogo
-                    size={40}
+                    size={62}
                     showWordmark
-                    wordmarkClassName="text-[1.95rem] font-extrabold tracking-[-0.06em] text-white"
+                    className="min-w-[360px]"
+                    wordmarkClassName="text-[3.1rem] font-extrabold tracking-[-0.06em]"
+                    subtitleClassName="text-[11px] tracking-[0.56em]"
                   />
                 </Link>
 

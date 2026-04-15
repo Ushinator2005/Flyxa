@@ -17,6 +17,7 @@ import { useTrades } from '../hooks/useTrades.js';
 import { useAppSettings } from '../contexts/AppSettingsContext.js';
 import { Trade } from '../types/index.js';
 import { formatCurrency } from '../utils/calculations.js';
+import { getSessionKeyForTime, timeToMinutes } from '../utils/sessionTimes.js';
 
 type PeriodKey = '1W' | '1M' | '3M' | 'YTD' | 'ALL';
 
@@ -111,19 +112,6 @@ function getPreviousRange(period: PeriodKey, now: Date): { start: Date; end: Dat
     start: new Date(currentStart.getTime() - duration),
     end: currentStart,
   };
-}
-
-function timeToMinutes(time?: string): number | null {
-  if (!time) return null;
-  const [hours, minutes] = time.split(':').map(Number);
-  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
-  return (hours * 60) + minutes;
-}
-
-function isInSessionRange(minutes: number, start: number, end: number): boolean {
-  if (start === end) return true;
-  if (start < end) return minutes >= start && minutes < end;
-  return minutes >= start || minutes < end;
 }
 
 function formatSignedCurrency(value: number, withCents = false): string {
@@ -338,38 +326,11 @@ export default function Analytics() {
 
   const sessionRows = useMemo(() => {
     const totals = new Map<string, number>(SESSION_BUCKETS.map(bucket => [bucket.key, 0]));
-    const sessionWindows = [
-      {
-        key: 'asia',
-        start: timeToMinutes(preferences.sessionTimes.asia.start),
-        end: timeToMinutes(preferences.sessionTimes.asia.end),
-      },
-      {
-        key: 'london',
-        start: timeToMinutes(preferences.sessionTimes.london.start),
-        end: timeToMinutes(preferences.sessionTimes.london.end),
-      },
-      {
-        key: 'preMarket',
-        start: timeToMinutes(preferences.sessionTimes.preMarket.start),
-        end: timeToMinutes(preferences.sessionTimes.preMarket.end),
-      },
-      {
-        key: 'newYork',
-        start: timeToMinutes(preferences.sessionTimes.newYork.start),
-        end: timeToMinutes(preferences.sessionTimes.newYork.end),
-      },
-    ] as const;
 
     filteredTrades.forEach(trade => {
-      const minutes = timeToMinutes(trade.trade_time);
-      if (minutes === null) return;
-      const matchingWindow = sessionWindows.find(window => {
-        if (window.start === null || window.end === null) return false;
-        return isInSessionRange(minutes, window.start, window.end);
-      });
-      if (!matchingWindow) return;
-      totals.set(matchingWindow.key, (totals.get(matchingWindow.key) ?? 0) + trade.pnl);
+      const sessionKey = getSessionKeyForTime(trade.trade_time, preferences.sessionTimes);
+      if (!totals.has(sessionKey)) return;
+      totals.set(sessionKey, (totals.get(sessionKey) ?? 0) + trade.pnl);
     });
 
     const maxAbs = Math.max(1, ...SESSION_BUCKETS.map(item => Math.abs(totals.get(item.key) ?? 0)));
@@ -382,7 +343,7 @@ export default function Analytics() {
         ratio: Math.abs(pnl) / maxAbs,
       };
     });
-  }, [filteredTrades, preferences.sessionTimes.asia.end, preferences.sessionTimes.asia.start, preferences.sessionTimes.london.end, preferences.sessionTimes.london.start, preferences.sessionTimes.newYork.end, preferences.sessionTimes.newYork.start, preferences.sessionTimes.preMarket.end, preferences.sessionTimes.preMarket.start]);
+  }, [filteredTrades, preferences.sessionTimes]);
 
   const streakStats = useMemo(() => {
     const outcomes = filteredTrades.map(trade => (trade.pnl > 0 ? 1 : trade.pnl < 0 ? -1 : 0));

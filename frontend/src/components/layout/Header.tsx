@@ -15,6 +15,7 @@ const pageNames: Record<string, string> = {
   '/backtest': 'Backtest',
   '/psychology': 'Psychology Tracker',
   '/journal': 'Daily Journal',
+  '/goals': 'Goals',
   '/settings': 'Settings',
 };
 

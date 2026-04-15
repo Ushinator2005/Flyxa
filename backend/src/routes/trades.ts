@@ -13,8 +13,8 @@ function isTradeDirection(value: unknown): value is 'Long' | 'Short' {
   return value === 'Long' || value === 'Short';
 }
 
-function isExitReason(value: unknown): value is 'TP' | 'SL' {
-  return value === 'TP' || value === 'SL';
+function isExitReason(value: unknown): value is 'TP' | 'SL' | 'BE' {
+  return value === 'TP' || value === 'SL' || value === 'BE';
 }
 
 function hasValidPriceStructure(direction: 'Long' | 'Short', entry: number, stop: number, target: number): boolean {
@@ -23,8 +23,10 @@ function hasValidPriceStructure(direction: 'Long' | 'Short', entry: number, stop
     : target < entry && entry < stop;
 }
 
-function getNormalizedExitPrice(exitReason: 'TP' | 'SL', stop: number, target: number): number {
-  return exitReason === 'TP' ? target : stop;
+function getNormalizedExitPrice(exitReason: 'TP' | 'SL' | 'BE', stop: number, target: number, entry: number): number {
+  if (exitReason === 'TP') return target;
+  if (exitReason === 'BE') return entry;
+  return stop;
 }
 
 function getSession(time: string): string {
@@ -114,29 +116,31 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res: Response
       followed_plan,
     } = req.body;
 
+    const isBreakeven = exit_reason === 'BE';
+
     if (
       typeof symbol !== 'string' ||
       !symbol.trim() ||
       !isTradeDirection(direction) ||
       !isFiniteNumber(entry_price) ||
-      !isFiniteNumber(sl_price) ||
-      !isFiniteNumber(tp_price) ||
       !isExitReason(exit_reason) ||
       typeof trade_date !== 'string' ||
-      typeof trade_time !== 'string'
+      typeof trade_time !== 'string' ||
+      // SL/TP only required for non-BE trades
+      (!isBreakeven && (!isFiniteNumber(sl_price) || !isFiniteNumber(tp_price)))
     ) {
       res.status(400).json({ error: 'Missing or invalid required trade fields' });
       return;
     }
 
-    if (!hasValidPriceStructure(direction, entry_price, sl_price, tp_price)) {
+    if (!isBreakeven && !hasValidPriceStructure(direction, entry_price, sl_price, tp_price)) {
       res.status(400).json({ error: 'Entry, stop, and target levels do not match the selected trade direction' });
       return;
     }
 
     const normalizedContractSize = isFiniteNumber(contract_size) ? contract_size : 1;
     const normalizedPointValue = isFiniteNumber(point_value) ? point_value : 1;
-    const normalizedExitPrice = getNormalizedExitPrice(exit_reason, sl_price, tp_price);
+    const normalizedExitPrice = getNormalizedExitPrice(exit_reason, sl_price, tp_price, entry_price);
 
     // Calculate P&L
     const pnl = direction === 'Long'
@@ -247,26 +251,32 @@ router.put('/:id', authMiddleware, async (req: AuthenticatedRequest, res: Respon
 
     const merged = { ...existing, ...updateData };
 
+    const mergedExitReason = merged.exit_reason;
+    const isBreakevenUpdate = mergedExitReason === 'BE';
+
     if (
       typeof merged.symbol !== 'string' ||
       !merged.symbol.trim() ||
       !isTradeDirection(merged.direction) ||
       !isFiniteNumber(merged.entry_price) ||
-      !isFiniteNumber(merged.sl_price) ||
-      !isFiniteNumber(merged.tp_price) ||
-      !isExitReason(merged.exit_reason) ||
-      typeof merged.trade_time !== 'string'
+      !isExitReason(mergedExitReason) ||
+      typeof merged.trade_time !== 'string' ||
+      // SL/TP only required for non-BE trades
+      (!isBreakevenUpdate && (!isFiniteNumber(merged.sl_price) || !isFiniteNumber(merged.tp_price)))
     ) {
       res.status(400).json({ error: 'Updated trade is missing required fields' });
       return;
     }
 
-    if (!hasValidPriceStructure(merged.direction, merged.entry_price, merged.sl_price, merged.tp_price)) {
+    if (
+      !isBreakevenUpdate &&
+      !hasValidPriceStructure(merged.direction, merged.entry_price, merged.sl_price as number, merged.tp_price as number)
+    ) {
       res.status(400).json({ error: 'Entry, stop, and target levels do not match the selected trade direction' });
       return;
     }
 
-    const normalizedExitPrice = getNormalizedExitPrice(merged.exit_reason, merged.sl_price, merged.tp_price);
+    const normalizedExitPrice = getNormalizedExitPrice(merged.exit_reason, merged.sl_price, merged.tp_price, merged.entry_price);
     const normalizedContractSize = isFiniteNumber(merged.contract_size) ? merged.contract_size : 1;
     const normalizedPointValue = isFiniteNumber(merged.point_value) ? merged.point_value : 1;
 

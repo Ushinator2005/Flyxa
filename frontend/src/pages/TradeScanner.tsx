@@ -315,7 +315,7 @@ export default function TradeScanner() {
                       ) : '—'}
                     </td>
                     {/* P&L */}
-                    <td className={`px-5 py-4 text-base font-bold tabular-nums ${t.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    <td className={`px-5 py-4 text-base font-bold tabular-nums ${t.pnl === 0 ? 'text-amber-400' : t.pnl > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                       {formatCurrency(Number.isFinite(t.pnl) ? t.pnl : 0)}
                     </td>
                     {/* R:R */}

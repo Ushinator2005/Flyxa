@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { DollarSign, Target, BarChart2, TrendingUp, Hash, Flame } from 'lucide-react';
 import { PieChart, Pie, Cell } from 'recharts';
+import { useNavigate } from 'react-router-dom';
 import EquityCurve from '../components/dashboard/EquityCurve.js';
 import MonthlyHeatmap from '../components/dashboard/MonthlyHeatmap.js';
 import LoadingSpinner from '../components/common/LoadingSpinner.js';
@@ -26,6 +27,7 @@ function formatPrice(value: number) {
 }
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const { trades, loading } = useTrades();
   const { filterTradesBySelectedAccount, selectedAccountId, accounts } = useAppSettings();
   const filteredTrades = useMemo(() => filterTradesBySelectedAccount(trades), [filterTradesBySelectedAccount, trades]);
@@ -161,27 +163,23 @@ export default function Dashboard() {
           </div>
         ))}
 
-        {/* Win streak card */}
-        <div className={`glass-card p-5 flex flex-col gap-3 ${streakStats.currentWinStreak > 0 ? 'border-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.1)]' : ''}`}>
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-slate-400">Win Streak</span>
-            <Flame
-              size={16}
-              className={streakStats.currentWinStreak > 0 ? 'text-emerald-400' : 'text-slate-600'}
-            />
-          </div>
-          <div className="flex items-end gap-2">
-            <span className={`text-3xl font-bold tracking-tight ${streakStats.currentWinStreak > 0 ? 'text-emerald-400' : 'text-slate-500'}`}>
-              {streakStats.currentWinStreak}
+        <button
+          type="button"
+          onClick={() => navigate('/achievements')}
+          className="justify-self-start inline-flex items-center gap-3 rounded-full border border-emerald-500/40 bg-white/5 px-4 py-2 text-left cursor-pointer transition-all duration-200 hover:scale-105 hover:border-emerald-400/70 hover:bg-white/10 hover:shadow-[0_0_26px_rgba(16,185,129,0.25)]"
+          aria-label="Open achievements"
+        >
+          <Flame
+            size={16}
+            className={streakStats.currentWinStreak > 0 ? 'text-emerald-400' : 'text-slate-400'}
+          />
+          <div className="flex min-w-0 flex-col leading-tight">
+            <span className={`text-sm font-semibold ${streakStats.currentWinStreak > 0 ? 'text-emerald-300' : 'text-slate-300'}`}>
+              {streakStats.currentWinStreak} in a row
             </span>
-            {streakStats.currentWinStreak > 0 && (
-              <span className="text-xs text-slate-500 mb-1">in a row</span>
-            )}
+            <span className="text-[11px] text-slate-400">Best: {streakStats.bestWinStreak}</span>
           </div>
-          <p className="text-xs text-slate-600">
-            Best: <span className="text-slate-400">{streakStats.bestWinStreak}</span>
-          </p>
-        </div>
+        </button>
       </div>
 
       <div className="glass-card p-6">

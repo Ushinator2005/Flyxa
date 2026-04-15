@@ -600,7 +600,19 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
         focusImages,
         scannerContext ? scannerContext as unknown as Record<string, unknown> : undefined
       );
-      const w: string[] = Array.isArray(extracted.warnings) ? extracted.warnings : [];
+      const INTERNAL_WARNINGS = new Set([
+        'Exact price-label review failed, so price levels relied on the broader chart reads.',
+        'Exit verification failed — relying on manual chart read.',
+        'Exit verification failed, so the final answer relied on the manual chart read.',
+        'Stop/target sanity check failed, so the final answer relied on the broader exit review.',
+        'Header symbol/timeframe read failed, so identity relied on the broader chart reads.',
+        'Primary chart extraction failed, so the scanner fell back to the human-style review pass.',
+        'Human-style review failed, so the scanner relied on the primary extraction pass.',
+        'Final consensus review failed, so the result relied on the primary extraction passes.',
+        'Sanity check failed — relying on exit verification result.',
+      ]);
+      const w: string[] = (Array.isArray(extracted.warnings) ? extracted.warnings : [])
+        .filter((msg: string) => !INTERNAL_WARNINGS.has(msg));
       const fields = new Set<string>();
       const baseTrade = editTrade ?? prefillTrade ?? formData ?? null;
       const mapped: Partial<Trade> = {
@@ -630,6 +642,12 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
         mapped.exit_price = r === 'TP' ? Number(extracted.tp_price ?? 0) : Number(extracted.sl_price ?? 0);
       }
 
+      if (extracted.entry_time) {
+        const timeValue = (extracted.entry_time as string).slice(0, 5);
+        mapped.trade_time = timeValue;
+        setCurrentTime(timeValue);
+        fields.add('trade_time');
+      }
       if (extracted.trade_length_seconds){ mapped.trade_length_seconds = Number(extracted.trade_length_seconds); fields.add('trade_length_seconds'); }
       if (extracted.candle_count)     mapped.candle_count = Number(extracted.candle_count);
       if (extracted.timeframe_minutes) mapped.timeframe_minutes = Number(extracted.timeframe_minutes);

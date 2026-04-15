@@ -17,6 +17,9 @@ interface Props {
 }
 
 const emotionalStates = ['Calm', 'Confident', 'Anxious', 'Revenge Trading', 'FOMO', 'Overconfident', 'Tired'];
+const THESIS_BLOCK = 'FLYXA_THESIS';
+const PROCESS_BLOCK = 'FLYXA_PROCESS_GRADE';
+const REFLECTION_BLOCK = 'FLYXA_REFLECTION';
 
 function normalizeConfluences(value: unknown): string[] {
   const rawValues = Array.isArray(value)
@@ -39,6 +42,54 @@ function normalizeConfluences(value: unknown): string[] {
   }
 
   return normalized;
+}
+
+function encodeStructuredValue(value: string): string {
+  return value.replace(/\n/g, '\\n').trim();
+}
+
+function decodeStructuredValue(value: string): string {
+  return value.replace(/\\n/g, '\n').trim();
+}
+
+function parseStructuredBlock(note: string | undefined, blockName: string): { fields: Record<string, string>; remaining: string } {
+  if (!note?.trim()) {
+    return { fields: {}, remaining: '' };
+  }
+
+  const pattern = new RegExp(`\\[${blockName}\\]\\n?([\\s\\S]*?)\\n?\\[\\/${blockName}\\]\\n?`, 'm');
+  const match = note.match(pattern);
+  if (!match) {
+    return { fields: {}, remaining: note.trim() };
+  }
+
+  const fields: Record<string, string> = {};
+  for (const line of match[1].split('\n')) {
+    const separator = line.indexOf(':');
+    if (separator < 1) continue;
+    const key = line.slice(0, separator).trim();
+    const value = line.slice(separator + 1).trim();
+    if (!key) continue;
+    fields[key] = decodeStructuredValue(value);
+  }
+
+  return {
+    fields,
+    remaining: note.replace(match[0], '').trim(),
+  };
+}
+
+function buildStructuredBlock(blockName: string, fields: Record<string, string>): string {
+  const lines = Object.entries(fields)
+    .map(([key, value]) => [key, value.trim()] as const)
+    .filter(([, value]) => value.length > 0)
+    .map(([key, value]) => `${key}:${encodeStructuredValue(value)}`);
+
+  if (lines.length === 0) {
+    return '';
+  }
+
+  return `[${blockName}]\n${lines.join('\n')}\n[/${blockName}]`;
 }
 
 const defaultForm: Partial<Trade> = {
@@ -83,6 +134,14 @@ export default function TradeForm({
 }: Props) {
   const { confluenceOptions } = useAppSettings();
   const [form, setForm] = useState<Partial<Trade>>(() => buildFormState(initialData));
+  const [thesisSetup, setThesisSetup] = useState('');
+  const [thesisInvalidation, setThesisInvalidation] = useState('');
+  const [thesisTrigger, setThesisTrigger] = useState('');
+  const [processScore, setProcessScore] = useState(0);
+  const [processReason, setProcessReason] = useState('');
+  const [reflectionMarket, setReflectionMarket] = useState('');
+  const [reflectionExecution, setReflectionExecution] = useState('');
+  const [reflectionAdjustment, setReflectionAdjustment] = useState('');
   const [submitError, setSubmitError] = useState('');
   const [selectedConfluence, setSelectedConfluence] = useState('');
   const [matchedContract, setMatchedContract] = useState<FuturesContract | undefined>(
@@ -90,7 +149,26 @@ export default function TradeForm({
   );
 
   useEffect(() => {
-    setForm(buildFormState(initialData));
+    const nextForm = buildFormState(initialData);
+    const preParsed = parseStructuredBlock(nextForm.pre_trade_notes, THESIS_BLOCK);
+    const processParsed = parseStructuredBlock(nextForm.post_trade_notes, PROCESS_BLOCK);
+    const reflectionParsed = parseStructuredBlock(processParsed.remaining, REFLECTION_BLOCK);
+
+    const parsedScore = Number(processParsed.fields.score);
+
+    setThesisSetup(preParsed.fields.setup || '');
+    setThesisInvalidation(preParsed.fields.invalidation || '');
+    setThesisTrigger(preParsed.fields.trigger || '');
+    setProcessScore(Number.isFinite(parsedScore) && parsedScore >= 1 && parsedScore <= 5 ? parsedScore : 0);
+    setProcessReason(processParsed.fields.reason || '');
+    setReflectionMarket(reflectionParsed.fields.market_vs_thesis || '');
+    setReflectionExecution(reflectionParsed.fields.execution_quality || '');
+    setReflectionAdjustment(reflectionParsed.fields.next_adjustment || '');
+    setForm({
+      ...nextForm,
+      pre_trade_notes: preParsed.remaining,
+      post_trade_notes: reflectionParsed.remaining,
+    });
     const contract = lookupContract(initialData?.symbol || '');
     setMatchedContract(contract);
     setSubmitError('');
@@ -127,6 +205,10 @@ export default function TradeForm({
         next.exit_price = Number(value);
       }
 
+      if (key === 'entry_price' && next.exit_reason === 'BE') {
+        next.exit_price = Number(value);
+      }
+
       return next;
     });
   };
@@ -159,16 +241,43 @@ export default function TradeForm({
       return;
     }
 
-    if (form.exit_reason !== 'TP' && form.exit_reason !== 'SL') {
-      setSubmitError('Select whether TP or SL hit first before saving this trade.');
+    if (form.exit_reason !== 'TP' && form.exit_reason !== 'SL' && form.exit_reason !== 'BE') {
+      setSubmitError('Select whether TP, SL, or Breakeven before saving this trade.');
       return;
     }
 
-    const normalizedExitPrice = form.exit_reason === 'TP' ? form.tp_price : form.sl_price;
+    const normalizedExitPrice =
+      form.exit_reason === 'TP' ? form.tp_price :
+      form.exit_reason === 'SL' ? form.sl_price :
+      form.entry_price;
     if (!normalizedExitPrice) {
-      setSubmitError('Add both stop and target levels so the trade outcome can be priced correctly.');
+      setSubmitError('Add an entry price so the breakeven exit can be priced correctly.');
       return;
     }
+
+    const thesisBlock = buildStructuredBlock(THESIS_BLOCK, {
+      setup: thesisSetup,
+      invalidation: thesisInvalidation,
+      trigger: thesisTrigger,
+    });
+    const processBlock = buildStructuredBlock(PROCESS_BLOCK, {
+      score: processScore > 0 ? String(processScore) : '',
+      reason: processReason,
+    });
+    const reflectionBlock = buildStructuredBlock(REFLECTION_BLOCK, {
+      market_vs_thesis: reflectionMarket,
+      execution_quality: reflectionExecution,
+      next_adjustment: reflectionAdjustment,
+    });
+
+    const preTradeNotes = [thesisBlock, form.pre_trade_notes?.trim() || '']
+      .filter(Boolean)
+      .join('\n\n')
+      .trim();
+    const postTradeNotes = [processBlock, reflectionBlock, form.post_trade_notes?.trim() || '']
+      .filter(Boolean)
+      .join('\n\n')
+      .trim();
 
     onSubmit({
       ...form,
@@ -176,6 +285,8 @@ export default function TradeForm({
       trade_date: tradeDate,
       trade_time: tradeTime,
       exit_price: normalizedExitPrice,
+      pre_trade_notes: preTradeNotes,
+      post_trade_notes: postTradeNotes,
     });
   };
 
@@ -313,7 +424,7 @@ export default function TradeForm({
           <div>
             <label className="label">Exit Reason <AIBadge field="exit_reason" /></label>
             <div className="flex gap-2 h-10">
-              {(['TP', 'SL'] as const).map(r => (
+              {(['TP', 'SL', 'BE'] as const).map(r => (
                 <button
                   key={r}
                   type="button"
@@ -321,16 +432,19 @@ export default function TradeForm({
                     set('exit_reason', r);
                     if (r === 'TP' && form.tp_price) set('exit_price', form.tp_price);
                     if (r === 'SL' && form.sl_price) set('exit_price', form.sl_price);
+                    if (r === 'BE' && form.entry_price) set('exit_price', form.entry_price);
                   }}
                   className={`flex-1 rounded-lg text-sm font-semibold transition-all border ${
                     form.exit_reason === r
                       ? r === 'TP'
                         ? 'bg-emerald-600/30 border-emerald-500/50 text-emerald-400'
-                        : 'bg-red-600/30 border-red-500/50 text-red-400'
+                        : r === 'SL'
+                          ? 'bg-red-600/30 border-red-500/50 text-red-400'
+                          : 'bg-amber-600/30 border-amber-500/50 text-amber-400'
                       : 'bg-slate-700/50 border-slate-600 text-slate-400 hover:border-slate-500'
                   }`}
                 >
-                  {r === 'TP' ? 'Take Profit' : 'Stop Loss'}
+                  {r === 'TP' ? 'Take Profit' : r === 'SL' ? 'Stop Loss' : 'Breakeven'}
                 </button>
               ))}
             </div>
@@ -377,9 +491,9 @@ export default function TradeForm({
 
         {/* P&L + R:R */}
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <div className={`rounded-2xl border p-4 ${pnl >= 0 ? 'border-emerald-500/20 bg-[linear-gradient(180deg,rgba(16,185,129,0.12),rgba(15,23,42,0.2))]' : 'border-red-500/20 bg-[linear-gradient(180deg,rgba(239,68,68,0.12),rgba(15,23,42,0.2))]'}`}>
+          <div className={`rounded-2xl border p-4 ${pnl === 0 ? 'border-amber-500/20 bg-[linear-gradient(180deg,rgba(245,158,11,0.12),rgba(15,23,42,0.2))]' : pnl > 0 ? 'border-emerald-500/20 bg-[linear-gradient(180deg,rgba(16,185,129,0.12),rgba(15,23,42,0.2))]' : 'border-red-500/20 bg-[linear-gradient(180deg,rgba(239,68,68,0.12),rgba(15,23,42,0.2))]'}`}>
             <p className="mb-1 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Calculated P&L</p>
-            <p className={`text-2xl font-bold tracking-tight ${pnl >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>{formatCurrency(pnl)}</p>
+            <p className={`text-2xl font-bold tracking-tight ${pnl === 0 ? 'text-amber-300' : pnl > 0 ? 'text-emerald-300' : 'text-red-300'}`}>{formatCurrency(pnl)}</p>
           </div>
           <div className="rounded-2xl border border-slate-700/60 bg-slate-950/65 p-4">
             <p className="mb-1 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Risk : Reward</p>
@@ -487,14 +601,131 @@ export default function TradeForm({
       {/* Notes */}
       <div className={panelClass}>
         <SectionLabel icon={<FileText size={16} />}>Notes</SectionLabel>
-        <div className="space-y-3">
+        <div className="space-y-4">
+          <div className="rounded-xl border border-slate-700/60 bg-slate-950/35 p-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-emerald-400">1. Pre-trade Thesis</p>
+            <p className="mt-1 text-xs text-slate-500">Capture the setup logic before outcome bias creeps in.</p>
+            <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div>
+                <label className="label">Setup Thesis</label>
+                <textarea
+                  className="input-field resize-none"
+                  rows={2}
+                  value={thesisSetup}
+                  onChange={e => setThesisSetup(e.target.value)}
+                  placeholder="What edge did you see?"
+                />
+              </div>
+              <div>
+                <label className="label">Invalidation</label>
+                <textarea
+                  className="input-field resize-none"
+                  rows={2}
+                  value={thesisInvalidation}
+                  onChange={e => setThesisInvalidation(e.target.value)}
+                  placeholder="What would prove this wrong?"
+                />
+              </div>
+              <div>
+                <label className="label">Execution Trigger</label>
+                <textarea
+                  className="input-field resize-none"
+                  rows={2}
+                  value={thesisTrigger}
+                  onChange={e => setThesisTrigger(e.target.value)}
+                  placeholder="What had to happen before entry?"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-700/60 bg-slate-950/35 p-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-blue-400">3. Outcome-Independent Grade</p>
+            <p className="mt-1 text-xs text-slate-500">Grade the quality of process, not P&amp;L.</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {[1, 2, 3, 4, 5].map(score => (
+                <button
+                  key={score}
+                  type="button"
+                  onClick={() => setProcessScore(score)}
+                  className={`min-w-9 rounded-lg border px-3 py-1.5 text-sm font-semibold transition ${
+                    processScore === score
+                      ? 'border-blue-400/60 bg-blue-500/20 text-blue-200'
+                      : 'border-slate-700 bg-slate-900/70 text-slate-400 hover:border-slate-500'
+                  }`}
+                >
+                  {score}
+                </button>
+              ))}
+            </div>
+            <div className="mt-3">
+              <label className="label">Why this score?</label>
+              <textarea
+                className="input-field resize-none"
+                rows={2}
+                value={processReason}
+                onChange={e => setProcessReason(e.target.value)}
+                placeholder="Example: Executed plan well, but rushed final scale-out."
+              />
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-700/60 bg-slate-950/35 p-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-amber-300">5. Reflection Prompts</p>
+            <p className="mt-1 text-xs text-slate-500">Use prompts to force specific learning after the trade.</p>
+            <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div>
+                <label className="label">Market vs Thesis</label>
+                <textarea
+                  className="input-field resize-none"
+                  rows={2}
+                  value={reflectionMarket}
+                  onChange={e => setReflectionMarket(e.target.value)}
+                  placeholder="Did price confirm or reject your thesis?"
+                />
+              </div>
+              <div>
+                <label className="label">Execution Quality</label>
+                <textarea
+                  className="input-field resize-none"
+                  rows={2}
+                  value={reflectionExecution}
+                  onChange={e => setReflectionExecution(e.target.value)}
+                  placeholder="What did you do well or poorly?"
+                />
+              </div>
+              <div>
+                <label className="label">One Next Adjustment</label>
+                <textarea
+                  className="input-field resize-none"
+                  rows={2}
+                  value={reflectionAdjustment}
+                  onChange={e => setReflectionAdjustment(e.target.value)}
+                  placeholder="What single change will you test next?"
+                />
+              </div>
+            </div>
+          </div>
+
           <div>
-            <label className="label">Pre-Trade</label>
-            <textarea className="input-field resize-none" rows={2} value={form.pre_trade_notes || ''} onChange={e => set('pre_trade_notes', e.target.value)} placeholder="Why did you take this trade?" />
+            <label className="label">Additional Pre-Trade Notes</label>
+            <textarea
+              className="input-field resize-none"
+              rows={2}
+              value={form.pre_trade_notes || ''}
+              onChange={e => set('pre_trade_notes', e.target.value)}
+              placeholder="Anything else you noticed before entry."
+            />
           </div>
           <div>
-            <label className="label">Post-Trade</label>
-            <textarea className="input-field resize-none" rows={2} value={form.post_trade_notes || ''} onChange={e => set('post_trade_notes', e.target.value)} placeholder="What happened? What did you learn?" />
+            <label className="label">Additional Post-Trade Notes</label>
+            <textarea
+              className="input-field resize-none"
+              rows={2}
+              value={form.post_trade_notes || ''}
+              onChange={e => set('post_trade_notes', e.target.value)}
+              placeholder="Anything else you want to capture after exit."
+            />
           </div>
         </div>
       </div>
