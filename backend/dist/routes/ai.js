@@ -50,6 +50,24 @@ router.post('/flyxa-chat', async (req, res, next) => {
         next(err);
     }
 });
+router.post('/chart-analyzer', auth_1.authMiddleware, upload.single('image'), async (req, res, next) => {
+    try {
+        const imageFile = req.file;
+        if (!imageFile) {
+            res.status(400).json({ error: 'No image file provided' });
+            return;
+        }
+        const rawContractSize = Number(req.body.contractSize);
+        const contractSize = Number.isFinite(rawContractSize) && rawContractSize > 0
+            ? Math.floor(rawContractSize)
+            : 1;
+        const results = await (0, claude_1.analyzeChartAnalyzerImage)(imageFile.buffer.toString('base64'), imageFile.mimetype, contractSize);
+        res.json(results);
+    }
+    catch (err) {
+        next(err);
+    }
+});
 // POST /scan — analyze chart image
 router.post('/scan', auth_1.authMiddleware, upload.fields([
     { name: 'image', maxCount: 1 },

@@ -12,6 +12,7 @@ interface Props {
   tradeTime: string;
   showContractsField?: boolean;
   onSubmit: (data: Partial<Trade>) => void;
+  onDraftChange?: (data: Partial<Trade>) => void;
   onCancel: () => void;
   isLoading?: boolean;
 }
@@ -129,6 +130,7 @@ export default function TradeForm({
   tradeTime,
   showContractsField = true,
   onSubmit,
+  onDraftChange,
   onCancel,
   isLoading,
 }: Props) {
@@ -234,6 +236,63 @@ export default function TradeForm({
         : '';
   const canSubmit = Boolean(hasTradeDateTime && hasDuration && !isLoading);
 
+  const buildComposedNotes = () => {
+    const thesisBlock = buildStructuredBlock(THESIS_BLOCK, {
+      setup: thesisSetup,
+      invalidation: thesisInvalidation,
+      trigger: thesisTrigger,
+    });
+    const processBlock = buildStructuredBlock(PROCESS_BLOCK, {
+      score: processScore > 0 ? String(processScore) : '',
+      reason: processReason,
+    });
+    const reflectionBlock = buildStructuredBlock(REFLECTION_BLOCK, {
+      market_vs_thesis: reflectionMarket,
+      execution_quality: reflectionExecution,
+      next_adjustment: reflectionAdjustment,
+    });
+
+    return {
+      preTradeNotes: [thesisBlock, form.pre_trade_notes?.trim() || '']
+        .filter(Boolean)
+        .join('\n\n')
+        .trim(),
+      postTradeNotes: [processBlock, reflectionBlock, form.post_trade_notes?.trim() || '']
+        .filter(Boolean)
+        .join('\n\n')
+        .trim(),
+    };
+  };
+
+  useEffect(() => {
+    if (!onDraftChange) {
+      return;
+    }
+
+    const { preTradeNotes, postTradeNotes } = buildComposedNotes();
+    onDraftChange({
+      ...form,
+      confluences: normalizeConfluences(form.confluences),
+      trade_date: tradeDate || undefined,
+      trade_time: tradeTime || undefined,
+      pre_trade_notes: preTradeNotes,
+      post_trade_notes: postTradeNotes,
+    });
+  }, [
+    form,
+    onDraftChange,
+    processReason,
+    processScore,
+    reflectionAdjustment,
+    reflectionExecution,
+    reflectionMarket,
+    thesisInvalidation,
+    thesisSetup,
+    thesisTrigger,
+    tradeDate,
+    tradeTime,
+  ]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!hasTradeDateTime || !hasDuration) {
@@ -255,29 +314,7 @@ export default function TradeForm({
       return;
     }
 
-    const thesisBlock = buildStructuredBlock(THESIS_BLOCK, {
-      setup: thesisSetup,
-      invalidation: thesisInvalidation,
-      trigger: thesisTrigger,
-    });
-    const processBlock = buildStructuredBlock(PROCESS_BLOCK, {
-      score: processScore > 0 ? String(processScore) : '',
-      reason: processReason,
-    });
-    const reflectionBlock = buildStructuredBlock(REFLECTION_BLOCK, {
-      market_vs_thesis: reflectionMarket,
-      execution_quality: reflectionExecution,
-      next_adjustment: reflectionAdjustment,
-    });
-
-    const preTradeNotes = [thesisBlock, form.pre_trade_notes?.trim() || '']
-      .filter(Boolean)
-      .join('\n\n')
-      .trim();
-    const postTradeNotes = [processBlock, reflectionBlock, form.post_trade_notes?.trim() || '']
-      .filter(Boolean)
-      .join('\n\n')
-      .trim();
+    const { preTradeNotes, postTradeNotes } = buildComposedNotes();
 
     onSubmit({
       ...form,

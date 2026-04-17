@@ -37,15 +37,8 @@ const SESSION_BUCKETS = [
   { key: 'preMarket', label: 'Pre Market' },
   { key: 'newYork', label: 'New York' },
 ] as const;
-const TIME_WINDOWS = [
-  { label: '9:30', start: 570, end: 600 },
-  { label: '10:00', start: 600, end: 630 },
-  { label: '10:30', start: 630, end: 660 },
-  { label: '11:00', start: 660, end: 720 },
-  { label: '12:00', start: 720, end: 840 },
-  { label: '14:00', start: 840, end: 930 },
-  { label: '15:30', start: 930, end: 960 },
-] as const;
+const TIME_BUCKET_MINUTES = 30;
+const TOP_TIME_BUCKETS = 7;
 const DASHBOARD_GREEN = '#34d399';
 const DASHBOARD_RED = '#f87171';
 
@@ -141,6 +134,13 @@ function formatDateLabel(date: string): string {
   const parsed = new Date(`${date}T00:00:00`);
   if (Number.isNaN(parsed.getTime())) return date;
   return parsed.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function formatTimeBucketLabel(totalMinutes: number): string {
+  const normalized = ((totalMinutes % 1440) + 1440) % 1440;
+  const hours = Math.floor(normalized / 60);
+  const minutes = normalized % 60;
+  return `${hours}:${String(minutes).padStart(2, '0')}`;
 }
 
 function normalizeConfluences(value: unknown): string[] {
@@ -395,19 +395,37 @@ export default function Analytics() {
   }, [filteredTrades]);
 
   const timeOfDayRows = useMemo(() => {
-    const rows = TIME_WINDOWS.map(window => {
-      const windowTrades = filteredTrades.filter(trade => {
-        const minutes = timeToMinutes(trade.trade_time);
-        return minutes !== null && minutes >= window.start && minutes < window.end;
-      });
+    const bucketMap = new Map<number, { start: number; count: number; sumPnL: number }>();
 
-      return {
-        ...window,
-        avgPnL: windowTrades.length > 0
-          ? safeAverage(windowTrades.map(trade => trade.pnl))
-          : null,
+    filteredTrades.forEach(trade => {
+      const minutes = timeToMinutes(trade.trade_time);
+      if (minutes === null) return;
+
+      const bucketStart = Math.floor(minutes / TIME_BUCKET_MINUTES) * TIME_BUCKET_MINUTES;
+      const current = bucketMap.get(bucketStart) ?? {
+        start: bucketStart,
+        count: 0,
+        sumPnL: 0,
       };
+      current.count += 1;
+      current.sumPnL += trade.pnl;
+      bucketMap.set(bucketStart, current);
     });
+
+    const rows = Array.from(bucketMap.values())
+      .sort((a, b) => {
+        if (b.count !== a.count) return b.count - a.count;
+        return a.start - b.start;
+      })
+      .slice(0, TOP_TIME_BUCKETS)
+      .sort((a, b) => a.start - b.start)
+      .map(row => ({
+        label: formatTimeBucketLabel(row.start),
+        start: row.start,
+        end: row.start + TIME_BUCKET_MINUTES,
+        count: row.count,
+        avgPnL: row.sumPnL / row.count,
+      }));
 
     const maxAbs = Math.max(
       1,
@@ -753,7 +771,7 @@ export default function Analytics() {
       <section className="rounded-2xl border border-[#22324d] bg-[#0a1428] p-5">
         <div className="mb-5 flex items-center justify-between gap-3">
           <h3 className="text-2xl font-semibold text-[#e2ebfb] md:text-[30px]">P&amp;L by time of day</h3>
-          <p className="text-xs text-[#6d82a7] md:text-[16px]">Avg P&amp;L per trade in each 30-min window</p>
+          <p className="text-xs text-[#6d82a7] md:text-[16px]">Avg P&amp;L in your most traded 30-min windows</p>
         </div>
 
         <div className="grid grid-cols-7 gap-2">

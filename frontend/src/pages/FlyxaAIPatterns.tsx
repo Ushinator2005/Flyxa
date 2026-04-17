@@ -16,6 +16,7 @@ export type PatternItem = {
   id: string;
   type: PatternType;
   status: PatternStatus;
+  resolvedFrom?: Exclude<PatternStatus, 'Resolved'>;
   title: string;
   description: string;
   firstSeen: string;
@@ -256,8 +257,32 @@ export default function FlyxaAIPatterns() {
   };
 
   const markResolved = (patternId: string) => {
-    setPatterns(current => current.map(pattern => pattern.id === patternId ? { ...pattern, status: 'Resolved' } : pattern));
+    setPatterns(current => current.map(pattern => {
+      if (pattern.id !== patternId || pattern.status === 'Resolved') {
+        return pattern;
+      }
+
+      return {
+        ...pattern,
+        resolvedFrom: pattern.status,
+        status: 'Resolved',
+      };
+    }));
     setExpandedPatternId(null);
+  };
+
+  const unresolvePattern = (patternId: string) => {
+    setPatterns(current => current.map(pattern => {
+      if (pattern.id !== patternId || pattern.status !== 'Resolved') {
+        return pattern;
+      }
+
+      return {
+        ...pattern,
+        status: pattern.resolvedFrom ?? 'Active',
+        resolvedFrom: undefined,
+      };
+    }));
   };
 
   const renderPatternCard = (pattern: PatternItem) => {
@@ -442,11 +467,22 @@ export default function FlyxaAIPatterns() {
                     const lastSeen = pattern.sessions.length > 0 ? pattern.sessions[0].date : pattern.firstSeen;
                     return (
                       <div key={pattern.id} className="rounded-md border border-white/5 bg-[#0a101d] px-3 py-2 text-[12px] text-[#64748b]">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[#94a3b8]">{pattern.title}</span>
-                          <span className="text-[#94a3b8]">~{Math.abs(pattern.totalR).toFixed(1)}R saved</span>
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <span className="text-[#94a3b8]">{pattern.title}</span>
+                            <p className="mt-0.5">Last seen {new Date(lastSeen).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[#94a3b8]">~{Math.abs(pattern.totalR).toFixed(1)}R saved</span>
+                            <button
+                              type="button"
+                              onClick={() => unresolvePattern(pattern.id)}
+                              className="rounded border border-white/10 bg-[#11192a] px-2 py-1 text-[11px] text-[#cbd5e1] hover:bg-[#1a253a]"
+                            >
+                              Unresolve
+                            </button>
+                          </div>
                         </div>
-                        <p className="mt-0.5">Last seen {new Date(lastSeen).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
                       </div>
                     );
                   })}

@@ -17,7 +17,7 @@ const psychology_1 = __importDefault(require("./routes/psychology"));
 const playbook_1 = __importDefault(require("./routes/playbook"));
 const journal_1 = __importDefault(require("./routes/journal"));
 const marketData_1 = __importDefault(require("./routes/marketData"));
-dotenv_1.default.config();
+dotenv_1.default.config({ override: true });
 const app = (0, express_1.default)();
 const PORT = process.env.PORT || 3001;
 // Security middleware

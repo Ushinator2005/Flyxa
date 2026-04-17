@@ -24,4 +24,15 @@ export declare function answerFlyxaQuestion(question: string, history?: Array<{
     role: 'user' | 'assistant';
     content: string;
 }>): Promise<string>;
+export declare function analyzeChartAnalyzerImage(base64Image: string, mimeType: string, contractSize: number): Promise<Array<{
+    symbol?: string;
+    direction?: 'Long' | 'Short' | null;
+    entry_price: number | null;
+    stop_loss: number | null;
+    take_profit: number | null;
+    rr_ratio: string | null;
+    outcome: 'WIN' | 'LOSS' | null;
+    trade_duration: string | null;
+    net_pnl: number | null;
+}>>;
 //# sourceMappingURL=claude.d.ts.map

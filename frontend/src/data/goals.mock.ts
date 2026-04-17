@@ -1,0 +1,78 @@
+import type { Goal } from '../types/goals.js';
+
+export const mockGoals: Goal[] = [
+  {
+    id: 'goal-1',
+    title: 'Hit $10K profit this quarter',
+    category: 'Profitability',
+    color: 'cobalt',
+    horizon: '2026-06-30',
+    description: 'Stay focused on consistent execution and let profits compound. One good week at a time.',
+    steps: [
+      { id: 's1-1', text: 'Complete 3 green weeks in a row', done: true },
+      { id: 's1-2', text: 'Keep avg win/loss ratio above 2:1', done: true },
+      { id: 's1-3', text: 'Max daily drawdown below 1.5%', done: true },
+      { id: 's1-4', text: 'Review P&L every Sunday evening', done: false },
+      { id: 's1-5', text: 'Stay under 3 trades per session', done: false },
+    ],
+    createdAt: '2026-04-01T09:00:00.000Z',
+  },
+  {
+    id: 'goal-2',
+    title: 'Protect capital like a winner',
+    category: 'Risk',
+    color: 'amber',
+    horizon: '2026-05-31',
+    description: 'Cut losses fast. Every dollar saved is a dollar available for the next A-setup.',
+    steps: [
+      { id: 's2-1', text: 'Never risk more than 1% per trade', done: true },
+      { id: 's2-2', text: 'Exit immediately when daily loss limit hit', done: true },
+      { id: 's2-3', text: 'Review risk settings every Monday', done: false },
+    ],
+    createdAt: '2026-04-03T10:00:00.000Z',
+  },
+  {
+    id: 'goal-3',
+    title: 'Build a 90-day trading streak',
+    category: 'Consistency',
+    color: 'teal',
+    horizon: '2026-07-15',
+    description: 'Show up every session with a pre-session ritual and post-session review. No excuses.',
+    steps: [
+      { id: 's3-1', text: 'Complete pre-session checklist daily', done: true },
+      { id: 's3-2', text: 'Log every trade within 10 minutes of close', done: true },
+      { id: 's3-3', text: 'No gaps longer than 3 trading days', done: false },
+    ],
+    createdAt: '2026-04-05T08:00:00.000Z',
+  },
+  {
+    id: 'goal-4',
+    title: 'Eliminate revenge trading forever',
+    category: 'Mindset',
+    color: 'purple',
+    horizon: '2026-05-01',
+    description: 'One bad trade should never become two. Walk away. Protect the edge at all costs.',
+    steps: [
+      { id: 's4-1', text: 'Identify triggers that lead to revenge entries', done: true },
+      { id: 's4-2', text: 'Set a hard daily loss stop in the system', done: false },
+      { id: 's4-3', text: 'Journal after every emotionally charged trade', done: false },
+      { id: 's4-4', text: 'Track revenge trade % monthly in analytics', done: false },
+    ],
+    createdAt: '2026-04-07T11:00:00.000Z',
+  },
+  {
+    id: 'goal-5',
+    title: 'Only take A-grade setups',
+    category: 'Discipline',
+    color: 'rose',
+    horizon: '2026-04-30',
+    description: "If it's not an A, it's a no. Build the habit of waiting for the best opportunities.",
+    steps: [
+      { id: 's5-1', text: 'Define A-setup criteria in the playbook', done: true },
+      { id: 's5-2', text: 'Rate every trade from A to C after entry', done: true },
+      { id: 's5-3', text: 'Review weekly for setup quality trend', done: true },
+      { id: 's5-4', text: 'Zero C-grade trades for 30 days straight', done: false },
+    ],
+    createdAt: '2026-04-10T07:00:00.000Z',
+  },
+];

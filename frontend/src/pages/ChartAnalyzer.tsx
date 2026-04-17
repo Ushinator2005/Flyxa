@@ -1,56 +1,10 @@
 import React, { useState, useRef, useCallback } from 'react';
 import {
-  Upload, X, Key, Settings, Loader2, TrendingUp, TrendingDown,
+  Upload, X, Settings, Loader2, TrendingUp, TrendingDown,
   AlertCircle, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { lookupContract } from '../constants/futuresContracts.js';
-
-const SYSTEM_PROMPT = `You are a trading chart P&L analyst. When given a TradingView screenshot, follow these steps precisely:
-
-STEP 1 — READ SYMBOL & TIMEFRAME: Read the ticker symbol and timeframe from the top-left of the chart label (e.g. "NQM26, 1" means NQM26 on the 1-minute chart).
-
-STEP 2 — IDENTIFY THE P&L BOX AND ITS THREE LEVELS:
-The P&L box is a semi-transparent overlay of two colored zones:
-- TEAL (mint/cyan green) zone = profit target area
-- PINK (light red/rose) zone = stop loss risk area
-
-Read the three price levels:
-- ENTRY PRICE: The GREY label on the right axis at the boundary between the two zones.
-- STOP LOSS: The RED label on the right axis at the far edge of the pink zone.
-- TAKE PROFIT — HOW TO FIND IT:
-  a. Locate the FAR EDGE of the teal zone (top edge for Long, bottom edge for Short).
-  b. Trace that edge horizontally to the right-axis scale to read the price.
-  c. It often aligns with a horizontal line drawn on the chart.
-  d. Use a small teal/green label at that exact edge if one is visible.
-  e. NEVER use the live current-price label as the TP. TradingView always shows a floating green label at the very latest market price — it is far outside the P&L box and is unrelated to the trade target. If a "green" label price is well above the teal box (for Long) or well below the teal box (for Short), it is the live price — ignore it completely.
-
-STEP 3 — DETERMINE DIRECTION FROM BOX COLORS:
-- LONG: Teal zone is ABOVE entry, pink zone is BELOW entry → your TP price must be greater than entry.
-- SHORT: Pink zone is ABOVE entry, teal zone is BELOW entry → your TP price must be less than entry.
-If your identified TP is outside the visible teal box boundary, you have read the wrong label — go back to step 2e.
-
-STEP 4 — ENTRY TIME: Draw an imaginary vertical line down from the left edge of the P&L box to the x-axis. Record this as the entry time.
-
-STEP 5 — CALCULATE RISK & REWARD:
-- TP distance = |Take Profit − Entry Price| (in points)
-- SL distance = |Stop Loss − Entry Price| (in points)
-- R:R Ratio = TP distance ÷ SL distance, expressed as "X:1" (e.g. if TP distance = 73.5 pts and SL distance = 39.25 pts → R:R = "1.87:1"; if TP = 39.25 and SL = 73.5 → R:R = "0.53:1")
-
-STEP 6 — OUTCOME (FIRST TOUCH RULE):
-Starting from the entry candle (the candle aligned with the left edge of the P&L box), scan candles forward one at a time. Stop the moment either level is first touched:
-- A candle WICK touching a level counts as a hit — a body close is NOT required.
-- If the stop loss level is touched first → outcome is LOSS.
-- If the take profit level is touched first → outcome is WIN.
-- If both are touched in the same candle, use visual judgment to determine which was more likely hit first.
-Do not look past the first touch — ignore any later reversals.
-
-STEP 7 — TRADE LENGTH: Count candles from the entry candle to the exit candle (inclusive). Multiply by the chart timeframe in minutes to get total trade duration (e.g. 15 candles × 1 min = 15 minutes).
-
-STEP 8 — NET P&L:
-Points at stake:
-- WIN: TP distance (positive)
-- LOSS: SL distance (negative)
-The frontend will calculate final dollar P&L using the contract's point value. Return net_pnl as the raw points value (positive for WIN, negative for LOSS) so the frontend can apply the correct multiplier.`;
+import { aiApi } from '../services/api.js';
 
 interface TradeResult {
   symbol?: string;
@@ -64,24 +18,15 @@ interface TradeResult {
   net_pnl: number | null;
 }
 
-const STORAGE_KEY = 'tw_chart_api_key';
-
 export default function ChartAnalyzer() {
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem(STORAGE_KEY) || '');
-  const [showApiKey, setShowApiKey] = useState(false);
   const [contractSize, setContractSize] = useState(1);
   const [image, setImage] = useState<{ file: File; base64: string; preview: string } | null>(null);
   const [results, setResults] = useState<TradeResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [showSettings, setShowSettings] = useState(!localStorage.getItem(STORAGE_KEY));
+  const [showSettings, setShowSettings] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleApiKeyChange = (key: string) => {
-    setApiKey(key);
-    localStorage.setItem(STORAGE_KEY, key);
-  };
 
   const processFile = useCallback((file: File) => {
     if (!file.type.startsWith('image/')) {
@@ -107,7 +52,6 @@ export default function ChartAnalyzer() {
   }, [processFile]);
 
   const handleAnalyze = async () => {
-    if (!apiKey) { setError('Please enter your Anthropic API key in Settings'); return; }
     if (!image) { setError('Please upload a chart screenshot'); return; }
 
     setLoading(true);
@@ -115,72 +59,7 @@ export default function ChartAnalyzer() {
     setResults([]);
 
     try {
-      const userMessage = `Analyze this trading chart screenshot. Contract size is ${contractSize}.
-
-If there are multiple charts in the image (e.g. NQ and ES side by side), analyze each one separately.
-
-Return ONLY a valid JSON array with no markdown, no explanation, no code fences — just the raw JSON array. Each element represents one chart/trade with these exact keys:
-[
-  {
-    "symbol": "full ticker as shown top-left e.g. NQM26 or MNQ or ES",
-    "direction": "Long" or "Short" or null,
-    "entry_price": number or null,
-    "stop_loss": number or null,
-    "take_profit": number or null,
-    "rr_ratio": "X:1 format e.g. 1.87:1 or 0.53:1" or null,
-    "outcome": "WIN" or "LOSS" or null,
-    "trade_duration": "string e.g. 15 minutes" or null,
-    "net_pnl": raw points value as a number (positive for WIN, negative for LOSS) or null
-  }
-]`;
-
-      const mimeType = (['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(image.file.type)
-        ? image.file.type
-        : 'image/jpeg') as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
-
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-0',
-          max_tokens: 2048,
-          system: SYSTEM_PROMPT,
-          messages: [{
-            role: 'user',
-            content: [
-              {
-                type: 'image',
-                source: { type: 'base64', media_type: mimeType, data: image.base64 },
-              },
-              { type: 'text', text: userMessage },
-            ],
-          }],
-        }),
-      });
-
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        const msg = err?.error?.message || `API error ${response.status}`;
-        if (response.status === 401) throw new Error('Invalid API key. Check your key in Settings.');
-        if (response.status === 429) throw new Error('Rate limit reached. Wait a moment and try again.');
-        throw new Error(msg);
-      }
-
-      const data = await response.json();
-      const text: string = data.content?.[0]?.text ?? '';
-
-      const jsonMatch = text.match(/\[[\s\S]*\]/);
-      if (!jsonMatch) throw new Error('Could not parse response from Claude. Please try again.');
-
-      const parsed = JSON.parse(jsonMatch[0]) as TradeResult[];
-      if (!Array.isArray(parsed) || parsed.length === 0) {
-        throw new Error('No trade data found in the response.');
-      }
+      const parsed = await aiApi.analyzeChartScreenshot(image.file, contractSize);
       setResults(parsed);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Analysis failed. Please try again.');
@@ -212,29 +91,8 @@ Return ONLY a valid JSON array with no markdown, no explanation, no code fences 
       {/* Settings panel */}
       {showSettings && (
         <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-5 space-y-4">
-          <div>
-            <label className="text-xs text-slate-400 font-medium flex items-center gap-1.5 mb-2">
-              <Key size={12} /> Anthropic API Key
-            </label>
-            <div className="relative">
-              <input
-                type={showApiKey ? 'text' : 'password'}
-                className="input-field pr-16"
-                value={apiKey}
-                onChange={e => handleApiKeyChange(e.target.value)}
-                placeholder="sk-ant-api..."
-              />
-              <button
-                type="button"
-                onClick={() => setShowApiKey(!showApiKey)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-200"
-              >
-                {showApiKey ? 'Hide' : 'Show'}
-              </button>
-            </div>
-            <p className="text-xs text-slate-500 mt-1.5">
-              Stored in your browser only — never sent to our servers.
-            </p>
+          <div className="text-xs text-slate-400 leading-5">
+            Chart analysis now runs through Flyxa&apos;s backend, so browser-stored Anthropic keys are no longer needed on this page.
           </div>
           <div className="w-36">
             <label className="text-xs text-slate-400 font-medium block mb-2">Default Contract Size</label>
@@ -325,9 +183,9 @@ Return ONLY a valid JSON array with no markdown, no explanation, no code fences 
       {/* Analyse button */}
       <button
         onClick={handleAnalyze}
-        disabled={loading || !image || !apiKey}
+        disabled={loading || !image}
         className={`w-full py-3.5 rounded-xl font-semibold text-white text-base transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
-          loading || !image || !apiKey
+          loading || !image
             ? 'bg-slate-700'
             : 'bg-blue-600 hover:bg-blue-500 active:bg-blue-700'
         }`}

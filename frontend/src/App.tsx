@@ -14,6 +14,7 @@ import Achievements from './pages/Achievements.js';
 import PsychologyTracker from './pages/PsychologyTracker.js';
 import Journal from './pages/Journal.js';
 import Goals from './pages/Goals.js';
+import Rivals from './pages/Rivals.js';
 import Chart from './pages/Chart.js';
 import Settings from './pages/Settings.js';
 import LoadingSpinner from './components/common/LoadingSpinner.js';
@@ -114,6 +115,7 @@ export default function App() {
           <Route path="/psychology" element={<PsychologyTracker />} />
           <Route path="/journal" element={<Journal />} />
           <Route path="/goals" element={<Goals />} />
+          <Route path="/rivals" element={<Rivals />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/risk" element={<Navigate to="/" replace />} />
           <Route path="/playbook" element={<Navigate to="/" replace />} />

@@ -83,6 +83,24 @@ const ACCOUNT_STATUS_STYLES = {
   Blown: 'border-red-400/30 bg-red-500/10 text-red-300',
 } as const;
 
+function readScannerDraft(): Partial<Trade> | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  try {
+    const saved = localStorage.getItem(DRAFT_KEY);
+    if (!saved) {
+      return null;
+    }
+
+    const parsed = JSON.parse(saved) as { data?: Partial<Trade> };
+    return parsed?.data ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function loadImage(file: File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const objectUrl = URL.createObjectURL(file);
@@ -447,7 +465,7 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
     return getDefaultTradeAccountId();
   }, [editTrade, getDefaultTradeAccountId, prefillTrade, resolveTradeAccountId]);
   const getInitialContractSize = useCallback(
-    () => String(Math.max(1, Number(editTrade?.contract_size ?? prefillTrade?.contract_size ?? 1))),
+    () => String(Math.max(1, Number(editTrade?.contract_size ?? prefillTrade?.contract_size ?? readScannerDraft()?.contract_size ?? 1))),
     [editTrade?.contract_size, prefillTrade?.contract_size]
   );
 
@@ -458,11 +476,7 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
   const [formData, setFormData]           = useState<Partial<Trade> | null>(() => {
     if (editTrade) return editTrade;
     if (prefillTrade) return prefillTrade;
-    try {
-      const saved = localStorage.getItem(DRAFT_KEY);
-      if (saved) { const { data } = JSON.parse(saved); return data ?? null; }
-    } catch { /* ignore */ }
-    return null;
+    return readScannerDraft();
   });
   const [aiFields, setAiFields]           = useState<Set<string>>(new Set());
   const [imagePreview, setImagePreview]   = useState<string | null>(() => {
@@ -475,8 +489,12 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
   const [contractInputValue, setContractInputValue] = useState(() => getInitialContractSize());
   const [tradeAccountId, setTradeAccountId] = useState(() => getInitialTradeAccountId());
 
-  const [currentDate, setCurrentDate] = useState(() => editTrade?.trade_date ?? prefillTrade?.trade_date ?? '');
-  const [currentTime, setCurrentTime] = useState(() => editTrade?.trade_time ?? prefillTrade?.trade_time ?? '');
+  const [currentDate, setCurrentDate] = useState(
+    () => editTrade?.trade_date ?? prefillTrade?.trade_date ?? readScannerDraft()?.trade_date ?? ''
+  );
+  const [currentTime, setCurrentTime] = useState(
+    () => editTrade?.trade_time ?? prefillTrade?.trade_time ?? readScannerDraft()?.trade_time ?? ''
+  );
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const accountById = useMemo(() => new Map(accounts.map(account => [account.id, account] as const)), [accounts]);
@@ -504,14 +522,16 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
       return;
     }
 
-    setCurrentDate(editTrade?.trade_date ?? prefillTrade?.trade_date ?? '');
-    setCurrentTime(editTrade?.trade_time ?? prefillTrade?.trade_time ?? '');
+    const savedDraft = !editTrade && !prefillTrade ? readScannerDraft() : null;
+
+    setCurrentDate(editTrade?.trade_date ?? prefillTrade?.trade_date ?? savedDraft?.trade_date ?? '');
+    setCurrentTime(editTrade?.trade_time ?? prefillTrade?.trade_time ?? savedDraft?.trade_time ?? '');
     if (editTrade) {
       setImagePreview(editTrade.screenshot_url ?? null);
     } else {
       try { setImagePreview(localStorage.getItem(DRAFT_IMAGE_KEY) ?? null); } catch { setImagePreview(null); }
     }
-    setContractInputValue(getInitialContractSize());
+    setContractInputValue(String(Math.max(1, Number(editTrade?.contract_size ?? prefillTrade?.contract_size ?? savedDraft?.contract_size ?? 1))));
     setTradeAccountId(getInitialTradeAccountId());
     setAiFields(new Set());
     setWarnings([]);
@@ -525,8 +545,70 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
 
     if (prefillTrade) {
       setFormData(prefillTrade);
+      return;
     }
+
+    setFormData(savedDraft ?? null);
   }, [editTrade, getInitialContractSize, getInitialTradeAccountId, isOpen, prefillTrade]);
+
+  const handleFormDraftChange = useCallback((draftData: Partial<Trade>) => {
+    if (!isOpen || editTrade) {
+      return;
+    }
+
+    const parsedContractInput = Number.parseInt(contractInputValue, 10);
+    const contractSize = Number.isFinite(parsedContractInput) && parsedContractInput > 0
+      ? parsedContractInput
+      : draftData.contract_size;
+    const persistedDraft: Partial<Trade> = {
+      ...draftData,
+      accountId: tradeAccountId || getDefaultTradeAccountId(),
+      contract_size: contractSize,
+      trade_date: currentDate || draftData.trade_date,
+      trade_time: currentTime || draftData.trade_time,
+      screenshot_url: imagePreview ?? undefined,
+    };
+
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ data: persistedDraft }));
+    } catch {
+      // ignore localStorage quota/write errors
+    }
+  }, [
+    contractInputValue,
+    currentDate,
+    currentTime,
+    editTrade,
+    getDefaultTradeAccountId,
+    imagePreview,
+    isOpen,
+    tradeAccountId,
+  ]);
+
+  useEffect(() => {
+    if (!isOpen || editTrade) {
+      return;
+    }
+
+    const existingDraft = readScannerDraft();
+    const hasSomethingToPersist = Boolean(currentDate || currentTime || formData || existingDraft);
+    if (!hasSomethingToPersist) {
+      return;
+    }
+
+    const base = formData ?? existingDraft ?? {};
+    const nextDraft: Partial<Trade> = {
+      ...base,
+      trade_date: currentDate || undefined,
+      trade_time: currentTime || undefined,
+    };
+
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ data: nextDraft }));
+    } catch {
+      // ignore localStorage quota/write errors
+    }
+  }, [currentDate, currentTime, editTrade, formData, isOpen]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -991,6 +1073,7 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
                 tradeTime={currentTime}
                 showContractsField={false}
                 onSubmit={handleSave}
+                onDraftChange={handleFormDraftChange}
                 onCancel={handleClose}
                 isLoading={saving}
               />

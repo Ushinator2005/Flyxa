@@ -14,7 +14,7 @@ import playbookRouter from './routes/playbook';
 import journalRouter from './routes/journal';
 import marketDataRouter from './routes/marketData';
 
-dotenv.config();
+dotenv.config({ override: true });
 
 const app = express();
 const PORT = process.env.PORT || 3001;

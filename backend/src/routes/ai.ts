@@ -4,6 +4,7 @@ import { authMiddleware } from '../middleware/auth';
 import { supabase } from '../services/supabase';
 import {
   analyzeChartImage,
+  analyzeChartAnalyzerImage,
   analyzeIndividualTrade,
   analyzePatterns,
   generateWeeklyReport,
@@ -56,6 +57,31 @@ router.post('/flyxa-chat', async (req: AuthenticatedRequest, res: Response, next
 
     const reply = await answerFlyxaQuestion(question, history);
     res.json({ reply });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/chart-analyzer', authMiddleware, upload.single('image'), async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const imageFile = req.file;
+    if (!imageFile) {
+      res.status(400).json({ error: 'No image file provided' });
+      return;
+    }
+
+    const rawContractSize = Number(req.body.contractSize);
+    const contractSize = Number.isFinite(rawContractSize) && rawContractSize > 0
+      ? Math.floor(rawContractSize)
+      : 1;
+
+    const results = await analyzeChartAnalyzerImage(
+      imageFile.buffer.toString('base64'),
+      imageFile.mimetype,
+      contractSize
+    );
+
+    res.json(results);
   } catch (err) {
     next(err);
   }

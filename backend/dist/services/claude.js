@@ -10,14 +10,16 @@ exports.generateWeeklyReport = generateWeeklyReport;
 exports.generatePsychologyReport = generatePsychologyReport;
 exports.compareTradeToPlaybook = compareTradeToPlaybook;
 exports.answerFlyxaQuestion = answerFlyxaQuestion;
+exports.analyzeChartAnalyzerImage = analyzeChartAnalyzerImage;
 const sdk_1 = __importDefault(require("@anthropic-ai/sdk"));
 const dotenv_1 = __importDefault(require("dotenv"));
 const zlib_1 = require("zlib");
-dotenv_1.default.config();
+const sharp_1 = __importDefault(require("sharp"));
+dotenv_1.default.config({ override: true });
 const anthropic = new sdk_1.default({
     apiKey: process.env.ANTHROPIC_API_KEY,
 });
-const MODEL = 'claude-sonnet-4-20250514';
+const MODEL = 'claude-sonnet-4-5';
 const MODEL_TEMPERATURE = 0;
 const EXIT_CONFIDENCE_VALUES = ['high', 'medium', 'low'];
 const VALID_MIME_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
@@ -68,7 +70,8 @@ const FIRST_TOUCH_RULE = `The first touch decides the outcome.
 - Ignore any later move after the first touch.
 - If price hits stop first and later reaches target, the correct result is still SL.
 - If price hits target first and later reaches stop, the correct result is still TP.
-- Sanity check: the exit candle must actually reach the exact TP or SL price level within its high/low. If no candle within the trade window has a wick that reaches the TP level, the outcome is SL (or inconclusive) — do not claim TP was hit unless a candle clearly reaches that price.`;
+- CRITICAL: The current live price shown on the right axis (the floating green label) is NOT the trade exit. Ignore it completely. Only look at candles AFTER the entry point.
+- Work candle by candle from the entry forward (left to right). The FIRST candle whose wick touches the SL or TP level decides the result — everything after that is irrelevant.`;
 function parseJsonObject(rawText) {
     const jsonMatch = rawText.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
@@ -408,19 +411,25 @@ function formatScannerContext(scannerContext) {
     if (!scannerContext) {
         return 'No geometric trade-box detection metadata was available.';
     }
+    const directionDirective = scannerContext.direction_hint === 'Short'
+        ? `CRITICAL — DIRECTION IS SHORT: Pixel analysis confirmed the red/pink zone is ABOVE entry and teal zone is BELOW entry.
+  - stop-label-focus IS centered on the SL level which is ABOVE entry → sl_price WILL BE GREATER than entry_price
+  - target-label-focus IS centered on the TP level which is BELOW entry → tp_price WILL BE LESS than entry_price
+  - Do NOT swap or re-interpret these values. Read each crop as labelled. Do NOT use price ordering to override the direction.`
+        : scannerContext.direction_hint === 'Long'
+            ? `CRITICAL — DIRECTION IS LONG: Pixel analysis confirmed the teal zone is ABOVE entry and red/pink zone is BELOW entry.
+  - stop-label-focus IS centered on the SL level which is BELOW entry → sl_price WILL BE LESS than entry_price
+  - target-label-focus IS centered on the TP level which is ABOVE entry → tp_price WILL BE GREATER than entry_price
+  - Do NOT swap or re-interpret these values. Read each crop as labelled. Do NOT use price ordering to override the direction.`
+            : 'Direction could not be determined from pixel analysis — infer from box layout.';
     return `Detected trade-box geometry from image processing:
+${directionDirective}
 - direction_hint: ${scannerContext.direction_hint ?? 'unknown'}
-- chart_left_ratio: ${scannerContext.chart_left_ratio ?? 'unknown'}
-- chart_right_ratio: ${scannerContext.chart_right_ratio ?? 'unknown'}
-- box_left_ratio: ${scannerContext.box_left_ratio ?? 'unknown'}
-- box_right_ratio: ${scannerContext.box_right_ratio ?? 'unknown'}
 - entry_line_ratio: ${scannerContext.entry_line_ratio ?? 'unknown'}
 - stop_line_ratio: ${scannerContext.stop_line_ratio ?? 'unknown'}
 - target_line_ratio: ${scannerContext.target_line_ratio ?? 'unknown'}
-- red_box: ${scannerContext.red_box ? JSON.stringify(scannerContext.red_box) : 'unknown'}
-- green_box: ${scannerContext.green_box ? JSON.stringify(scannerContext.green_box) : 'unknown'}
-
-Use this geometry as a strong anchor for which chart pane contains the trade, where the risk/reward box starts, and whether the setup is long or short.`;
+- box_left_ratio: ${scannerContext.box_left_ratio ?? 'unknown'}
+- box_right_ratio: ${scannerContext.box_right_ratio ?? 'unknown'}`;
 }
 function describeImageLabel(label) {
     switch (label) {
@@ -676,31 +685,192 @@ Return ONLY a raw JSON object with these exact keys:
 symbol, timeframe_minutes`;
     return sanitizeHeaderIdentityRead(await callClaudeJson(systemPrompt, images, 'Read only the instrument ticker/root and the timeframe interval printed immediately beside it in the header of the chart containing the colored risk/reward box.', 250));
 }
+function buildPriceExtractionPrompt(scannerContext) {
+    const hasGeometry = Boolean(scannerContext?.entry_line_ratio != null &&
+        scannerContext?.stop_line_ratio != null &&
+        scannerContext?.target_line_ratio != null);
+    const pct = (r) => (r * 100).toFixed(1);
+    const geometrySection = hasGeometry ? `
+PIXEL GEOMETRY (from pre-scan analysis — use these to locate each label):
+- Entry price label: ${pct(scannerContext.entry_line_ratio)}% from the TOP of the full chart image
+- Stop price label:  ${pct(scannerContext.stop_line_ratio)}% from the TOP of the full chart image
+- Target price label:${pct(scannerContext.target_line_ratio)}% from the TOP of the full chart image
+- Trade direction hint: ${scannerContext.direction_hint ?? 'unknown'}
+
+The dedicated label crops (entry-label-focus, stop-label-focus, target-label-focus)
+have been 2× upscaled with nearest-neighbour interpolation so digits are crisp.
+` : `
+No geometry hints available. Read all visible price labels from the price axis.
+`;
+    return `Read the exact price values for entry, stop-loss, and take-profit from the chart.
+${geometrySection}
+READING PROCEDURE — follow every step:
+
+STEP 1 — Examine the price-label-focus image (full right-hand price axis).
+  Identify the labelled price levels that correspond to the trade box.
+  CRITICAL: TradingView displays a floating green box label on the right axis showing the current live market price.
+  This is NOT a trade level — it is where price is right now, not entry/SL/TP.
+  IGNORE IT COMPLETELY. Do not assign it to entry, stop-loss, or take-profit under any circumstances.
+
+STEP 2 — Examine the trade-box-focus image.
+  Identify the coloured boxes (red = SL zone, teal/green = TP zone).
+  Note where each box begins and ends relative to the price axis.
+
+AUTHORITY RULE: The dedicated crops (entry-label-focus, stop-label-focus, target-label-focus) are
+  the ONLY authoritative source for each price. Read the digits in THAT crop for THAT field only.
+  Never substitute a value from the general price axis or from any other crop into a different field.
+
+STEP 3 — For the ENTRY price:
+  Look at the entry-label-focus crop. It is centred on the entry level.
+  Read every digit left to right. Do not guess. Do not round.
+  Cross-check: the entry price should be at the BOUNDARY between the red and green boxes.
+
+STEP 4 — For the STOP-LOSS price:
+  Look at the stop-label-focus crop. It is centred on the stop level.
+  Read every digit left to right. Do not guess. Do not round.
+  IMPORTANT: The crop label tells you what level this is — trust it. Do NOT swap this value with the target.
+
+STEP 5 — For the TAKE-PROFIT price:
+  Look at the target-label-focus crop. It is centred on the target level.
+  Read every digit left to right. Do not guess. Do not round.
+  IMPORTANT: The crop label tells you what level this is — trust it. Do NOT swap this value with the stop.
+
+STEP 6 — DIGIT VERIFICATION:
+  For each price, spell out the digits you read (e.g., "2 1 3 4 5 point 5 0").
+  If any digit is ambiguous between two values (e.g., 3 vs 8, 1 vs 7), read the
+  full-price-axis image to find a nearby unambiguous label for context.
+
+STEP 7 — RETURN JSON:
+  Only return prices you are certain about. Return null for any price you cannot
+  read with full confidence.
+
+Return ONLY this JSON with no preamble:
+{
+  "entry_price": number | null,
+  "sl_price": number | null,
+  "tp_price": number | null,
+  "direction": "Long" | "Short" | null,
+  "entry_digits_read": string,
+  "sl_digits_read": string,
+  "tp_digits_read": string,
+  "entry_confidence": "high" | "medium" | "low",
+  "sl_confidence": "high" | "medium" | "low",
+  "tp_confidence": "high" | "medium" | "low"
+}`;
+}
 async function extractExactPriceLevels(images, scannerContext) {
-    const systemPrompt = `You are reading ONLY the exact three price labels from TradingView risk/reward screenshots.
-${MANUAL_READING_PROCESS}
+    const systemPrompt = `You are a price-axis OCR engine. You read exact numerical values from TradingView
+chart screenshots with zero tolerance for errors. You never estimate or interpolate.
+You never round to a "nice" number. You read the digits that are literally printed
+on screen. Return only valid JSON.`;
+    const imageContent = images.map(image => ({
+        type: 'image',
+        source: {
+            type: 'base64',
+            media_type: image.mimeType,
+            data: image.base64Image,
+        },
+    }));
+    const imageGuide = images
+        .map((image, index) => `Image ${index + 1} (${image.label}): ${describeImageLabel(image.label)}`)
+        .join('\n');
+    const response = await anthropic.messages.create({
+        model: MODEL,
+        max_tokens: 4000,
+        temperature: 0,
+        thinking: { type: 'enabled', budget_tokens: 2000 },
+        system: systemPrompt,
+        messages: [
+            {
+                role: 'user',
+                content: [
+                    ...imageContent,
+                    {
+                        type: 'text',
+                        text: `${buildPriceExtractionPrompt(scannerContext)}\n\nAttached views:\n${imageGuide}`,
+                    },
+                ],
+            },
+        ],
+    }, { headers: { 'anthropic-beta': 'interleaved-thinking-2025-05-14' } });
+    const text = response.content
+        .filter(b => b.type === 'text')
+        .map(b => b.text ?? '')
+        .join('');
+    return sanitizeExactPriceRead(parseJsonObject(text.trim()));
+}
+async function verifyPriceDigits(priceImages, candidate, scannerContext) {
+    if (!candidate.entry_price && !candidate.sl_price && !candidate.tp_price) {
+        return { ...candidate, changed: false };
+    }
+    const imageContent = priceImages.map(img => ({
+        type: 'image',
+        source: { type: 'base64', media_type: img.mimeType, data: img.base64Image },
+    }));
+    const pct = (r) => r != null ? (r * 100).toFixed(1) : 'unknown';
+    const response = await anthropic.messages.create({
+        model: MODEL,
+        max_tokens: 1000,
+        temperature: 0,
+        system: 'You verify that price numbers read from a chart are correct. You double-check digit by digit. Return only JSON.',
+        messages: [{
+                role: 'user',
+                content: [
+                    ...imageContent,
+                    {
+                        type: 'text',
+                        text: `A previous read extracted these prices from the chart:
+- Entry: ${candidate.entry_price ?? 'not found'}
+- Stop Loss: ${candidate.sl_price ?? 'not found'}
+- Take Profit: ${candidate.tp_price ?? 'not found'}
+- Direction: ${candidate.direction ?? 'unknown'}
+${scannerContext?.entry_line_ratio != null ? `
+Pixel positions (% from top of image):
+- Entry label at: ${pct(scannerContext.entry_line_ratio)}%
+- Stop label at:  ${pct(scannerContext.stop_line_ratio)}%
+- Target label at:${pct(scannerContext.target_line_ratio)}%` : ''}
 
-Focus on price labels only:
-- entry-label-focus is the primary source for entry_price
-- stop-label-focus is the primary source for sl_price
-- target-label-focus is the primary source for tp_price
-- price-label-focus is the secondary source if one tight crop is slightly unclear
-- trade-box-focus and full_chart are only for confirming long vs short and which label belongs to the box
-- If a second chart exists in the screenshot, ignore it completely unless it is the one containing the colored risk/reward box
+For each price that was found, look at the corresponding label crop image and verify:
+1. Are the digits correct? Read them left-to-right explicitly.
+2. Could any digit be misread (3↔8, 1↔7, 5↔6, 0↔9)?
+3. Is the decimal point in the right place?
+4. Does the price order make sense for a ${candidate.direction ?? 'unknown'} trade?
 
-Critical rules:
-- Read the numbers printed inside the pill labels exactly
-- Do not round
-- Do not use nearby gridline text
-- Do not use unrelated horizontal drawing lines
-- The grey entry label can be lower-contrast than the red and green labels; still use the printed grey pill value
-- If the green target label is centered in target-label-focus and aligns with the OUTERMOST teal box edge, treat it as tp_price even if it resembles a current-price label
-- If there are dashed lines, colored markers, or intermediate green labels INSIDE the body of the teal zone (between entry and the outer edge), they are NOT the TP — ignore them and use only the label at the absolute outer boundary of the teal box
-- Similarly, if there are multiple red labels visible, only use the one at the outermost edge of the pink zone (furthest from entry) as sl_price; ignore any intermediate red labels inside the pink zone
+If a price is CORRECT, return it unchanged.
+If a price has a WRONG DIGIT, return the corrected value.
+If you CANNOT VERIFY a price (label not visible), return the original value unchanged.
 
-Return ONLY a raw JSON object with these exact keys:
-direction, entry_price, sl_price, tp_price`;
-    return sanitizeExactPriceRead(await callClaudeJson(systemPrompt, images, `${formatScannerContext(scannerContext)} Read only the exact entry, stop-loss, and take-profit prices from these focused chart crops.`, 500));
+Return ONLY:
+{
+  "entry_price": number | null,
+  "sl_price": number | null,
+  "tp_price": number | null,
+  "entry_verified": boolean,
+  "sl_verified": boolean,
+  "tp_verified": boolean,
+  "corrections": string[]
+}`,
+                    },
+                ],
+            }],
+    });
+    const text = response.content.filter(b => b.type === 'text').map(b => b.text).join('');
+    const clean = text.replace(/```json|```/g, '').trim();
+    try {
+        const parsed = JSON.parse(clean);
+        const changed = parsed.entry_price !== candidate.entry_price ||
+            parsed.sl_price !== candidate.sl_price ||
+            parsed.tp_price !== candidate.tp_price;
+        return {
+            entry_price: parseNullableNumber(parsed.entry_price) ?? candidate.entry_price,
+            sl_price: parseNullableNumber(parsed.sl_price) ?? candidate.sl_price,
+            tp_price: parseNullableNumber(parsed.tp_price) ?? candidate.tp_price,
+            changed,
+        };
+    }
+    catch {
+        return { ...candidate, changed: false };
+    }
 }
 function applyExactPriceRead(base, exactPriceRead) {
     if (!exactPriceRead) {
@@ -811,93 +981,242 @@ Rules for these extra fields:
 - exit_reason must be TP or SL only if you can visibly determine which was touched first.`;
     return sanitizeExtractedTradeData(await callClaudeJson(systemPrompt, images, `Trade date: ${entryDate}. Fallback entry time hint if the x-axis is unclear: ${fallbackEntryTime}. ${formatScannerContext(scannerContext)} Extract the trade facts from this screenshot.`, 1100));
 }
-async function verifyExitOrder(images, entryDate, extraction, scannerContext) {
-    const verificationPrompt = `You are verifying which fixed level is hit first in a futures trade screenshot.
-${MANUAL_READING_PROCESS}
-${FIRST_TOUCH_RULE}
+async function verifyExitOrder(images, entryDate, baseRead, scannerContext) {
+    const exitImages = selectImagesByLabels(images, [
+        'full_chart',
+        'exit-path-focus',
+        'trade-box-focus',
+        'price-label-focus',
+    ]);
+    if (!baseRead.direction || !baseRead.entry_price || !baseRead.sl_price || !baseRead.tp_price) {
+        return {
+            exit_reason: null,
+            trade_length_seconds: null,
+            candle_count: null,
+            timeframe_minutes: baseRead.timeframe_minutes ?? null,
+            exit_confidence: 'low',
+            first_touch_candle_index: null,
+            first_touch_evidence: null,
+        };
+    }
+    const direction = baseRead.direction;
+    const entry = baseRead.entry_price;
+    const sl = baseRead.sl_price;
+    const tp = baseRead.tp_price;
+    const isShort = direction === 'Short';
+    const geoHints = scannerContext?.entry_line_ratio != null ? `
+PIXEL GEOMETRY (pre-calculated — use to orient yourself):
+- Entry level is at ${(scannerContext.entry_line_ratio * 100).toFixed(1)}% from top of image
+- Stop level is at ${(scannerContext.stop_line_ratio * 100).toFixed(1)}% from top of image
+- Target level is at ${(scannerContext.target_line_ratio * 100).toFixed(1)}% from top of image
+- Trade box spans ${(scannerContext.box_left_ratio * 100).toFixed(1)}%–${(scannerContext.box_right_ratio * 100).toFixed(1)}% of image width
+` : '';
+    const imageContent = exitImages.map(img => ({
+        type: 'image',
+        source: {
+            type: 'base64',
+            media_type: img.mimeType,
+            data: img.base64Image,
+        },
+    }));
+    const response = await anthropic.messages.create({
+        model: MODEL,
+        max_tokens: 3000,
+        temperature: 0,
+        thinking: { type: 'enabled', budget_tokens: 2000 },
+        system: `You are a chart exit analyst. You determine whether a trade hit its stop loss
+or take profit by visually reading a TradingView candlestick chart. You are precise,
+methodical, and never guess. You only report what you can directly see.`,
+        messages: [{
+                role: 'user',
+                content: [
+                    ...imageContent,
+                    {
+                        type: 'text',
+                        text: `Determine whether this trade exited at Stop Loss or Take Profit.
 
-Use these fixed trade details as ground truth:
-- Direction: ${extraction.direction}
-- Entry price: ${extraction.entry_price}
-- Entry time from screenshot if visible: ${extraction.entry_time ?? 'unknown'}
-- Stop loss: ${extraction.sl_price}
-- Take profit: ${extraction.tp_price}
+TRADE DETAILS:
+- Instrument: ${baseRead.symbol ?? 'unknown'}
+- Direction: ${direction}
+- Entry Price: ${entry}
+- Stop Loss: ${sl} (${isShort ? 'ABOVE entry — a SHORT stop, price must NOT exceed this' : 'BELOW entry — a LONG stop, price must NOT fall below this'})
+- Take Profit: ${tp} (${isShort ? 'BELOW entry — target price for the short' : 'ABOVE entry — target price for the long'})
+- Entry Date: ${entryDate}
+${geoHints}
 
-Use only the screenshot itself.
-Use the candle aligned with the left edge of the risk/reward box as the entry candle.
-Scan forward candle by candle from the entry candle.
-If multiple charts are visible in any crop, ONLY use the chart containing the colored risk/reward box and ignore the comparison chart.
-Before deciding exit_reason, explicitly identify:
-- which candle is the entry candle
-- which candle is the first candle to touch either stop or target
-- which exact level that first-touch candle reaches first
+READING PROCEDURE — follow every step exactly:
 
-Rules:
-- For LONG: if any candle low touches or breaks the stop before any candle high touches or breaks the target, exit_reason = SL.
-- For LONG: if any candle high touches or breaks the target before any candle low touches or breaks the stop, exit_reason = TP.
-- For SHORT: if any candle high touches or breaks the stop before any candle low touches or breaks the target, exit_reason = SL.
-- For SHORT: if any candle low touches or breaks the target before any candle high touches or breaks the stop, exit_reason = TP.
-- If both levels are touched in the same candle, return the level that is more visually likely to have been hit first.
-- Only use null if the chart is too unclear to make a reasonable decision.
-- candle_count must include the exit candle.
-- trade_length_seconds = candle_count x timeframe_minutes x 60.
-- first_touch_evidence must mention the first move that ends the trade, not the later continuation.
+STEP 1 — LOCATE THE PRICE AXIS
+Look at the right edge of the chart. Find the numerical price labels.
+Confirm you can see labels near ${sl} and ${tp} on the axis.
 
-Return ONLY a raw JSON object with these exact keys:
-exit_reason, trade_length_seconds, candle_count, timeframe_minutes, exit_confidence, first_touch_candle_index, first_touch_evidence
+STEP 2 — DRAW MENTAL HORIZONTAL LINES
+From the ${sl} label, trace a horizontal line LEFT across the entire chart.
+From the ${tp} label, trace a horizontal line LEFT across the entire chart.
+These are your two trigger lines.
 
-Valid values:
-- exit_reason: "TP", "SL", or null
-- exit_confidence: "high", "medium", "low", or null
-- first_touch_evidence: one short sentence or null
+STEP 3 — IDENTIFY THE ENTRY CANDLE
+Find the candle at the entry point (approximately where the trade box ends on the right side).
+Everything to the LEFT of this candle is irrelevant — ignore it.
 
-The evidence sentence must mention the entry anchor and the first candle that ends the trade.`;
-    const parsed = await callClaudeJson(verificationPrompt, images, `Trade date: ${entryDate}. ${buildEntryTimeHint(extraction.entry_time)} Verify which level hits first from the screenshot.`, 800);
-    return {
-        exit_reason: parseNullableExitReason(parsed.exit_reason),
-        trade_length_seconds: parseNullableNumber(parsed.trade_length_seconds),
-        candle_count: parseNullableNumber(parsed.candle_count),
-        timeframe_minutes: parseNullableNumber(parsed.timeframe_minutes),
-        exit_confidence: parseNullableExitConfidence(parsed.exit_confidence),
-        first_touch_candle_index: parseNullableNumber(parsed.first_touch_candle_index),
-        first_touch_evidence: parseNullableString(parsed.first_touch_evidence),
-    };
+STEP 4 — SCAN CANDLES AFTER ENTRY (left to right, one by one)
+For each candle AFTER the entry candle, check:
+
+${isShort ? `- Does the candle HIGH (top of wick) reach OR exceed ${sl}?
+  If YES → this candle triggered the STOP LOSS
+- Does the candle LOW (bottom of wick) reach OR go below ${tp}?
+  If YES → this candle triggered the TAKE PROFIT` : `- Does the candle LOW (bottom of wick) reach OR go below ${sl}?
+  If YES → this candle triggered the STOP LOSS
+- Does the candle HIGH (top of wick) reach OR exceed ${tp}?
+  If YES → this candle triggered the TAKE PROFIT`}
+
+STEP 5 — DETERMINE WHICH CAME FIRST
+The FIRST candle (leftmost / earliest) that triggered either level = the exit.
+If stop was triggered before target → exit_reason = "SL"
+If target was triggered before stop → exit_reason = "TP"
+If neither level was reached in the visible chart → exit_reason = null
+
+STEP 6 — CHECK THE CURRENT PRICE LABEL
+Look at the current price shown on the right axis (the highlighted marker).
+${isShort ? `If current price > ${sl}, price has already blown through the stop.` : `If current price < ${sl}, price has already blown through the stop.`}
+Use this as a final confirmation.
+
+STEP 7 — COUNT CANDLES
+Count how many 1-minute candles elapsed between entry and exit.
+Multiply by 60 to get trade_length_seconds.
+
+STEP 8 — WRITE YOUR EVIDENCE
+In first_touch_evidence, describe in one sentence exactly what you saw.
+Example: "The candle at approximately 10:17 has a wick that rises above the 25,773.75 stop level, while no candle reached the 25,704 target."
+
+Return ONLY this JSON:
+{
+  "exit_reason": "TP" | "SL" | null,
+  "exit_confidence": "high" | "medium" | "low",
+  "sl_triggered": boolean,
+  "tp_triggered": boolean,
+  "sl_triggered_first": boolean | null,
+  "tp_triggered_first": boolean | null,
+  "candles_after_entry_checked": number,
+  "candle_count": number | null,
+  "trade_length_seconds": number | null,
+  "timeframe_minutes": 1,
+  "first_touch_candle_index": number | null,
+  "first_touch_evidence": string
+}`,
+                    },
+                ],
+            }],
+    }, { headers: { 'anthropic-beta': 'interleaved-thinking-2025-05-14' } });
+    const text = response.content
+        .filter(b => b.type === 'text')
+        .map(b => b.text ?? '')
+        .join('');
+    const clean = text.replace(/```json|```/g, '').trim();
+    try {
+        const parsed = JSON.parse(clean);
+        let exitReason = parseNullableExitReason(parsed.exit_reason);
+        if (parsed.sl_triggered && parsed.tp_triggered) {
+            exitReason = parsed.sl_triggered_first ? 'SL' : 'TP';
+        }
+        else if (parsed.sl_triggered && !parsed.tp_triggered) {
+            exitReason = 'SL';
+        }
+        else if (parsed.tp_triggered && !parsed.sl_triggered) {
+            exitReason = 'TP';
+        }
+        return {
+            exit_reason: exitReason,
+            trade_length_seconds: parseNullableNumber(parsed.trade_length_seconds),
+            candle_count: parseNullableNumber(parsed.candle_count),
+            timeframe_minutes: parseNullableNumber(parsed.timeframe_minutes) ?? baseRead.timeframe_minutes ?? null,
+            exit_confidence: parseNullableExitConfidence(parsed.exit_confidence) ?? 'low',
+            first_touch_candle_index: parseNullableNumber(parsed.first_touch_candle_index),
+            first_touch_evidence: parseNullableString(parsed.first_touch_evidence),
+        };
+    }
+    catch {
+        throw new Error('verifyExitOrder: failed to parse response');
+    }
 }
-async function sanityCheckLevelTouches(images, entryDate, extraction) {
-    const sanityPrompt = `You are performing a strict sanity check on a futures trade screenshot.
-${MANUAL_READING_PROCESS}
-${FIRST_TOUCH_RULE}
+async function sanityCheckLevelTouches(images, entryDate, baseRead) {
+    const sanityImages = selectImagesByLabels(images, [
+        'full_chart',
+        'trade-box-focus',
+        'exit-path-focus',
+    ]);
+    if (!baseRead.direction || !baseRead.entry_price || !baseRead.sl_price || !baseRead.tp_price) {
+        return { stop_touched: null, target_touched: null, first_touch: null, evidence: null };
+    }
+    const isShort = baseRead.direction === 'Short';
+    const sl = baseRead.sl_price;
+    const tp = baseRead.tp_price;
+    const imageContent = sanityImages.map(img => ({
+        type: 'image',
+        source: {
+            type: 'base64',
+            media_type: img.mimeType,
+            data: img.base64Image,
+        },
+    }));
+    const response = await anthropic.messages.create({
+        model: MODEL,
+        max_tokens: 1000,
+        temperature: 0,
+        system: 'You are a binary chart level checker. Answer only with JSON. No explanations outside the JSON.',
+        messages: [{
+                role: 'user',
+                content: [
+                    ...imageContent,
+                    {
+                        type: 'text',
+                        text: `Look at this TradingView chart from ${entryDate}. Answer two yes/no questions about candles that appear AFTER the trade entry.
 
-Your only job is to answer these three questions from the chart with the colored risk/reward box:
-1. Is the stop-loss level touched at any point after the entry candle?
-2. Is the take-profit level touched at any point after the entry candle?
-3. Which one is touched first?
+Trade:
+- Direction: ${baseRead.direction}
+- Entry: ${baseRead.entry_price}
+- Stop Loss: ${sl}
+- Take Profit: ${tp}
 
-Trade details to verify:
-- Direction: ${extraction.direction}
-- Entry price: ${extraction.entry_price}
-- Entry time from chart if visible: ${extraction.entry_time ?? 'unknown'}
-- Stop loss: ${extraction.sl_price}
-- Take profit: ${extraction.tp_price}
+The entry candle is where the coloured trade box ends on the right side.
+Only look at candles to the RIGHT of the trade box.
 
-Rules:
-- Use only the chart containing the risk/reward box.
-- Start from the entry candle aligned with the left edge of the box.
-- A level counts as touched only if a candle wick or body clearly reaches that exact level.
-- If target is never visibly reached, target_touched must be false.
-- If stop is visibly reached before target, first_touch must be SL.
-- If target is visibly reached before stop, first_touch must be TP.
-- If neither is clearly touched, return null for first_touch.
+QUESTION 1: Do any candle ${isShort ? 'HIGHS (wicks)' : 'LOWS (wicks)'} touch or cross the Stop Loss level of ${sl}?
+Answer yes if you can see any wick reach that price level.
 
-Return ONLY a raw JSON object with these exact keys:
-stop_touched, target_touched, first_touch, evidence`;
-    const parsed = await callClaudeJson(sanityPrompt, images, `Trade date: ${entryDate}. Perform only the stop/target touch sanity check for this screenshot.`, 500);
-    return {
-        stop_touched: parseNullableBoolean(parsed.stop_touched),
-        target_touched: parseNullableBoolean(parsed.target_touched),
-        first_touch: parseNullableExitReason(parsed.first_touch),
-        evidence: parseNullableString(parsed.evidence),
-    };
+QUESTION 2: Do any candle ${isShort ? 'LOWS (wicks)' : 'HIGHS (wicks)'} touch or cross the Take Profit level of ${tp}?
+Answer yes if you can see any wick reach that price level.
+
+QUESTION 3: Which happened on an earlier candle (further left on the chart)?
+
+Return ONLY:
+{
+  "stop_touched": true | false,
+  "target_touched": true | false,
+  "first_touch": "SL" | "TP" | null,
+  "evidence": "one sentence describing what you saw"
+}`,
+                    },
+                ],
+            }],
+    });
+    const text = response.content
+        .filter(b => b.type === 'text')
+        .map(b => b.text)
+        .join('');
+    const clean = text.replace(/```json|```/g, '').trim();
+    try {
+        const parsed = JSON.parse(clean);
+        return {
+            stop_touched: parseNullableBoolean(parsed.stop_touched),
+            target_touched: parseNullableBoolean(parsed.target_touched),
+            first_touch: parseNullableExitReason(parsed.first_touch),
+            evidence: parseNullableString(parsed.evidence),
+        };
+    }
+    catch {
+        return { stop_touched: null, target_touched: null, first_touch: null, evidence: null };
+    }
 }
 async function humanStyleReview(images, entryDate, fallbackEntryTime, scannerContext) {
     const reviewPrompt = `Review this chart exactly like a skilled human trader filling out a trade journal by eye.
@@ -971,6 +1290,59 @@ ${JSON.stringify({
 Return ONLY a raw JSON object with these exact keys:
 symbol, direction, entry_price, entry_time, entry_time_confidence, sl_price, tp_price, timeframe_minutes, exit_reason, pnl_result, trade_length_seconds, candle_count, exit_confidence, first_touch_evidence`;
     return sanitizeExtractedTradeData(await callClaudeJson(decisivePrompt, images, `Trade date: ${entryDate}. ${buildEntryTimeHint(extraction.entry_time ?? humanReview.entry_time)} ${formatScannerContext(scannerContext)} Fallback time for the form is ${fallbackEntryTime}, but do not let that override the chart itself. Produce the single best final journal-ready trade analysis from this screenshot.`, 1400));
+}
+async function directExitRead(images, trade, entryDate) {
+    const isShort = trade.direction === 'Short';
+    const imageContent = images.map(img => ({
+        type: 'image',
+        source: { type: 'base64', media_type: img.mimeType, data: img.base64Image },
+    }));
+    const imageGuide = images.map((img, i) => `Image ${i + 1} (${img.label}): ${describeImageLabel(img.label)}`).join('\n');
+    const response = await anthropic.messages.create({
+        model: MODEL,
+        max_tokens: 512,
+        temperature: 0,
+        system: `You are a precise chart reader. You look at a TradingView candlestick chart and determine whether a trade exited at Stop Loss or Take Profit. You answer decisively based only on what you can see. Return only valid JSON.`,
+        messages: [{
+                role: 'user',
+                content: [
+                    ...imageContent,
+                    {
+                        type: 'text',
+                        text: `This is a ${trade.direction.toUpperCase()} trade on ${entryDate}.
+
+PRICE LEVELS:
+- Entry: ${trade.entry}
+- Stop Loss: ${trade.sl} — this is ${isShort ? 'ABOVE' : 'BELOW'} entry (${isShort ? 'price must NOT rise above this' : 'price must NOT fall below this'})
+- Take Profit: ${trade.tp} — this is ${isShort ? 'BELOW' : 'ABOVE'} entry (${isShort ? 'price drops to this target' : 'price rises to this target'})
+
+TASK: Starting from the entry candle (at the LEFT edge of the coloured trade box), scan candles left-to-right.
+- ONLY look at candles inside and immediately after the trade box. Do NOT look at candles far to the right that occur long after the trade.
+- For a ${isShort ? 'SHORT' : 'LONG'} trade: if ${isShort ? 'the candle HIGH (wick tip) reaches or exceeds' : 'the candle LOW (wick bottom) reaches or drops below'} ${trade.sl} → SL hit.
+- For a ${isShort ? 'SHORT' : 'LONG'} trade: if ${isShort ? 'the candle LOW (wick bottom) reaches or drops below' : 'the candle HIGH (wick tip) reaches or exceeds'} ${trade.tp} → TP hit.
+- The FIRST level touched decides the result. Stop immediately at that candle.
+- IGNORE any price labels or candles outside the trade box region and to the far right of the chart.
+
+Return this JSON exactly:
+{
+  "exit_reason": "TP" or "SL",
+  "confidence": "high" or "medium" or "low",
+  "evidence": "one sentence describing which candle after entry touched which level first"
+}
+
+Attached views:
+${imageGuide}`,
+                    },
+                ],
+            }],
+    });
+    const text = response.content[0].text.trim();
+    const parsed = parseJsonObject(text);
+    const exitReason = parsed.exit_reason === 'TP' ? 'TP' : parsed.exit_reason === 'SL' ? 'SL' : null;
+    const confidence = ['high', 'medium', 'low'].includes(parsed.confidence)
+        ? parsed.confidence
+        : 'low';
+    return { exit_reason: exitReason, confidence, evidence: parsed.evidence ?? '' };
 }
 function resolveExitReason(verification, humanReview, decisiveReview, extraction) {
     if (verification.exit_reason && humanReview.exit_reason === verification.exit_reason) {
@@ -1099,6 +1471,33 @@ function hasHighConfidenceExit(source, exitReason) {
 }
 function applyConservativeExitDecision(result, verification, humanReview, decisiveReview, extraction, sanity) {
     const next = { ...result };
+    // Cross-check: if we have all three prices, the direction must produce a sane P&L sign
+    if (next.entry_price != null && next.sl_price != null && next.tp_price != null) {
+        const tpRisk = next.tp_price - next.entry_price;
+        const slRisk = next.sl_price - next.entry_price;
+        const looksLong = tpRisk > 0 && slRisk < 0;
+        const looksShort = tpRisk < 0 && slRisk > 0;
+        if (looksLong && next.direction === 'Short') {
+            next.direction = 'Long';
+            appendWarning(next.warnings ?? (next.warnings = []), 'Direction corrected to Long: price structure (TP above entry, SL below) contradicted Short.');
+        }
+        else if (looksShort && next.direction === 'Long') {
+            next.direction = 'Short';
+            appendWarning(next.warnings ?? (next.warnings = []), 'Direction corrected to Short: price structure (TP below entry, SL above) contradicted Long.');
+        }
+        const entryIsValid = next.direction === 'Long'
+            ? (next.sl_price < next.entry_price && next.tp_price > next.entry_price)
+            : (next.sl_price > next.entry_price && next.tp_price < next.entry_price);
+        if (!entryIsValid && next.sl_price != null && next.tp_price != null) {
+            const swappedSlValid = next.direction === 'Long'
+                ? (next.tp_price < next.entry_price && next.sl_price > next.entry_price)
+                : (next.tp_price > next.entry_price && next.sl_price < next.entry_price);
+            if (swappedSlValid) {
+                [next.sl_price, next.tp_price] = [next.tp_price, next.sl_price];
+                appendWarning(next.warnings ?? (next.warnings = []), 'SL and TP were swapped — corrected based on direction and entry price.');
+            }
+        }
+    }
     const votes = countVotes(verification.exit_reason, humanReview.exit_reason, decisiveReview.exit_reason, extraction.exit_reason);
     const hasSanityConfirmation = Boolean(sanity && (sanity.first_touch || sanity.stop_touched !== null || sanity.target_touched !== null));
     if (sanity?.stop_touched === true && sanity?.target_touched === false) {
@@ -1199,6 +1598,29 @@ function buildConsensusTradeAnalysis(extraction, verification, humanReview, deci
     }
     return result;
 }
+async function upscaleLabelCrops(images) {
+    const LABEL_CROP_NAMES = new Set(['entry-label-focus', 'stop-label-focus', 'target-label-focus']);
+    return Promise.all(images.map(async (img) => {
+        if (!LABEL_CROP_NAMES.has(img.label))
+            return img;
+        try {
+            const buffer = Buffer.from(img.base64Image, 'base64');
+            const metadata = await (0, sharp_1.default)(buffer).metadata();
+            const upscaledBuffer = await (0, sharp_1.default)(buffer)
+                .resize(Math.round((metadata.width ?? 100) * 2), Math.round((metadata.height ?? 100) * 2), { kernel: 'nearest' })
+                .png()
+                .toBuffer();
+            return {
+                ...img,
+                base64Image: upscaledBuffer.toString('base64'),
+                mimeType: 'image/png',
+            };
+        }
+        catch {
+            return img;
+        }
+    }));
+}
 async function analyzeChartImage(base64Image, mimeType, entryDate, entryTime, focusImages = [], scannerContext) {
     const safeMimeType = VALID_MIME_TYPES.includes(mimeType)
         ? mimeType
@@ -1214,10 +1636,8 @@ async function analyzeChartImage(base64Image, mimeType, entryDate, entryTime, fo
         })),
     ];
     const normalizedScannerContext = scannerContext;
-    const decodedFullImage = safeMimeType === 'image/png' ? decodePngImage(base64Image) : null;
-    const deterministicExit = safeMimeType === 'image/png'
-        ? detectDeterministicExitFromDecodedImage(decodedFullImage, normalizedScannerContext)
-        : null;
+    const decodedFullImage = decodePngImage(base64Image);
+    const deterministicExit = detectDeterministicExitFromDecodedImage(decodedFullImage, normalizedScannerContext);
     const identityImages = selectImagesByLabels(analysisImages, [
         'header-focus',
         'full_chart',
@@ -1240,26 +1660,30 @@ async function analyzeChartImage(base64Image, mimeType, entryDate, entryTime, fo
         'target-label-focus',
     ]);
     const verificationImages = selectImagesByLabels(analysisImages, [
-        'header-focus',
-        'trade-box-focus',
-        'entry-window-focus',
+        'full_chart',
         'exit-path-focus',
+        'trade-box-focus',
         'price-label-focus',
         'entry-label-focus',
         'stop-label-focus',
         'target-label-focus',
+        'header-focus',
     ]);
     const sanityImages = selectImagesByLabels(analysisImages, [
+        'full_chart',
+        'trade-box-focus',
+        'exit-path-focus',
+    ]);
+    const directExitImages = selectImagesByLabels(analysisImages, [
+        'exit-path-focus',
         'trade-box-focus',
         'entry-window-focus',
-        'exit-path-focus',
-        'stop-label-focus',
-        'target-label-focus',
     ]);
     const preAnalysisWarnings = [];
+    const upscaledPriceImages = await upscaleLabelCrops(exactPriceImages);
     const [headerIdentityResult, exactPriceResult, extractionResult, humanReviewResult,] = await Promise.allSettled([
         extractHeaderIdentity(identityImages),
-        extractExactPriceLevels(exactPriceImages, normalizedScannerContext),
+        extractExactPriceLevels(upscaledPriceImages, normalizedScannerContext),
         extractTradeFacts(extractionImages, entryDate, entryTime, normalizedScannerContext),
         humanStyleReview(extractionImages, entryDate, entryTime, normalizedScannerContext),
     ]);
@@ -1275,7 +1699,32 @@ async function analyzeChartImage(base64Image, mimeType, entryDate, entryTime, fo
     if (exactPriceResult.status === 'rejected') {
         preAnalysisWarnings.push('Exact price-label review failed, so price levels relied on the broader chart reads.');
     }
+    // Run digit verification pass on the exact price read
+    if (exactPriceRead && (exactPriceRead.entry_price || exactPriceRead.sl_price || exactPriceRead.tp_price)) {
+        try {
+            const verified = await verifyPriceDigits(upscaledPriceImages, {
+                entry_price: exactPriceRead.entry_price,
+                sl_price: exactPriceRead.sl_price,
+                tp_price: exactPriceRead.tp_price,
+                direction: exactPriceRead.direction,
+            }, normalizedScannerContext);
+            if (verified.entry_price != null)
+                exactPriceRead.entry_price = verified.entry_price;
+            if (verified.sl_price != null)
+                exactPriceRead.sl_price = verified.sl_price;
+            if (verified.tp_price != null)
+                exactPriceRead.tp_price = verified.tp_price;
+            if (verified.changed) {
+                appendWarning(preAnalysisWarnings, 'Digit verification corrected one or more price values.');
+            }
+        }
+        catch {
+            // Verification failed silently — use original exactPriceRead values
+        }
+    }
     if (extractionResult.status === 'rejected' && humanReviewResult.status === 'rejected') {
+        console.error('extractionResult error:', extractionResult.reason);
+        console.error('humanReviewResult error:', humanReviewResult.reason);
         throw new Error('Chart analysis failed for both the primary and fallback Claude passes.');
     }
     const extractionSource = extractionResult.status === 'fulfilled'
@@ -1293,6 +1742,27 @@ async function analyzeChartImage(base64Image, mimeType, entryDate, entryTime, fo
     const extraction = applyHeaderIdentityRead(applyExactPriceRead(extractionSource, exactPriceRead), headerIdentityRead);
     const rawHumanReview = applyHeaderIdentityRead(applyExactPriceRead(humanReviewSource, exactPriceRead), headerIdentityRead);
     const baseRead = buildManualReaderBase(extraction, rawHumanReview, entryTime);
+    // If scanner context has a confirmed direction but prices are inverted, swap sl/tp to match.
+    if (normalizedScannerContext?.direction_hint &&
+        baseRead.direction !== normalizedScannerContext.direction_hint &&
+        baseRead.entry_price !== null &&
+        baseRead.sl_price !== null &&
+        baseRead.tp_price !== null) {
+        const hint = normalizedScannerContext.direction_hint;
+        const slAboveEntry = baseRead.sl_price > baseRead.entry_price;
+        const tpBelowEntry = baseRead.tp_price < baseRead.entry_price;
+        if (hint === 'Short' && !slAboveEntry && !tpBelowEntry) {
+            // Claude swapped sl and tp for this Short trade — correct it
+            [baseRead.sl_price, baseRead.tp_price] = [baseRead.tp_price, baseRead.sl_price];
+            baseRead.direction = 'Short';
+            appendWarning(baseRead.warnings ?? (baseRead.warnings = []), 'Direction corrected to Short based on pixel scan — sl/tp were swapped.');
+        }
+        else if (hint === 'Long' && slAboveEntry && !tpBelowEntry) {
+            [baseRead.sl_price, baseRead.tp_price] = [baseRead.tp_price, baseRead.sl_price];
+            baseRead.direction = 'Long';
+            appendWarning(baseRead.warnings ?? (baseRead.warnings = []), 'Direction corrected to Long based on pixel scan — sl/tp were swapped.');
+        }
+    }
     preAnalysisWarnings.forEach(warning => appendWarning(baseRead.warnings ?? (baseRead.warnings = []), warning));
     let verification = {
         exit_reason: baseRead.exit_reason,
@@ -1303,23 +1773,33 @@ async function analyzeChartImage(base64Image, mimeType, entryDate, entryTime, fo
         first_touch_candle_index: baseRead.first_touch_candle_index,
         first_touch_evidence: baseRead.first_touch_evidence,
     };
-    const [verificationResult, sanityResult] = await Promise.allSettled([
-        verifyExitOrder(verificationImages, entryDate, baseRead, normalizedScannerContext),
-        sanityCheckLevelTouches(sanityImages, entryDate, baseRead),
-    ]);
-    if (verificationResult.status === 'fulfilled') {
-        verification = verificationResult.value;
+    // Run exit verification first
+    const verificationResult = await (async () => {
+        try {
+            return await verifyExitOrder(verificationImages, entryDate, baseRead, normalizedScannerContext);
+        }
+        catch {
+            appendWarning(baseRead.warnings ?? (baseRead.warnings = []), 'Exit verification failed — relying on manual chart read.');
+            return null;
+        }
+    })();
+    if (verificationResult) {
+        verification = verificationResult;
     }
-    else {
-        appendWarning(baseRead.warnings ?? (baseRead.warnings = []), 'Exit verification failed, so the final answer relied on the manual chart read.');
-    }
-    let sanityCheck = null;
-    if (sanityResult.status === 'fulfilled') {
-        sanityCheck = sanityResult.value;
-    }
-    else {
-        appendWarning(baseRead.warnings ?? (baseRead.warnings = []), 'Stop/target sanity check failed, so the final answer relied on the broader exit review.');
-    }
+    // Run sanity check after, seeding it with verification's exit_reason
+    const sanityResult = await (async () => {
+        try {
+            return await sanityCheckLevelTouches(sanityImages, entryDate, {
+                ...baseRead,
+                exit_reason: verificationResult?.exit_reason ?? baseRead.exit_reason,
+            });
+        }
+        catch {
+            appendWarning(baseRead.warnings ?? (baseRead.warnings = []), 'Sanity check failed — relying on exit verification result.');
+            return null;
+        }
+    })();
+    let sanityCheck = sanityResult;
     let decisiveReview = rawHumanReview;
     try {
         decisiveReview = applyHeaderIdentityRead(applyExactPriceRead(await decisiveFinalReview(extractionImages, entryDate, entryTime, extraction, verification, rawHumanReview, normalizedScannerContext), exactPriceRead), headerIdentityRead);
@@ -1333,7 +1813,29 @@ async function analyzeChartImage(base64Image, mimeType, entryDate, entryTime, fo
         ? consensus
         : fallbackResult;
     const finalResult = applyConservativeExitDecision(applySanityOverride(structureSafeResult, sanityCheck), verification, rawHumanReview, decisiveReview, extraction, sanityCheck);
-    if (deterministicExit?.exit_reason) {
+    // Direct single-shot exit read — final authority over all voting passes
+    const directExit = finalResult.entry_price != null && finalResult.sl_price != null && finalResult.tp_price != null
+        ? await (async () => {
+            try {
+                return await directExitRead(directExitImages, {
+                    direction: finalResult.direction ?? 'Long',
+                    entry: finalResult.entry_price,
+                    sl: finalResult.sl_price,
+                    tp: finalResult.tp_price,
+                }, entryDate);
+            }
+            catch {
+                return null;
+            }
+        })()
+        : null;
+    if (directExit?.exit_reason) {
+        finalResult.exit_reason = directExit.exit_reason;
+        finalResult.pnl_result = directExit.exit_reason === 'TP' ? 'Win' : 'Loss';
+        finalResult.exit_confidence = directExit.confidence;
+        finalResult.first_touch_evidence = directExit.evidence || finalResult.first_touch_evidence;
+    }
+    else if (deterministicExit?.exit_reason) {
         finalResult.exit_reason = deterministicExit.exit_reason;
         finalResult.pnl_result = deterministicExit.exit_reason === 'TP' ? 'Win' : 'Loss';
         finalResult.exit_confidence = 'high';
@@ -1694,5 +2196,107 @@ Rules:
         throw new Error('Unexpected response type from Claude');
     }
     return combined;
+}
+async function analyzeChartAnalyzerImage(base64Image, mimeType, contractSize) {
+    const supportedMimeType = VALID_MIME_TYPES.includes(mimeType)
+        ? mimeType
+        : 'image/jpeg';
+    const response = await anthropic.messages.create({
+        model: MODEL,
+        temperature: MODEL_TEMPERATURE,
+        max_tokens: 2048,
+        system: `You are a trading chart P&L analyst. When given a TradingView screenshot, follow these steps precisely:
+
+STEP 1 - READ SYMBOL & TIMEFRAME: Read the ticker symbol and timeframe from the top-left of the chart label (e.g. "NQM26, 1" means NQM26 on the 1-minute chart).
+
+STEP 2 - IDENTIFY THE P&L BOX AND ITS THREE LEVELS:
+The P&L box is a semi-transparent overlay of two colored zones:
+- TEAL (mint/cyan green) zone = profit target area
+- PINK (light red/rose) zone = stop loss risk area
+
+Read the three price levels:
+- ENTRY PRICE: The GREY label on the right axis at the boundary between the two zones.
+- STOP LOSS: The RED label on the right axis at the far edge of the pink zone.
+- TAKE PROFIT - HOW TO FIND IT:
+  a. Locate the FAR EDGE of the teal zone (top edge for Long, bottom edge for Short).
+  b. Trace that edge horizontally to the right-axis scale to read the price.
+  c. It often aligns with a horizontal line drawn on the chart.
+  d. Use a small teal/green label at that exact edge if one is visible.
+  e. NEVER use the live current-price label as the TP. TradingView always shows a floating green label at the very latest market price - it is far outside the P&L box and is unrelated to the trade target. If a "green" label price is well above the teal box (for Long) or well below the teal box (for Short), it is the live price - ignore it completely.
+
+STEP 3 - DETERMINE DIRECTION FROM BOX COLORS:
+- LONG: Teal zone is ABOVE entry, pink zone is BELOW entry -> your TP price must be greater than entry.
+- SHORT: Pink zone is ABOVE entry, teal zone is BELOW entry -> your TP price must be less than entry.
+If your identified TP is outside the visible teal box boundary, you have read the wrong label - go back to step 2e.
+
+STEP 4 - ENTRY TIME: Draw an imaginary vertical line down from the left edge of the P&L box to the x-axis. Record this as the entry time.
+
+STEP 5 - CALCULATE RISK & REWARD:
+- TP distance = |Take Profit - Entry Price| (in points)
+- SL distance = |Stop Loss - Entry Price| (in points)
+- R:R Ratio = TP distance / SL distance, expressed as "X:1" (e.g. if TP distance = 73.5 pts and SL distance = 39.25 pts -> R:R = "1.87:1"; if TP = 39.25 and SL = 73.5 -> R:R = "0.53:1")
+
+STEP 6 - OUTCOME (FIRST TOUCH RULE):
+Starting from the entry candle (the candle aligned with the left edge of the P&L box), scan candles forward one at a time. Stop the moment either level is first touched:
+- A candle WICK touching a level counts as a hit - a body close is NOT required.
+- If the stop loss level is touched first -> outcome is LOSS.
+- If the take profit level is touched first -> outcome is WIN.
+- If both are touched in the same candle, use visual judgment to determine which was more likely hit first.
+Do not look past the first touch - ignore any later reversals.
+
+STEP 7 - TRADE LENGTH: Count candles from the entry candle to the exit candle (inclusive). Multiply by the chart timeframe in minutes to get total trade duration (e.g. 15 candles x 1 min = 15 minutes).
+
+STEP 8 - NET P&L:
+Points at stake:
+- WIN: TP distance (positive)
+- LOSS: SL distance (negative)
+The frontend will calculate final dollar P&L using the contract's point value. Return net_pnl as the raw points value (positive for WIN, negative for LOSS) so the frontend can apply the correct multiplier.`,
+        messages: [
+            {
+                role: 'user',
+                content: [
+                    {
+                        type: 'image',
+                        source: { type: 'base64', media_type: supportedMimeType, data: base64Image },
+                    },
+                    {
+                        type: 'text',
+                        text: `Analyze this trading chart screenshot. Contract size is ${contractSize}.
+
+If there are multiple charts in the image (e.g. NQ and ES side by side), analyze each one separately.
+
+Return ONLY a valid JSON array with no markdown, no explanation, no code fences - just the raw JSON array. Each element represents one chart/trade with these exact keys:
+[
+  {
+    "symbol": "full ticker as shown top-left e.g. NQM26 or MNQ or ES",
+    "direction": "Long" or "Short" or null,
+    "entry_price": number or null,
+    "stop_loss": number or null,
+    "take_profit": number or null,
+    "rr_ratio": "X:1 format e.g. 1.87:1 or 0.53:1" or null,
+    "outcome": "WIN" or "LOSS" or null,
+    "trade_duration": "string e.g. 15 minutes" or null,
+    "net_pnl": raw points value as a number (positive for WIN, negative for LOSS) or null
+  }
+]`,
+                    },
+                ],
+            },
+        ],
+    });
+    const textBlocks = response.content.filter(block => block.type === 'text');
+    const text = textBlocks.map(block => block.text).join('\n').trim();
+    if (!text) {
+        throw new Error('Could not parse response from Claude. Please try again.');
+    }
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) {
+        throw new Error('Could not parse response from Claude. Please try again.');
+    }
+    const parsed = JSON.parse(jsonMatch[0]);
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+        throw new Error('No trade data found in the response.');
+    }
+    return parsed;
 }
 //# sourceMappingURL=claude.js.map

@@ -136,8 +136,8 @@ export default function Dashboard() {
               <span className="text-slate-600">{stat.icon}</span>
             </div>
             {stat.label === 'Win Rate' || stat.label === 'Profit Factor' ? (
-              <div className="flex items-center justify-between gap-3">
-                <span className={`text-3xl font-bold tracking-tight ${stat.color}`}>{stat.value}</span>
+              <div className="flex flex-1 items-center justify-between gap-3">
+                <span className={`text-3xl font-bold tracking-tight leading-none ${stat.color}`}>{stat.value}</span>
                 <div className="h-[60px] w-[60px] shrink-0">
                   <PieChart width={60} height={60}>
                     <Pie
@@ -158,7 +158,7 @@ export default function Dashboard() {
                 </div>
               </div>
             ) : (
-              <span className={`text-3xl font-bold tracking-tight ${stat.color}`}>{stat.value}</span>
+              <span className={`flex flex-1 items-center text-3xl font-bold tracking-tight leading-none ${stat.color}`}>{stat.value}</span>
             )}
           </div>
         ))}

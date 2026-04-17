@@ -3,14 +3,15 @@ import { Trade, ExtractedTradeData } from '../types/index';
 import dotenv from 'dotenv';
 import { inflateSync } from 'zlib';
 import sharp from 'sharp';
+import { callGeminiJson } from './gemini';
 
-dotenv.config();
+dotenv.config({ override: true });
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-const MODEL = 'claude-sonnet-4-20250514';
+const MODEL = 'claude-sonnet-4-5';
 const MODEL_TEMPERATURE = 0;
 const EXIT_CONFIDENCE_VALUES = ['high', 'medium', 'low'] as const;
 const VALID_MIME_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'] as const;
@@ -61,7 +62,8 @@ const FIRST_TOUCH_RULE = `The first touch decides the outcome.
 - Ignore any later move after the first touch.
 - If price hits stop first and later reaches target, the correct result is still SL.
 - If price hits target first and later reaches stop, the correct result is still TP.
-- Sanity check: the exit candle must actually reach the exact TP or SL price level within its high/low. If no candle within the trade window has a wick that reaches the TP level, the outcome is SL (or inconclusive) — do not claim TP was hit unless a candle clearly reaches that price.`;
+- CRITICAL: The current live price shown on the right axis (the floating green label) is NOT the trade exit. Ignore it completely. Only look at candles AFTER the entry point.
+- Work candle by candle from the entry forward (left to right). The FIRST candle whose wick touches the SL or TP level decides the result — everything after that is irrelevant.`;
 
 type ExitConfidence = typeof EXIT_CONFIDENCE_VALUES[number];
 type ImageMimeType = typeof VALID_MIME_TYPES[number];
@@ -544,19 +546,26 @@ function formatScannerContext(scannerContext?: ScannerContext): string {
     return 'No geometric trade-box detection metadata was available.';
   }
 
+  const directionDirective = scannerContext.direction_hint === 'Short'
+    ? `CRITICAL — DIRECTION IS SHORT: Pixel analysis confirmed the red/pink zone is ABOVE entry and teal zone is BELOW entry.
+  - stop-label-focus IS centered on the SL level which is ABOVE entry → sl_price WILL BE GREATER than entry_price
+  - target-label-focus IS centered on the TP level which is BELOW entry → tp_price WILL BE LESS than entry_price
+  - Do NOT swap or re-interpret these values. Read each crop as labelled. Do NOT use price ordering to override the direction.`
+    : scannerContext.direction_hint === 'Long'
+    ? `CRITICAL — DIRECTION IS LONG: Pixel analysis confirmed the teal zone is ABOVE entry and red/pink zone is BELOW entry.
+  - stop-label-focus IS centered on the SL level which is BELOW entry → sl_price WILL BE LESS than entry_price
+  - target-label-focus IS centered on the TP level which is ABOVE entry → tp_price WILL BE GREATER than entry_price
+  - Do NOT swap or re-interpret these values. Read each crop as labelled. Do NOT use price ordering to override the direction.`
+    : 'Direction could not be determined from pixel analysis — infer from box layout.';
+
   return `Detected trade-box geometry from image processing:
+${directionDirective}
 - direction_hint: ${scannerContext.direction_hint ?? 'unknown'}
-- chart_left_ratio: ${scannerContext.chart_left_ratio ?? 'unknown'}
-- chart_right_ratio: ${scannerContext.chart_right_ratio ?? 'unknown'}
-- box_left_ratio: ${scannerContext.box_left_ratio ?? 'unknown'}
-- box_right_ratio: ${scannerContext.box_right_ratio ?? 'unknown'}
 - entry_line_ratio: ${scannerContext.entry_line_ratio ?? 'unknown'}
 - stop_line_ratio: ${scannerContext.stop_line_ratio ?? 'unknown'}
 - target_line_ratio: ${scannerContext.target_line_ratio ?? 'unknown'}
-- red_box: ${scannerContext.red_box ? JSON.stringify(scannerContext.red_box) : 'unknown'}
-- green_box: ${scannerContext.green_box ? JSON.stringify(scannerContext.green_box) : 'unknown'}
-
-Use this geometry as a strong anchor for which chart pane contains the trade, where the risk/reward box starts, and whether the setup is long or short.`;
+- box_left_ratio: ${scannerContext.box_left_ratio ?? 'unknown'}
+- box_right_ratio: ${scannerContext.box_right_ratio ?? 'unknown'}`;
 }
 
 function describeImageLabel(label: string): string {
@@ -905,11 +914,18 @@ ${geometrySection}
 READING PROCEDURE — follow every step:
 
 STEP 1 — Examine the price-label-focus image (full right-hand price axis).
-  Identify ALL labelled price levels visible. Note their vertical positions.
+  Identify the labelled price levels that correspond to the trade box.
+  CRITICAL: TradingView displays a floating green box label on the right axis showing the current live market price.
+  This is NOT a trade level — it is where price is right now, not entry/SL/TP.
+  IGNORE IT COMPLETELY. Do not assign it to entry, stop-loss, or take-profit under any circumstances.
 
 STEP 2 — Examine the trade-box-focus image.
   Identify the coloured boxes (red = SL zone, teal/green = TP zone).
   Note where each box begins and ends relative to the price axis.
+
+AUTHORITY RULE: The dedicated crops (entry-label-focus, stop-label-focus, target-label-focus) are
+  the ONLY authoritative source for each price. Read the digits in THAT crop for THAT field only.
+  Never substitute a value from the general price axis or from any other crop into a different field.
 
 STEP 3 — For the ENTRY price:
   Look at the entry-label-focus crop. It is centred on the entry level.
@@ -918,13 +934,13 @@ STEP 3 — For the ENTRY price:
 
 STEP 4 — For the STOP-LOSS price:
   Look at the stop-label-focus crop. It is centred on the stop level.
-  Read every digit left to right.
-  Cross-check: for a Long trade, stop < entry. For a Short trade, stop > entry.
+  Read every digit left to right. Do not guess. Do not round.
+  IMPORTANT: The crop label tells you what level this is — trust it. Do NOT swap this value with the target.
 
 STEP 5 — For the TAKE-PROFIT price:
   Look at the target-label-focus crop. It is centred on the target level.
-  Read every digit left to right.
-  Cross-check: for a Long trade, target > entry. For a Short trade, target < entry.
+  Read every digit left to right. Do not guess. Do not round.
+  IMPORTANT: The crop label tells you what level this is — trust it. Do NOT swap this value with the stop.
 
 STEP 6 — DIGIT VERIFICATION:
   For each price, spell out the digits you read (e.g., "2 1 3 4 5 point 5 0").
@@ -974,7 +990,7 @@ on screen. Return only valid JSON.`;
 
   const response = await (anthropic as unknown as { messages: { create: (params: unknown, options?: unknown) => Promise<{ content: Array<{ type: string; text?: string }> }> } }).messages.create(
     {
-      model: 'claude-opus-4-5',
+      model: MODEL,
       max_tokens: 4000,
       temperature: 0,
       thinking: { type: 'enabled', budget_tokens: 2000 },
@@ -1020,7 +1036,7 @@ async function verifyPriceDigits(
   const pct = (r: number | undefined | null) => r != null ? (r * 100).toFixed(1) : 'unknown';
 
   const response = await anthropic.messages.create({
-    model: 'claude-opus-4-5',
+    model: MODEL,
     max_tokens: 1000,
     temperature: 0,
     system: 'You verify that price numbers read from a chart are correct. You double-check digit by digit. Return only JSON.',
@@ -1281,7 +1297,7 @@ PIXEL GEOMETRY (pre-calculated — use to orient yourself):
 
   const response = await (anthropic as unknown as { messages: { create: (params: unknown, options?: unknown) => Promise<{ content: Array<{ type: string; text?: string }> }> } }).messages.create(
     {
-      model: 'claude-opus-4-5',
+      model: MODEL,
       max_tokens: 3000,
       temperature: 0,
       thinking: { type: 'enabled', budget_tokens: 2000 },
@@ -1434,7 +1450,7 @@ async function sanityCheckLevelTouches(
   }));
 
   const response = await anthropic.messages.create({
-    model: 'claude-opus-4-5',
+    model: MODEL,
     max_tokens: 1000,
     temperature: 0,
     system: 'You are a binary chart level checker. Answer only with JSON. No explanations outside the JSON.',
@@ -1593,6 +1609,66 @@ symbol, direction, entry_price, entry_time, entry_time_confidence, sl_price, tp_
     `Trade date: ${entryDate}. ${buildEntryTimeHint(extraction.entry_time ?? humanReview.entry_time)} ${formatScannerContext(scannerContext)} Fallback time for the form is ${fallbackEntryTime}, but do not let that override the chart itself. Produce the single best final journal-ready trade analysis from this screenshot.`,
     1400
   ));
+}
+
+async function directExitRead(
+  images: ChartImageInput[],
+  trade: { direction: string; entry: number; sl: number; tp: number },
+  entryDate: string
+): Promise<{ exit_reason: 'TP' | 'SL' | null; confidence: 'high' | 'medium' | 'low'; evidence: string }> {
+  const isShort = trade.direction === 'Short';
+  const imageContent = images.map(img => ({
+    type: 'image' as const,
+    source: { type: 'base64' as const, media_type: img.mimeType as ImageMimeType, data: img.base64Image },
+  }));
+  const imageGuide = images.map((img, i) => `Image ${i + 1} (${img.label}): ${describeImageLabel(img.label)}`).join('\n');
+
+  const response = await anthropic.messages.create({
+    model: MODEL,
+    max_tokens: 512,
+    temperature: 0,
+    system: `You are a precise chart reader. You look at a TradingView candlestick chart and determine whether a trade exited at Stop Loss or Take Profit. You answer decisively based only on what you can see. Return only valid JSON.`,
+    messages: [{
+      role: 'user',
+      content: [
+        ...imageContent,
+        {
+          type: 'text',
+          text: `This is a ${trade.direction.toUpperCase()} trade on ${entryDate}.
+
+PRICE LEVELS:
+- Entry: ${trade.entry}
+- Stop Loss: ${trade.sl} — this is ${isShort ? 'ABOVE' : 'BELOW'} entry (${isShort ? 'price must NOT rise above this' : 'price must NOT fall below this'})
+- Take Profit: ${trade.tp} — this is ${isShort ? 'BELOW' : 'ABOVE'} entry (${isShort ? 'price drops to this target' : 'price rises to this target'})
+
+TASK: Starting from the entry candle (at the LEFT edge of the coloured trade box), scan candles left-to-right.
+- ONLY look at candles inside and immediately after the trade box. Do NOT look at candles far to the right that occur long after the trade.
+- For a ${isShort ? 'SHORT' : 'LONG'} trade: if ${isShort ? 'the candle HIGH (wick tip) reaches or exceeds' : 'the candle LOW (wick bottom) reaches or drops below'} ${trade.sl} → SL hit.
+- For a ${isShort ? 'SHORT' : 'LONG'} trade: if ${isShort ? 'the candle LOW (wick bottom) reaches or drops below' : 'the candle HIGH (wick tip) reaches or exceeds'} ${trade.tp} → TP hit.
+- The FIRST level touched decides the result. Stop immediately at that candle.
+- IGNORE any price labels or candles outside the trade box region and to the far right of the chart.
+
+Return this JSON exactly:
+{
+  "exit_reason": "TP" or "SL",
+  "confidence": "high" or "medium" or "low",
+  "evidence": "one sentence describing which candle after entry touched which level first"
+}
+
+Attached views:
+${imageGuide}`,
+        },
+      ],
+    }],
+  });
+
+  const text = (response.content[0] as { type: string; text: string }).text.trim();
+  const parsed = parseJsonObject(text) as { exit_reason?: string; confidence?: string; evidence?: string };
+  const exitReason = parsed.exit_reason === 'TP' ? 'TP' : parsed.exit_reason === 'SL' ? 'SL' : null;
+  const confidence = (['high', 'medium', 'low'] as const).includes(parsed.confidence as 'high' | 'medium' | 'low')
+    ? (parsed.confidence as 'high' | 'medium' | 'low')
+    : 'low';
+  return { exit_reason: exitReason, confidence, evidence: parsed.evidence ?? '' };
 }
 
 function resolveExitReason(
@@ -1847,10 +1923,9 @@ function applyConservativeExitDecision(
     !hasHighConfidenceExit(humanReview, 'TP') &&
     !hasHighConfidenceExit(decisiveReview, 'TP')
   ) {
-    next.exit_reason = 'SL';
     appendWarning(
       next.warnings ?? (next.warnings = []),
-      'Exit-order signals disagreed, so the scanner used the conservative stop-first fallback.'
+      'Exit-order signals disagreed — kept the primary extraction result.'
     );
   } else if (
     next.exit_reason === 'TP' &&
@@ -1858,10 +1933,9 @@ function applyConservativeExitDecision(
     votes.SL >= 1 &&
     !hasSanityConfirmation
   ) {
-    next.exit_reason = 'SL';
     appendWarning(
       next.warnings ?? (next.warnings = []),
-      'TP was not confirmed by the sanity pass, so the scanner fell back to the conservative stop-first result.'
+      'TP was not confirmed by the sanity pass — kept the primary extraction result.'
     );
   }
 
@@ -2001,6 +2075,23 @@ async function upscaleLabelCrops(
   }));
 }
 
+async function cropImageToBoxBoundary(
+  images: ChartImageInput[],
+  scannerContext?: ScannerContext
+): Promise<ChartImageInput[]> {
+  if (!scannerContext?.box_right_ratio) return images;
+  return Promise.all(images.map(async (img) => {
+    const buffer = Buffer.from(img.base64Image, 'base64');
+    const metadata = await sharp(buffer).metadata();
+    const cropWidth = Math.round((metadata.width ?? 0) * scannerContext.box_right_ratio!);
+    const cropped = await sharp(buffer)
+      .extract({ left: 0, top: 0, width: cropWidth, height: metadata.height ?? 0 })
+      .png()
+      .toBuffer();
+    return { ...img, base64Image: cropped.toString('base64'), mimeType: 'image/png' as ImageMimeType };
+  }));
+}
+
 export async function analyzeChartImage(
   base64Image: string,
   mimeType: string,
@@ -2064,6 +2155,20 @@ export async function analyzeChartImage(
     'trade-box-focus',
     'exit-path-focus',
   ]);
+  const directExitImages = selectImagesByLabels(analysisImages, [
+    'exit-path-focus',
+    'trade-box-focus',
+    'entry-window-focus',
+  ]);
+  const [
+    croppedVerificationImages,
+    croppedSanityImages,
+    croppedDirectExitImages,
+  ] = await Promise.all([
+    cropImageToBoxBoundary(verificationImages, normalizedScannerContext),
+    cropImageToBoxBoundary(sanityImages, normalizedScannerContext),
+    cropImageToBoxBoundary(directExitImages, normalizedScannerContext),
+  ]);
   const preAnalysisWarnings: string[] = [];
   const upscaledPriceImages = await upscaleLabelCrops(exactPriceImages);
   const [
@@ -2117,6 +2222,8 @@ export async function analyzeChartImage(
   }
 
   if (extractionResult.status === 'rejected' && humanReviewResult.status === 'rejected') {
+    console.error('extractionResult error:', extractionResult.reason);
+    console.error('humanReviewResult error:', humanReviewResult.reason);
     throw new Error('Chart analysis failed for both the primary and fallback Claude passes.');
   }
 
@@ -2150,6 +2257,32 @@ export async function analyzeChartImage(
     headerIdentityRead
   );
   const baseRead = buildManualReaderBase(extraction, rawHumanReview, entryTime);
+
+
+
+  // If scanner context has a confirmed direction but prices are inverted, swap sl/tp to match.
+  if (
+    normalizedScannerContext?.direction_hint &&
+    baseRead.direction !== normalizedScannerContext.direction_hint &&
+    baseRead.entry_price !== null &&
+    baseRead.sl_price !== null &&
+    baseRead.tp_price !== null
+  ) {
+    const hint = normalizedScannerContext.direction_hint;
+    const slAboveEntry = baseRead.sl_price > baseRead.entry_price;
+    const tpBelowEntry = baseRead.tp_price < baseRead.entry_price;
+    if (hint === 'Short' && !slAboveEntry && !tpBelowEntry) {
+      // Claude swapped sl and tp for this Short trade — correct it
+      [baseRead.sl_price, baseRead.tp_price] = [baseRead.tp_price, baseRead.sl_price];
+      baseRead.direction = 'Short';
+      appendWarning(baseRead.warnings ?? (baseRead.warnings = []), 'Direction corrected to Short based on pixel scan — sl/tp were swapped.');
+    } else if (hint === 'Long' && slAboveEntry && !tpBelowEntry) {
+      [baseRead.sl_price, baseRead.tp_price] = [baseRead.tp_price, baseRead.sl_price];
+      baseRead.direction = 'Long';
+      appendWarning(baseRead.warnings ?? (baseRead.warnings = []), 'Direction corrected to Long based on pixel scan — sl/tp were swapped.');
+    }
+  }
+
   preAnalysisWarnings.forEach(warning => appendWarning(baseRead.warnings ?? (baseRead.warnings = []), warning));
 
   let verification: ExitVerificationResult = {
@@ -2166,7 +2299,7 @@ export async function analyzeChartImage(
   const verificationResult = await (async () => {
     try {
       return await verifyExitOrder(
-        verificationImages,
+        croppedVerificationImages,
         entryDate,
         baseRead,
         normalizedScannerContext
@@ -2188,7 +2321,7 @@ export async function analyzeChartImage(
   const sanityResult = await (async () => {
     try {
       return await sanityCheckLevelTouches(
-        sanityImages,
+        croppedSanityImages,
         entryDate,
         {
           ...baseRead,
@@ -2259,20 +2392,36 @@ export async function analyzeChartImage(
     sanityCheck
   );
 
-  // Deterministic pixel scan is highest priority — always overrides AI when confident
-  if (deterministicExit?.exit_reason) {
+  // Direct single-shot exit read — final authority over all voting passes
+  const directExit = finalResult.entry_price != null && finalResult.sl_price != null && finalResult.tp_price != null
+    ? await (async () => {
+        try {
+          return await directExitRead(
+            croppedDirectExitImages,
+            {
+              direction: finalResult.direction ?? 'Long',
+              entry: finalResult.entry_price!,
+              sl: finalResult.sl_price!,
+              tp: finalResult.tp_price!,
+            },
+            entryDate
+          );
+        } catch {
+          return null;
+        }
+      })()
+    : null;
+
+  if (directExit?.exit_reason) {
+    finalResult.exit_reason = directExit.exit_reason;
+    finalResult.pnl_result = directExit.exit_reason === 'TP' ? 'Win' : 'Loss';
+    finalResult.exit_confidence = directExit.confidence;
+    finalResult.first_touch_evidence = directExit.evidence || finalResult.first_touch_evidence;
+  } else if (deterministicExit?.exit_reason) {
     finalResult.exit_reason = deterministicExit.exit_reason;
     finalResult.pnl_result = deterministicExit.exit_reason === 'TP' ? 'Win' : 'Loss';
     finalResult.exit_confidence = 'high';
     finalResult.first_touch_evidence = deterministicExit.evidence ?? finalResult.first_touch_evidence;
-  } else if (
-    verification.exit_reason &&
-    verification.exit_confidence === 'high'
-  ) {
-    finalResult.exit_reason = verification.exit_reason;
-    finalResult.pnl_result = verification.exit_reason === 'TP' ? 'Win' : 'Loss';
-    finalResult.exit_confidence = 'high';
-    finalResult.first_touch_evidence = verification.first_touch_evidence ?? finalResult.first_touch_evidence;
   }
 
   finalResult.warnings = [
@@ -2677,4 +2826,138 @@ Rules:
   }
 
   return combined;
+}
+
+export async function analyzeChartAnalyzerImage(
+  base64Image: string,
+  mimeType: string,
+  contractSize: number
+): Promise<Array<{
+  symbol?: string;
+  direction?: 'Long' | 'Short' | null;
+  entry_price: number | null;
+  stop_loss: number | null;
+  take_profit: number | null;
+  rr_ratio: string | null;
+  outcome: 'WIN' | 'LOSS' | null;
+  trade_duration: string | null;
+  net_pnl: number | null;
+}>> {
+  const supportedMimeType = VALID_MIME_TYPES.includes(mimeType as ImageMimeType)
+    ? (mimeType as ImageMimeType)
+    : 'image/jpeg';
+
+  const response = await anthropic.messages.create({
+    model: MODEL,
+    temperature: MODEL_TEMPERATURE,
+    max_tokens: 2048,
+    system: `You are a trading chart P&L analyst. When given a TradingView screenshot, follow these steps precisely:
+
+STEP 1 - READ SYMBOL & TIMEFRAME: Read the ticker symbol and timeframe from the top-left of the chart label (e.g. "NQM26, 1" means NQM26 on the 1-minute chart).
+
+STEP 2 - IDENTIFY THE P&L BOX AND ITS THREE LEVELS:
+The P&L box is a semi-transparent overlay of two colored zones:
+- TEAL (mint/cyan green) zone = profit target area
+- PINK (light red/rose) zone = stop loss risk area
+
+Read the three price levels:
+- ENTRY PRICE: The GREY label on the right axis at the boundary between the two zones.
+- STOP LOSS: The RED label on the right axis at the far edge of the pink zone.
+- TAKE PROFIT - HOW TO FIND IT:
+  a. Locate the FAR EDGE of the teal zone (top edge for Long, bottom edge for Short).
+  b. Trace that edge horizontally to the right-axis scale to read the price.
+  c. It often aligns with a horizontal line drawn on the chart.
+  d. Use a small teal/green label at that exact edge if one is visible.
+  e. NEVER use the live current-price label as the TP. TradingView always shows a floating green label at the very latest market price - it is far outside the P&L box and is unrelated to the trade target. If a "green" label price is well above the teal box (for Long) or well below the teal box (for Short), it is the live price - ignore it completely.
+
+STEP 3 - DETERMINE DIRECTION FROM BOX COLORS:
+- LONG: Teal zone is ABOVE entry, pink zone is BELOW entry -> your TP price must be greater than entry.
+- SHORT: Pink zone is ABOVE entry, teal zone is BELOW entry -> your TP price must be less than entry.
+If your identified TP is outside the visible teal box boundary, you have read the wrong label - go back to step 2e.
+
+STEP 4 - ENTRY TIME: Draw an imaginary vertical line down from the left edge of the P&L box to the x-axis. Record this as the entry time.
+
+STEP 5 - CALCULATE RISK & REWARD:
+- TP distance = |Take Profit - Entry Price| (in points)
+- SL distance = |Stop Loss - Entry Price| (in points)
+- R:R Ratio = TP distance / SL distance, expressed as "X:1" (e.g. if TP distance = 73.5 pts and SL distance = 39.25 pts -> R:R = "1.87:1"; if TP = 39.25 and SL = 73.5 -> R:R = "0.53:1")
+
+STEP 6 - OUTCOME (FIRST TOUCH RULE):
+Starting from the entry candle (the candle aligned with the left edge of the P&L box), scan candles forward one at a time. Stop the moment either level is first touched:
+- A candle WICK touching a level counts as a hit - a body close is NOT required.
+- If the stop loss level is touched first -> outcome is LOSS.
+- If the take profit level is touched first -> outcome is WIN.
+- If both are touched in the same candle, use visual judgment to determine which was more likely hit first.
+Do not look past the first touch - ignore any later reversals.
+
+STEP 7 - TRADE LENGTH: Count candles from the entry candle to the exit candle (inclusive). Multiply by the chart timeframe in minutes to get total trade duration (e.g. 15 candles x 1 min = 15 minutes).
+
+STEP 8 - NET P&L:
+Points at stake:
+- WIN: TP distance (positive)
+- LOSS: SL distance (negative)
+The frontend will calculate final dollar P&L using the contract's point value. Return net_pnl as the raw points value (positive for WIN, negative for LOSS) so the frontend can apply the correct multiplier.`,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'image',
+            source: { type: 'base64', media_type: supportedMimeType, data: base64Image },
+          },
+          {
+            type: 'text',
+            text: `Analyze this trading chart screenshot. Contract size is ${contractSize}.
+
+If there are multiple charts in the image (e.g. NQ and ES side by side), analyze each one separately.
+
+Return ONLY a valid JSON array with no markdown, no explanation, no code fences - just the raw JSON array. Each element represents one chart/trade with these exact keys:
+[
+  {
+    "symbol": "full ticker as shown top-left e.g. NQM26 or MNQ or ES",
+    "direction": "Long" or "Short" or null,
+    "entry_price": number or null,
+    "stop_loss": number or null,
+    "take_profit": number or null,
+    "rr_ratio": "X:1 format e.g. 1.87:1 or 0.53:1" or null,
+    "outcome": "WIN" or "LOSS" or null,
+    "trade_duration": "string e.g. 15 minutes" or null,
+    "net_pnl": raw points value as a number (positive for WIN, negative for LOSS) or null
+  }
+]`,
+          },
+        ],
+      },
+    ],
+  });
+
+  const textBlocks = response.content.filter(block => block.type === 'text');
+  const text = textBlocks.map(block => block.text).join('\n').trim();
+
+  if (!text) {
+    throw new Error('Could not parse response from Claude. Please try again.');
+  }
+
+  const jsonMatch = text.match(/\[[\s\S]*\]/);
+  if (!jsonMatch) {
+    throw new Error('Could not parse response from Claude. Please try again.');
+  }
+
+  const parsed = JSON.parse(jsonMatch[0]) as Array<{
+    symbol?: string;
+    direction?: 'Long' | 'Short' | null;
+    entry_price: number | null;
+    stop_loss: number | null;
+    take_profit: number | null;
+    rr_ratio: string | null;
+    outcome: 'WIN' | 'LOSS' | null;
+    trade_duration: string | null;
+    net_pnl: number | null;
+  }>;
+
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    throw new Error('No trade data found in the response.');
+  }
+
+  return parsed;
 }
