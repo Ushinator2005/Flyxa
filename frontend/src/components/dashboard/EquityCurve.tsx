@@ -19,9 +19,20 @@ const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?:
   if (!active || !payload?.length) return null;
   const value = payload[0].value;
   return (
-    <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 shadow-xl">
-      <p className="text-slate-400 text-xs mb-1">{label}</p>
-      <p className={`font-semibold text-sm ${value >= 0 ? 'text-blue-400' : 'text-red-400'}`}>
+    <div style={{
+      background: 'var(--app-panel-strong)',
+      border: '1px solid var(--app-border)',
+      borderRadius: 4,
+      padding: '8px 12px',
+    }}>
+      <p style={{ fontSize: 10, color: 'var(--app-text-subtle)', marginBottom: 4, letterSpacing: '0.05em' }}>{label}</p>
+      <p style={{
+        fontFamily: 'var(--font-mono)',
+        fontVariantNumeric: 'tabular-nums',
+        fontSize: 13,
+        fontWeight: 600,
+        color: value >= 0 ? '#f59e0b' : '#ef4444',
+      }}>
         {formatCurrency(value)}
       </p>
     </div>
@@ -30,42 +41,37 @@ const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?:
 
 export default function EquityCurve({ data }: Props) {
   const isPositive = data.length > 0 && data[data.length - 1].cumulative >= 0;
+  const lineColor = isPositive ? '#f59e0b' : '#ef4444';
 
   return (
     <ResponsiveContainer width="100%" height={220}>
       <AreaChart data={data} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
-        <defs>
-          <linearGradient id="equityGradient" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor={isPositive ? '#3b82f6' : '#ef4444'} stopOpacity={0.3} />
-            <stop offset="95%" stopColor={isPositive ? '#3b82f6' : '#ef4444'} stopOpacity={0.02} />
-          </linearGradient>
-        </defs>
-        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+        <CartesianGrid strokeDasharray="1 4" stroke="rgba(255,255,255,0.04)" vertical={false} />
         <XAxis
           dataKey="date"
           tickFormatter={(d: string) => {
             try { return format(parseISO(d), 'MM/dd'); } catch { return d; }
           }}
-          tick={{ fill: '#64748b', fontSize: 11 }}
-          axisLine={{ stroke: '#1e293b' }}
+          tick={{ fill: 'var(--app-text-subtle)', fontSize: 10, fontFamily: 'var(--font-mono)' }}
+          axisLine={false}
           tickLine={false}
           interval="preserveStartEnd"
         />
         <YAxis
           tickFormatter={(v: number) => `$${v >= 1000 ? `${(v/1000).toFixed(1)}k` : v < -999 ? `${(v/1000).toFixed(1)}k` : v}`}
-          tick={{ fill: '#64748b', fontSize: 11 }}
+          tick={{ fill: 'var(--app-text-subtle)', fontSize: 10, fontFamily: 'var(--font-mono)' }}
           axisLine={false}
           tickLine={false}
         />
         <Tooltip content={<CustomTooltip />} />
         <Area
-          type="monotone"
+          type="linear"
           dataKey="cumulative"
-          stroke={isPositive ? '#3b82f6' : '#ef4444'}
-          strokeWidth={2}
-          fill="url(#equityGradient)"
+          stroke={lineColor}
+          strokeWidth={1.5}
+          fill="none"
           dot={false}
-          activeDot={{ r: 4, fill: isPositive ? '#3b82f6' : '#ef4444' }}
+          activeDot={{ r: 3, fill: lineColor, strokeWidth: 0 }}
         />
       </AreaChart>
     </ResponsiveContainer>

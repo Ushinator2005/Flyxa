@@ -26,15 +26,53 @@ export default function Header() {
   const pageName = pageNames[location.pathname] || 'Flyxa';
 
   return (
-    <header className="theme-header h-14 bg-slate-900 border-b border-slate-700/50 flex items-center justify-between px-6 flex-shrink-0">
-      <h1 className="text-lg font-semibold text-white">{pageName}</h1>
-      <div className="flex items-center gap-4">
-        <label className="relative">
+    <header
+      style={{
+        height: 52,
+        background: 'var(--app-panel)',
+        borderBottom: '1px solid var(--app-border)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '0 20px',
+        flexShrink: 0,
+      }}
+    >
+      <h1 style={{
+        fontSize: 13,
+        fontWeight: 600,
+        letterSpacing: '0.08em',
+        textTransform: 'uppercase',
+        color: 'var(--app-text-subtle)',
+        fontFamily: 'var(--font-sans)',
+        margin: 0,
+      }}>
+        {pageName}
+      </h1>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <label style={{ position: 'relative' }}>
           <span className="sr-only">Select account</span>
           <select
             value={selectedAccountId}
             onChange={event => setSelectedAccountId(event.target.value)}
-            className="input-field h-10 min-w-[190px] appearance-none rounded-xl border-slate-700/70 bg-slate-900/85 pr-10 text-sm text-slate-200"
+            style={{
+              height: 34,
+              minWidth: 180,
+              appearance: 'none',
+              paddingLeft: 12,
+              paddingRight: 32,
+              paddingTop: 0,
+              paddingBottom: 0,
+              fontSize: 12,
+              fontFamily: 'var(--font-sans)',
+              fontWeight: 500,
+              color: 'var(--app-text-muted)',
+              background: 'var(--app-bg)',
+              border: '1px solid var(--app-border)',
+              borderRadius: 6,
+              cursor: 'pointer',
+              outline: 'none',
+            }}
           >
             <option value={ALL_ACCOUNTS_ID}>All Accounts</option>
             {accounts.map(account => (
@@ -43,20 +81,41 @@ export default function Header() {
               </option>
             ))}
           </select>
-          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">▼</span>
+          <span style={{
+            pointerEvents: 'none',
+            position: 'absolute',
+            right: 10,
+            top: '50%',
+            transform: 'translateY(-50%)',
+            fontSize: 10,
+            color: 'var(--app-text-subtle)',
+          }}>▼</span>
         </label>
         <ThemeToggle compact />
         <button
           type="button"
           onClick={() => navigate('/settings')}
-          className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-700/70 bg-slate-900/85 text-slate-300 transition-colors hover:border-slate-600 hover:text-white"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: 34,
+            width: 34,
+            borderRadius: 6,
+            border: '1px solid var(--app-border)',
+            background: 'var(--app-bg)',
+            color: 'var(--app-text-muted)',
+            cursor: 'pointer',
+            transition: 'border-color 180ms ease, color 180ms ease',
+          }}
+          onMouseEnter={e => { const el = e.currentTarget; el.style.borderColor = 'rgba(255,255,255,0.14)'; el.style.color = 'var(--app-text)'; }}
+          onMouseLeave={e => { const el = e.currentTarget; el.style.borderColor = 'var(--app-border)'; el.style.color = 'var(--app-text-muted)'; }}
           aria-label="Open settings"
           title="Settings"
         >
-          <Settings size={17} />
+          <Settings size={15} />
         </button>
       </div>
     </header>
   );
 }
-

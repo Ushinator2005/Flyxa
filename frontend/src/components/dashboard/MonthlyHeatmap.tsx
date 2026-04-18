@@ -476,7 +476,7 @@ export default function MonthlyHeatmap({ trades = [] }: { trades?: Trade[] }) {
           ))}
         </div>
 
-        <div className="grid grid-cols-7 [grid-auto-rows:72px]">
+        <div className="grid grid-cols-7 [grid-auto-rows:84px]">
           {cells.map((day, i) => {
             if (day === null) {
               return (

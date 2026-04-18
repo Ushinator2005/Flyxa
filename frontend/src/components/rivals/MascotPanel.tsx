@@ -9,34 +9,44 @@ interface MascotPanelProps {
 
 const STAGE_ORDER: MascotStage[] = ['seed', 'rookie', 'veteran', 'elite', 'apex'];
 
-const STAGE_EMOJI: Record<MascotStage, string> = {
-  seed: '🥚',
-  rookie: '🐣',
-  veteran: '🐂',
-  elite: '⚡',
-  apex: '👑',
+const STAGE_SYMBOL: Record<MascotStage, string> = {
+  seed: 'S',
+  rookie: 'R',
+  veteran: 'V',
+  elite: 'E',
+  apex: 'A',
 };
 
 const STAT_BARS = [
-  { key: 'discipline' as const, label: 'Discipline', color: '#1d6ef5', max: 100 },
-  { key: 'psychology' as const, label: 'Psychology', color: '#7c3aed', max: 100 },
-  { key: 'consistency' as const, label: 'Consistency', color: '#0d9488', max: 100 },
-  { key: 'backtestHours' as const, label: 'Backtest hrs', color: '#f59e0b', max: 100 },
+  { key: 'discipline' as const, label: 'Discipline', color: '#1E6FFF', max: 100 },
+  { key: 'psychology' as const, label: 'Psychology', color: '#a78bfa', max: 100 },
+  { key: 'consistency' as const, label: 'Consistency', color: '#14b8a6', max: 100 },
+  { key: 'backtestHours' as const, label: 'Backtest Hrs', color: '#f59e0b', max: 100 },
 ];
 
 const HEALTH_BADGE: Record<string, { dot: string; label: string }> = {
-  healthy: { dot: '#4ade80', label: 'Healthy' },
-  tired: { dot: '#fbbf24', label: 'Tired — journal today' },
-  sick: { dot: '#f97316', label: 'Getting weak — come back!' },
-  critical: { dot: '#f87171', label: 'Streak broken — rebuild now' },
+  healthy: { dot: '#22c55e', label: 'Healthy' },
+  tired: { dot: '#f59e0b', label: 'Needs journal today' },
+  sick: { dot: '#f97316', label: 'Momentum fading' },
+  critical: { dot: '#ef4444', label: 'Streak broken' },
 };
 
+const S1 = 'var(--app-panel)';
+const BORDER = 'var(--app-border)';
+const BSUB = 'rgba(255,255,255,0.04)';
+const T1 = 'var(--app-text)';
+const T2 = 'var(--app-text-muted)';
+const T3 = 'var(--app-text-subtle)';
+const MONO = 'var(--font-mono)';
+const SANS = 'var(--font-sans)';
+
 const labelStyle = {
-  fontFamily: "'DM Mono', monospace",
-  fontSize: 9,
-  letterSpacing: '0.12em',
+  fontFamily: SANS,
+  fontSize: 10,
+  fontWeight: 600,
+  letterSpacing: '0.1em',
   textTransform: 'uppercase' as const,
-  color: 'rgba(148,163,184,0.50)',
+  color: T3,
 };
 
 export default function MascotPanel({ mascot, lastJournalDate }: MascotPanelProps) {
@@ -49,114 +59,69 @@ export default function MascotPanel({ mascot, lastJournalDate }: MascotPanelProp
   return (
     <div
       style={{
-        background: '#0c1422',
-        border: '1px solid rgba(255,255,255,0.06)',
-        borderRadius: 14,
+        background: S1,
+        border: `1px solid ${BORDER}`,
+        borderRadius: 8,
         overflow: 'hidden',
       }}
     >
-      {/* Header */}
-      <div style={{ padding: '16px 18px 14px', borderBottom: '1px solid rgba(255,255,255,0.055)' }}>
-        <div style={{ ...labelStyle, marginBottom: 6 }}>Your Mascot</div>
-        <div
-          style={{
-            fontFamily: "'Instrument Serif', Georgia, serif",
-            fontSize: 17,
-            color: '#e2e8f0',
-            fontWeight: 400,
-            marginBottom: 6,
-          }}
-        >
+      <div style={{ padding: '14px 16px', borderBottom: `1px solid ${BSUB}` }}>
+        <div style={{ ...labelStyle, marginBottom: 5 }}>Your Mascot</div>
+        <div style={{ fontSize: 16, color: T1, fontWeight: 600, marginBottom: 4, fontFamily: SANS }}>
           {mascot.name}
         </div>
-        <div
-          style={{
-            fontFamily: "'DM Mono', monospace",
-            fontSize: 10,
-            color: '#4d8ef7',
-            letterSpacing: '0.08em',
-            marginBottom: 10,
-          }}
-        >
+        <div style={{ fontFamily: MONO, fontSize: 10, color: '#6ea8fe', letterSpacing: '0.08em', marginBottom: 10 }}>
           {getMascotLabel(mascot.stage)}
         </div>
-        {/* Health badge */}
+
         <div
           style={{
             display: 'inline-flex',
             alignItems: 'center',
             gap: 6,
-            padding: '3px 10px',
-            borderRadius: 100,
+            padding: '3px 9px',
+            borderRadius: 999,
             background: `${healthBadge.dot}14`,
-            border: `1px solid ${healthBadge.dot}30`,
+            border: `1px solid ${healthBadge.dot}35`,
           }}
         >
           <div style={{ width: 6, height: 6, borderRadius: '50%', background: healthBadge.dot, flexShrink: 0 }} />
-          <span
-            style={{
-              fontFamily: "'DM Mono', monospace",
-              fontSize: 9,
-              color: healthBadge.dot,
-              letterSpacing: '0.06em',
-            }}
-          >
-            {healthBadge.label}
-          </span>
+          <span style={{ fontFamily: MONO, fontSize: 10, color: healthBadge.dot }}>{healthBadge.label}</span>
         </div>
       </div>
 
-      {/* Mascot character */}
       <div
         style={{
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          padding: '20px 18px 16px',
-          borderBottom: '1px solid rgba(255,255,255,0.055)',
+          padding: '18px 16px 14px',
+          borderBottom: `1px solid ${BSUB}`,
         }}
       >
-        <MascotCharacter stage={mascot.stage} health={health} size={160} />
+        <MascotCharacter stage={mascot.stage} health={health} size={150} />
 
-        {/* Streak badge */}
         <div
           style={{
-            marginTop: 14,
+            marginTop: 12,
             display: 'flex',
             alignItems: 'center',
             gap: 6,
-            padding: '5px 14px',
-            borderRadius: 100,
+            padding: '4px 12px',
+            borderRadius: 999,
             background: 'rgba(245,158,11,0.10)',
             border: '1px solid rgba(245,158,11,0.22)',
           }}
         >
-          <span style={{ fontSize: 14 }}>🔥</span>
-          <span
-            style={{
-              fontFamily: "'DM Mono', monospace",
-              fontSize: 16,
-              fontWeight: 500,
-              color: '#fbbf24',
-            }}
-          >
+          <span style={{ fontFamily: MONO, fontSize: 15, fontWeight: 600, color: '#fbbf24', fontVariantNumeric: 'tabular-nums' }}>
             {mascot.streakDays}
           </span>
-          <span
-            style={{
-              fontFamily: "'DM Sans', sans-serif",
-              fontSize: 11,
-              color: 'rgba(148,163,184,0.55)',
-            }}
-          >
-            day streak
-          </span>
+          <span style={{ fontSize: 11, color: T2 }}>day streak</span>
         </div>
       </div>
 
-      {/* Stat bars */}
-      <div style={{ padding: '16px 18px', borderBottom: '1px solid rgba(255,255,255,0.055)' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ padding: '14px 16px', borderBottom: `1px solid ${BSUB}` }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
           {STAT_BARS.map(bar => {
             const raw = mascot.stats[bar.key];
             const pct = Math.min(100, Math.round((raw / bar.max) * 100));
@@ -166,23 +131,24 @@ export default function MascotPanel({ mascot, lastJournalDate }: MascotPanelProp
                   <span style={labelStyle}>{bar.label}</span>
                   <span
                     style={{
-                      fontFamily: "'DM Mono', monospace",
-                      fontSize: 10,
+                      fontFamily: MONO,
+                      fontSize: 11,
                       color: bar.color,
                       fontWeight: 500,
+                      fontVariantNumeric: 'tabular-nums',
                     }}
                   >
                     {raw}
                   </span>
                 </div>
-                <div style={{ height: 3, borderRadius: 2, background: 'rgba(255,255,255,0.055)', overflow: 'hidden' }}>
+                <div style={{ height: 4, borderRadius: 999, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
                   <div
                     style={{
                       height: '100%',
                       width: `${pct}%`,
                       background: bar.color,
-                      borderRadius: 2,
-                      transition: 'width 0.4s ease',
+                      borderRadius: 999,
+                      transition: 'width 0.35s ease',
                     }}
                   />
                 </div>
@@ -192,50 +158,51 @@ export default function MascotPanel({ mascot, lastJournalDate }: MascotPanelProp
         </div>
       </div>
 
-      {/* Stage progression */}
-      <div style={{ padding: '16px 18px' }}>
-        <div style={{ ...labelStyle, marginBottom: 12 }}>Stage progression</div>
+      <div style={{ padding: '14px 16px' }}>
+        <div style={{ ...labelStyle, marginBottom: 10 }}>Stage Progression</div>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', position: 'relative' }}>
-          {/* Connecting line */}
           <div
             style={{
               position: 'absolute',
-              top: 14,
+              top: 13,
               left: 14,
               right: 14,
               height: 1,
-              background: 'rgba(255,255,255,0.07)',
+              background: 'rgba(255,255,255,0.08)',
             }}
           />
           {STAGE_ORDER.map((stage, idx) => {
             const currentIdx = STAGE_ORDER.indexOf(current);
             const isPast = idx < currentIdx;
             const isCurrent = idx === currentIdx;
-            const bg = isPast ? 'rgba(74,222,128,0.12)' : isCurrent ? 'rgba(29,110,245,0.15)' : 'rgba(255,255,255,0.03)';
-            const border = isPast ? 'rgba(74,222,128,0.35)' : isCurrent ? 'rgba(29,110,245,0.45)' : 'rgba(255,255,255,0.07)';
-            const textColor = isPast ? 'rgba(74,222,128,0.7)' : isCurrent ? '#4d8ef7' : 'rgba(148,163,184,0.30)';
+            const bg = isPast ? 'rgba(34,197,94,0.12)' : isCurrent ? 'rgba(30,111,255,0.12)' : 'rgba(255,255,255,0.03)';
+            const border = isPast ? 'rgba(34,197,94,0.32)' : isCurrent ? 'rgba(30,111,255,0.42)' : 'rgba(255,255,255,0.08)';
+            const textColor = isPast ? '#86efac' : isCurrent ? '#6ea8fe' : T3;
 
             return (
               <div key={stage} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, position: 'relative', zIndex: 1 }}>
                 <div
                   style={{
-                    width: 28,
-                    height: 28,
+                    width: 26,
+                    height: 26,
                     borderRadius: '50%',
                     background: bg,
                     border: `1px solid ${border}`,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    fontSize: 13,
+                    fontSize: 11,
+                    color: textColor,
+                    fontFamily: MONO,
+                    fontWeight: 600,
                   }}
                 >
-                  {STAGE_EMOJI[stage]}
+                  {STAGE_SYMBOL[stage]}
                 </div>
                 <span
                   style={{
-                    fontFamily: "'DM Mono', monospace",
-                    fontSize: 7.5,
+                    fontFamily: MONO,
+                    fontSize: 8,
                     textTransform: 'uppercase',
                     letterSpacing: '0.08em',
                     color: textColor,
@@ -248,25 +215,23 @@ export default function MascotPanel({ mascot, lastJournalDate }: MascotPanelProp
             );
           })}
         </div>
-        {/* Progress to next stage */}
+
         {next && (
-          <div style={{ marginTop: 12 }}>
+          <div style={{ marginTop: 11 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-              <span style={{ ...labelStyle, fontSize: 8.5 }}>
-                Progress to {next}
-              </span>
-              <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: '#4d8ef7' }}>
+              <span style={{ ...labelStyle, fontSize: 9 }}>Progress to {next}</span>
+              <span style={{ fontFamily: MONO, fontSize: 10, color: '#6ea8fe', fontVariantNumeric: 'tabular-nums' }}>
                 {progressPct}%
               </span>
             </div>
-            <div style={{ height: 3, borderRadius: 2, background: 'rgba(255,255,255,0.055)', overflow: 'hidden' }}>
+            <div style={{ height: 4, borderRadius: 999, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
               <div
                 style={{
                   height: '100%',
                   width: `${progressPct}%`,
-                  background: '#1d6ef5',
-                  borderRadius: 2,
-                  transition: 'width 0.4s ease',
+                  background: '#1E6FFF',
+                  borderRadius: 999,
+                  transition: 'width 0.35s ease',
                 }}
               />
             </div>

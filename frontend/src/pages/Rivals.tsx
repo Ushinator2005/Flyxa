@@ -5,6 +5,16 @@ import MascotPanel from '../components/rivals/MascotPanel.js';
 import RivalsList from '../components/rivals/RivalsList.js';
 import Leaderboard from '../components/rivals/Leaderboard.js';
 
+const COBALT = '#1E6FFF';
+const AMBER = '#f59e0b';
+const S1 = 'var(--app-panel)';
+const BORDER = 'var(--app-border)';
+const T1 = 'var(--app-text)';
+const T2 = 'var(--app-text-muted)';
+const T3 = 'var(--app-text-subtle)';
+const MONO = 'var(--font-mono)';
+const SANS = 'var(--font-sans)';
+
 export default function Rivals() {
   const { rivals, addRival } = useRivals();
   const today = new Date().toISOString().split('T')[0];
@@ -21,127 +31,90 @@ export default function Rivals() {
   }, [rivals, currentUser]);
 
   return (
-    <div
-      style={{
-        background: '#070c18',
-        margin: '-32px',
-        padding: '36px 32px',
-        minHeight: 'calc(100% + 64px)',
-        boxSizing: 'border-box',
-      }}
-    >
-      {/* Page header */}
-      <div style={{ marginBottom: 32 }}>
-        <p
-          style={{
-            fontFamily: "'DM Mono', monospace",
-            fontSize: 10,
-            letterSpacing: '0.18em',
-            textTransform: 'uppercase',
-            color: '#1d6ef5',
-            margin: '0 0 10px',
-          }}
-        >
-          Rivals
-        </p>
-        <h1
-          style={{
-            fontFamily: "'Instrument Serif', Georgia, serif",
-            fontSize: 32,
-            fontWeight: 400,
-            color: '#e2e8f0',
-            margin: '0 0 10px',
-            lineHeight: 1.2,
-          }}
-        >
-          Trade better.{' '}
-          <em style={{ fontStyle: 'italic' }}>Beat your friends.</em>
-        </h1>
-        <p
-          style={{
-            fontFamily: "'DM Sans', sans-serif",
-            fontSize: 13,
-            color: 'rgba(148,163,184,0.65)',
-            margin: '0 0 22px',
-            maxWidth: 520,
-            lineHeight: 1.6,
-          }}
-        >
-          Challenge your circle. Your mascot evolves the longer your streak runs — don't let it weaken.
-        </p>
-
-        {/* Quick stats row */}
-        <div style={{ display: 'flex', alignItems: 'center' }}>
-          <QuickStat label="Total rivals" value={String(quickStats.totalRivals)} />
-          <QDivider />
-          <QuickStat label="Your rank" value={`#${quickStats.myRank}`} />
-          <QDivider />
-          <QuickStat label="Your streak" value={`${quickStats.myStreak}d`} />
-        </div>
-      </div>
-
-      {/* Two-column layout */}
+    <div style={{ display: 'flex', height: '100%', overflow: 'hidden', fontFamily: SANS }}>
       <div
         style={{
-          display: 'grid',
-          gridTemplateColumns: '280px 1fr',
-          gap: 14,
-          alignItems: 'start',
+          flex: 1,
+          height: '100%',
+          overflowY: 'auto',
+          padding: 24,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 16,
+          minWidth: 0,
         }}
       >
-        {/* Left: mascot panel */}
-        <MascotPanel mascot={currentUser.mascot} lastJournalDate={today} />
+        <div>
+          <h1 style={{ fontSize: 18, fontWeight: 600, color: T1, margin: 0, letterSpacing: '-0.02em' }}>
+            Rivals
+          </h1>
+          <p style={{ fontSize: 12, color: T3, margin: '3px 0 0' }}>
+            Head-to-head competition and streak momentum
+          </p>
+        </div>
 
-        {/* Right: rivals list + leaderboard */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <RivalsList rivals={rivals} currentUser={currentUser} onAddRival={addRival} />
-          <Leaderboard rivals={rivals} currentUserId={currentUser.id} defaultMetric="streak" />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 14 }}>
+          <QuickStatCard label="Total rivals" value={String(quickStats.totalRivals)} accent={COBALT} />
+          <QuickStatCard label="Your rank" value={`#${quickStats.myRank}`} accent={AMBER} />
+          <QuickStatCard label="Your streak" value={`${quickStats.myStreak}d`} accent={COBALT} />
+        </div>
+
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '280px 1fr',
+            gap: 16,
+            alignItems: 'start',
+            minHeight: 0,
+          }}
+        >
+          <MascotPanel mascot={currentUser.mascot} lastJournalDate={today} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
+            <RivalsList rivals={rivals} currentUser={currentUser} onAddRival={addRival} />
+            <Leaderboard rivals={rivals} currentUserId={currentUser.id} defaultMetric="streak" />
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-function QuickStat({ label, value }: { label: string; value: string }) {
+function QuickStatCard({ label, value, accent }: { label: string; value: string; accent: string }) {
   return (
-    <div style={{ paddingRight: 20 }}>
+    <div
+      style={{
+        background: S1,
+        border: `1px solid ${BORDER}`,
+        borderRadius: 8,
+        padding: '14px 16px',
+      }}
+    >
       <div
         style={{
-          fontFamily: "'DM Mono', monospace",
-          fontSize: 18,
-          color: '#e2e8f0',
-          fontWeight: 400,
-          lineHeight: 1.1,
-          marginBottom: 3,
-        }}
-      >
-        {value}
-      </div>
-      <div
-        style={{
-          fontFamily: "'DM Sans', sans-serif",
-          fontSize: 11,
-          color: 'rgba(148,163,184,0.50)',
+          fontSize: 10,
+          fontWeight: 600,
+          letterSpacing: '0.1em',
           textTransform: 'uppercase',
-          letterSpacing: '0.08em',
+          color: T3,
+          marginBottom: 8,
+          fontFamily: SANS,
         }}
       >
         {label}
       </div>
+      <div
+        style={{
+          fontFamily: MONO,
+          fontSize: 22,
+          lineHeight: 1,
+          color: accent,
+          fontWeight: 600,
+          fontVariantNumeric: 'tabular-nums',
+        }}
+      >
+        {value}
+      </div>
+      <div style={{ fontSize: 11, color: T2, marginTop: 6 }}>Performance snapshot</div>
     </div>
-  );
-}
-
-function QDivider() {
-  return (
-    <div
-      style={{
-        width: 1,
-        height: 28,
-        background: 'rgba(255,255,255,0.08)',
-        marginRight: 20,
-        flexShrink: 0,
-      }}
-    />
   );
 }

@@ -53,22 +53,22 @@ type WeeklyDebriefData = {
 
 
 const colors = {
-  d0: 'var(--d0, #070a0f)',
-  d1: 'var(--d1, #0c1018)',
-  d2: 'var(--d2, #111620)',
-  d3: 'var(--d3, #171d28)',
-  d4: 'var(--d4, #1e2535)',
-  b0: 'var(--b0, rgba(255,255,255,0.055))',
-  b1: 'var(--b1, rgba(255,255,255,0.10))',
-  t0: 'var(--t0, #dde4ec)',
-  t1: 'var(--t1, #8a94a0)',
-  t2: 'var(--t2, #4a5260)',
-  acc: 'var(--acc, #00d4a8)',
+  d0: 'var(--d0, #0e0d0d)',
+  d1: 'var(--d1, #141312)',
+  d2: 'var(--d2, #1a1917)',
+  d3: 'var(--d3, #201f1d)',
+  d4: 'var(--d4, #27251f)',
+  b0: 'var(--b0, rgba(255,255,255,0.07))',
+  b1: 'var(--b1, rgba(255,255,255,0.12))',
+  t0: 'var(--t0, #e8e3dc)',
+  t1: 'var(--t1, #8a8178)',
+  t2: 'var(--t2, #5c5751)',
+  acc: 'var(--acc, #f59e0b)',
   grn: 'var(--grn, #22d68a)',
   red: 'var(--red, #f05252)',
-  amb: 'var(--amb, #f5a623)',
-  blu: 'var(--blu, #4a9eff)',
-  mono: 'var(--mono, \'SF Mono\', \'Fira Code\', ui-monospace, monospace)',
+  amb: 'var(--amb, #f59e0b)',
+  blu: 'var(--blu, #f59e0b)',
+  mono: 'var(--mono, \'DM Mono\', ui-monospace, monospace)',
 };
 
 const insightTypeStyles: Record<InsightType, { accent: string }> = {
@@ -676,22 +676,22 @@ export default function FlyxaAI() {
   const remainingSessions = Math.max(0, weeklyDebriefData.nextDebrief.sessionsTarget - weeklyDebriefData.nextDebrief.sessionsLogged);
 
   const themeVars = {
-    '--d0': '#070a0f',
-    '--d1': '#0c1018',
-    '--d2': '#111620',
-    '--d3': '#171d28',
-    '--d4': '#1e2535',
-    '--b0': 'rgba(255,255,255,0.055)',
-    '--b1': 'rgba(255,255,255,0.10)',
-    '--t0': '#dde4ec',
-    '--t1': '#8a94a0',
-    '--t2': '#4a5260',
-    '--acc': '#00d4a8',
+    '--d0': '#0e0d0d',
+    '--d1': '#141312',
+    '--d2': '#1a1917',
+    '--d3': '#201f1d',
+    '--d4': '#27251f',
+    '--b0': 'rgba(255,255,255,0.07)',
+    '--b1': 'rgba(255,255,255,0.12)',
+    '--t0': '#e8e3dc',
+    '--t1': '#8a8178',
+    '--t2': '#5c5751',
+    '--acc': '#f59e0b',
     '--grn': '#22d68a',
     '--red': '#f05252',
-    '--amb': '#f5a623',
-    '--blu': '#4a9eff',
-    '--mono': '\'SF Mono\', \'Fira Code\', ui-monospace, monospace',
+    '--amb': '#f59e0b',
+    '--blu': '#f59e0b',
+    '--mono': '\'DM Mono\', ui-monospace, monospace',
   } as CSSProperties;
 
   const weeklyWindow = useMemo(() => {

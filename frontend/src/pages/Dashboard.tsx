@@ -1,262 +1,586 @@
-import { useMemo } from 'react';
-import { DollarSign, Target, BarChart2, TrendingUp, Hash, Flame } from 'lucide-react';
-import { PieChart, Pie, Cell } from 'recharts';
+import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import EquityCurve from '../components/dashboard/EquityCurve.js';
-import MonthlyHeatmap from '../components/dashboard/MonthlyHeatmap.js';
-import LoadingSpinner from '../components/common/LoadingSpinner.js';
-import { formatCurrency } from '../utils/calculations.js';
+import {
+  TrendingUp, Clock, LineChart, BarChart2,
+  ArrowUpRight, ArrowDownRight, Filter, ChevronLeft, ChevronRight,
+} from 'lucide-react';
+import {
+  PieChart, Pie, Cell,
+} from 'recharts';
+import { format } from 'date-fns';
 import { useTrades } from '../hooks/useTrades.js';
-import { useAppSettings } from '../contexts/AppSettingsContext.js';
+import { useAppSettings, ALL_ACCOUNTS_ID } from '../contexts/AppSettingsContext.js';
 import {
   buildAnalyticsSummary,
-  buildEquityCurve,
   buildRecentTrades,
-  formatTradeDateLabel,
   getTradeRiskReward,
 } from '../utils/tradeAnalytics.js';
-import { computeStreaks } from '../utils/streaks.js';
+import MonthlyHeatmap from '../components/dashboard/MonthlyHeatmap.js';
+import LoadingSpinner from '../components/common/LoadingSpinner.js';
+import { Trade } from '../types/index.js';
 
-const RING_UNIFIED_COLOR = '#34d399';
+// ── Design tokens ────────────────────────────────────────────────
+const COBALT      = '#1E6FFF';
+const COBALT_DIM  = 'rgba(30,111,255,0.10)';
+const AMBER       = '#f59e0b';
+const AMBER_DIM   = 'rgba(245,158,11,0.10)';
+const GREEN       = '#22c55e';
+const GREEN_DIM   = 'rgba(34,197,94,0.10)';
+const RED         = '#ef4444';
+const RED_DIM     = 'rgba(239,68,68,0.10)';
+const S1          = 'var(--app-panel)';
+const S2          = 'var(--app-panel-strong)';
+const BORDER      = 'var(--app-border)';
+const BSUB        = 'rgba(255,255,255,0.04)';
+const T1          = 'var(--app-text)';
+const T2          = 'var(--app-text-muted)';
+const T3          = 'var(--app-text-subtle)';
+const MONO        = 'var(--font-mono)';
+const SANS        = 'var(--font-sans)';
 
-function formatPrice(value: number) {
-  return value.toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
+// ── Helpers ──────────────────────────────────────────────────────
+const fmtUSD = (v: number) =>
+  v.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+const fmtPct = (v: number) => v.toFixed(1) + '%';
+const fmtRR  = (v: number) => v.toFixed(2) + 'R';
+
+// ── Sub-components ───────────────────────────────────────────────
+
+function IconBadge({ color, dim, children }: { color: string; dim: string; children: React.ReactNode }) {
+  return (
+    <div style={{
+      width: 40, height: 40, borderRadius: 8, flexShrink: 0,
+      background: dim, color,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }}>
+      {children}
+    </div>
+  );
 }
 
+function DeltaBadge({ value, neutral }: { value?: number; neutral?: string }) {
+  if (neutral !== undefined) {
+    return (
+      <span style={{
+        fontSize: 11, fontFamily: MONO, color: T3,
+        background: 'rgba(255,255,255,0.05)',
+        padding: '2px 7px', borderRadius: 3,
+      }}>{neutral}</span>
+    );
+  }
+  if (value === undefined) return null;
+  const pos = value >= 0;
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 2,
+      fontSize: 11, fontFamily: MONO, fontVariantNumeric: 'tabular-nums',
+      color: pos ? GREEN : RED,
+      background: pos ? GREEN_DIM : RED_DIM,
+      padding: '2px 7px', borderRadius: 3,
+    }}>
+      {pos ? <ArrowUpRight size={10} /> : <ArrowDownRight size={10} />}
+      {pos ? '+' : ''}{value.toFixed(1)}%
+    </span>
+  );
+}
+
+function DirBadge({ dir }: { dir: 'Long' | 'Short' }) {
+  const long = dir === 'Long';
+  return (
+    <span style={{
+      fontSize: 10, fontWeight: 600, fontFamily: SANS, letterSpacing: '0.06em',
+      color: long ? COBALT : '#f87171',
+      background: long ? COBALT_DIM : RED_DIM,
+      padding: '2px 7px', borderRadius: 3,
+    }}>
+      {dir.toUpperCase()}
+    </span>
+  );
+}
+
+function Pill({ color, bg, children }: { color: string; bg: string; children: string }) {
+  return (
+    <span style={{ fontSize: 10, fontWeight: 600, fontFamily: SANS, color, background: bg, padding: '2px 7px', borderRadius: 3 }}>
+      {children}
+    </span>
+  );
+}
+
+function ResultBadge({ trade }: { trade: Trade }) {
+  const open = !trade.exit_price || trade.exit_price === 0;
+  if (open)          return <Pill color={AMBER} bg={AMBER_DIM}>OPEN</Pill>;
+  if (trade.pnl > 0) return <Pill color={GREEN} bg={GREEN_DIM}>WIN</Pill>;
+  return                    <Pill color={RED}   bg={RED_DIM}>LOSS</Pill>;
+}
+
+function Card({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
+  return (
+    <div style={{ background: S1, border: `1px solid ${BORDER}`, borderRadius: 8, ...style }}>
+      {children}
+    </div>
+  );
+}
+
+function CardHeader({ title, sub, right }: { title: string; sub?: string; right?: React.ReactNode }) {
+  return (
+    <div style={{
+      padding: '14px 18px',
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      borderBottom: `1px solid ${BSUB}`,
+    }}>
+      <div>
+        <p style={{ fontSize: 13, fontWeight: 600, color: T1, margin: 0, marginBottom: sub ? 2 : 0 }}>{title}</p>
+        {sub && <p style={{ fontSize: 11, color: T3, margin: 0 }}>{sub}</p>}
+      </div>
+      {right}
+    </div>
+  );
+}
+
+function StatCard({ icon, color, dim, label, value, delta, neutral }: {
+  icon: React.ReactNode; color: string; dim: string;
+  label: string; value: string;
+  delta?: number; neutral?: string;
+}) {
+  return (
+    <Card>
+      <div style={{ padding: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
+        <IconBadge color={color} dim={dim}>{icon}</IconBadge>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <p style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: T3, marginBottom: 6 }}>
+            {label}
+          </p>
+          <p style={{
+            fontSize: 20, fontWeight: 600, fontFamily: MONO,
+            fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em',
+            lineHeight: 1, marginBottom: 6, color: T1,
+          }}>
+            {value}
+          </p>
+          {neutral !== undefined
+            ? <DeltaBadge neutral={neutral} />
+            : <DeltaBadge value={delta} />
+          }
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────
 export default function Dashboard() {
   const navigate = useNavigate();
   const { trades, loading } = useTrades();
-  const { filterTradesBySelectedAccount, selectedAccountId, accounts } = useAppSettings();
-  const filteredTrades = useMemo(() => filterTradesBySelectedAccount(trades), [filterTradesBySelectedAccount, trades]);
-  const summary = useMemo(() => buildAnalyticsSummary(filteredTrades), [filteredTrades]);
-  const streakStats = useMemo(() => computeStreaks(filteredTrades), [filteredTrades]);
-  const equityCurve = useMemo(() => buildEquityCurve(filteredTrades), [filteredTrades]);
-  const recentTrades = useMemo(() => buildRecentTrades(filteredTrades), [filteredTrades]);
-  const winLossRingData = useMemo(() => {
-    const wins = filteredTrades.filter(trade => trade.pnl > 0).length;
-    const losses = filteredTrades.filter(trade => trade.pnl < 0).length;
+  const [weekOffset, setWeekOffset] = useState(0);
+  const { accounts, selectedAccountId, setSelectedAccountId, filterTradesBySelectedAccount } = useAppSettings();
+  const filteredTrades = useMemo(
+    () => filterTradesBySelectedAccount(trades),
+    [filterTradesBySelectedAccount, trades],
+  );
+  const summary      = useMemo(() => buildAnalyticsSummary(filteredTrades), [filteredTrades]);
+  const recentTrades = useMemo(() => buildRecentTrades(filteredTrades).slice(0, 25), [filteredTrades]);
 
-    if (summary.totalTrades === 0 || wins + losses === 0) {
-      return [{ name: 'No trades', value: 1, color: RING_UNIFIED_COLOR }];
-    }
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
 
-    return [
-      { name: 'Wins', value: wins, color: RING_UNIFIED_COLOR },
-      { name: 'Losses', value: losses, color: RING_UNIFIED_COLOR },
-    ];
-  }, [filteredTrades, summary.totalTrades]);
-  const profitFactorRingData = useMemo(() => {
-    const grossProfit = filteredTrades
-      .filter(trade => trade.pnl > 0)
-      .reduce((sum, trade) => sum + trade.pnl, 0);
-    const grossLoss = Math.abs(
-      filteredTrades
-        .filter(trade => trade.pnl < 0)
-        .reduce((sum, trade) => sum + trade.pnl, 0)
-    );
+  const todayTrades = useMemo(
+    () => filteredTrades
+      .filter(t => t.trade_date === todayStr)
+      .sort((a, b) => (a.trade_time ?? '').localeCompare(b.trade_time ?? '')),
+    [filteredTrades, todayStr],
+  );
 
-    if (summary.totalTrades === 0 || (grossProfit === 0 && grossLoss === 0)) {
-      return [{ name: 'No trades', value: 1, color: RING_UNIFIED_COLOR }];
-    }
+  const tradesByDate = useMemo(() => {
+    const m: Record<string, Trade[]> = {};
+    filteredTrades.forEach(t => { (m[t.trade_date] ??= []).push(t); });
+    return m;
+  }, [filteredTrades]);
 
-    if (grossProfit === 0) {
-      return [{ name: 'Losses', value: grossLoss, color: RING_UNIFIED_COLOR }];
-    }
+  // Calendar week Mon–Sun
+  const weekDays = useMemo(() => {
+    const today = new Date();
+    const dow = today.getDay();
+    const mon = new Date(today);
+    mon.setDate(today.getDate() - ((dow + 6) % 7) + (weekOffset * 7));
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(mon);
+      d.setDate(mon.getDate() + i);
+      return d;
+    });
+  }, [weekOffset]);
 
-    if (grossLoss === 0) {
-      return [{ name: 'Profit', value: grossProfit, color: RING_UNIFIED_COLOR }];
-    }
+  const wins   = filteredTrades.filter(t => t.pnl > 0).length;
+  const losses = filteredTrades.filter(t => t.pnl < 0).length;
+  const winRingData = wins + losses > 0
+    ? [{ v: wins, c: GREEN }, { v: losses, c: 'rgba(255,255,255,0.06)' }]
+    : [{ v: 1, c: 'rgba(255,255,255,0.06)' }];
 
-    return [
-      { name: 'Profit', value: grossProfit, color: RING_UNIFIED_COLOR },
-      { name: 'Loss', value: grossLoss, color: RING_UNIFIED_COLOR },
-    ];
-  }, [filteredTrades, summary.totalTrades]);
+  const todayPnL    = todayTrades.reduce((s, t) => s + t.pnl, 0);
+  const selectedAcct = selectedAccountId !== ALL_ACCOUNTS_ID
+    ? accounts.find(a => a.id === selectedAccountId)
+    : undefined;
+  const acctName    = selectedAcct?.name ?? 'All Accounts';
+
+  const displayTrades = recentTrades;
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <LoadingSpinner size="lg" label="Loading dashboard..." />
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', background: 'var(--app-bg)' }}>
+        <LoadingSpinner size="lg" label="Loading..." />
       </div>
     );
   }
 
-  const selectedAccountName = selectedAccountId === 'all'
-    ? 'All Accounts'
-    : accounts.find(account => account.id === selectedAccountId)?.name ?? 'Default Account';
-
-  const stats = [
-    {
-      label: 'Total P&L',
-      value: formatCurrency(summary.netPnL),
-      icon: <DollarSign size={16} />,
-      color: summary.netPnL >= 0 ? 'text-emerald-400' : 'text-red-400',
-    },
-    {
-      label: 'Win Rate',
-      value: `${summary.winRate.toFixed(1)}%`,
-      icon: <Target size={16} />,
-      color: summary.winRate >= 50 ? 'text-emerald-400' : 'text-red-400',
-    },
-    {
-      label: 'Profit Factor',
-      value: summary.profitFactor >= 999 ? '-' : summary.profitFactor.toFixed(2),
-      icon: <BarChart2 size={16} />,
-      color: summary.profitFactor >= 1 ? 'text-emerald-400' : 'text-red-400',
-    },
-    {
-      label: 'Avg R:R',
-      value: summary.avgRR.toFixed(2),
-      icon: <TrendingUp size={16} />,
-      color: 'text-white',
-    },
-    {
-      label: 'Total Trades',
-      value: String(summary.totalTrades),
-      icon: <Hash size={16} />,
-      color: 'text-white',
-    },
-  ];
-
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div>
-        <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-        <p className="mt-1 text-sm text-slate-400">Overview of your trading performance for {selectedAccountName}</p>
-      </div>
+    <div style={{ display: 'flex', height: '100%', overflow: 'hidden', fontFamily: SANS }}>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-        {stats.map(stat => (
-          <div key={stat.label} className="glass-card p-5 flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-slate-400">{stat.label}</span>
-              <span className="text-slate-600">{stat.icon}</span>
+      {/* ═══════════════ MAIN CONTENT ═══════════════ */}
+      <div style={{ flex: 1, height: '100%', overflowY: 'auto', padding: 24, display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
+
+        {/* Top bar */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexShrink: 0 }}>
+          <div>
+            <h1 style={{ fontSize: 18, fontWeight: 600, color: T1, margin: 0, letterSpacing: '-0.02em' }}>
+              Dashboard
+            </h1>
+            <p style={{ fontSize: 12, color: T3, margin: '3px 0 0' }}>
+              {format(new Date(), 'EEEE, MMMM d')}
+              {' · '}
+              <span style={{ color: AMBER }}>{acctName}</span>
+            </p>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ position: 'relative' }}>
+              <select
+                value={selectedAccountId}
+                onChange={e => setSelectedAccountId(e.target.value)}
+                style={{
+                  height: 34, paddingLeft: 12, paddingRight: 28,
+                  appearance: 'none',
+                  background: S1, border: `1px solid ${BORDER}`,
+                  borderRadius: 5, fontSize: 12, fontFamily: SANS,
+                  color: T1, outline: 'none', cursor: 'pointer',
+                  minWidth: 170,
+                }}
+                onFocus={e => { e.currentTarget.style.borderColor = 'rgba(245,158,11,0.35)'; }}
+                onBlur={e =>  { e.currentTarget.style.borderColor = BORDER; }}
+              >
+                <option value={ALL_ACCOUNTS_ID}>All Accounts</option>
+                {accounts.map(a => (
+                  <option key={a.id} value={a.id}>{a.name}</option>
+                ))}
+              </select>
+              <span style={{ pointerEvents: 'none', position: 'absolute', right: 9, top: '50%', transform: 'translateY(-50%)', fontSize: 9, color: T3 }}>▼</span>
             </div>
-            {stat.label === 'Win Rate' || stat.label === 'Profit Factor' ? (
-              <div className="flex flex-1 items-center justify-between gap-3">
-                <span className={`text-3xl font-bold tracking-tight leading-none ${stat.color}`}>{stat.value}</span>
-                <div className="h-[60px] w-[60px] shrink-0">
-                  <PieChart width={60} height={60}>
-                    <Pie
-                      data={stat.label === 'Win Rate' ? winLossRingData : profitFactorRingData}
-                      dataKey="value"
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={23}
-                      outerRadius={27}
-                      stroke="none"
-                      isAnimationActive={false}
-                    >
-                      {(stat.label === 'Win Rate' ? winLossRingData : profitFactorRingData).map(segment => (
-                        <Cell key={segment.name} fill={segment.color} />
-                      ))}
-                    </Pie>
-                  </PieChart>
+            <button
+              onClick={() => navigate('/scanner')}
+              style={{
+                height: 34, padding: '0 14px',
+                background: AMBER, border: 'none', borderRadius: 5,
+                fontSize: 12, fontWeight: 600, color: '#000', cursor: 'pointer',
+                fontFamily: SANS, display: 'flex', alignItems: 'center', gap: 6,
+                transition: 'opacity 0.15s',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.opacity = '0.88'; }}
+              onMouseLeave={e => { e.currentTarget.style.opacity = '1'; }}
+            >
+              <TrendingUp size={13} />
+              Log Trade
+            </button>
+          </div>
+        </div>
+
+        {/* Stat cards */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, flexShrink: 0 }}>
+          <StatCard
+            icon={<TrendingUp size={17} />} color={AMBER} dim={AMBER_DIM}
+            label="Net P&L"
+            value={fmtUSD(summary.netPnL)}
+            delta={todayPnL !== 0 ? (todayPnL / Math.max(1, Math.abs(summary.netPnL - todayPnL))) * 100 : 0}
+          />
+          <StatCard
+            icon={<Clock size={17} />} color={COBALT} dim={COBALT_DIM}
+            label="Win Rate"
+            value={fmtPct(summary.winRate)}
+            delta={summary.winRate - 50}
+          />
+          <StatCard
+            icon={<LineChart size={17} />} color={GREEN} dim={GREEN_DIM}
+            label="Avg R:R"
+            value={fmtRR(summary.avgRR)}
+            delta={(summary.avgRR - 1) * 25}
+          />
+          <StatCard
+            icon={<BarChart2 size={17} />} color={RED} dim={RED_DIM}
+            label="Trades"
+            value={String(summary.totalTrades)}
+            neutral={`${todayTrades.length} Today`}
+          />
+        </div>
+
+        {/* 2-column content grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 260px', gap: 16, flex: 1, minHeight: 0 }}>
+
+          {/* Left column */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
+
+            {/* P&L Calendar */}
+            <Card style={{ flexShrink: 0 }}>
+              <div style={{ padding: '14px 18px' }}>
+                <MonthlyHeatmap trades={filteredTrades} />
+              </div>
+            </Card>
+
+            {/* Recent Trades table */}
+            <Card>
+              <CardHeader
+                title="Recent Trades"
+                sub={`${displayTrades.length} trade${displayTrades.length !== 1 ? 's' : ''}`}
+                right={
+                  <button style={{
+                    display: 'flex', alignItems: 'center', gap: 5,
+                    fontSize: 11, fontFamily: SANS, color: T2,
+                    background: S2, border: `1px solid ${BORDER}`,
+                    borderRadius: 4, padding: '5px 10px', cursor: 'pointer',
+                  }}>
+                    <Filter size={11} /> Filter
+                  </button>
+                }
+              />
+              {displayTrades.length === 0 ? (
+                <p style={{ textAlign: 'center', padding: '32px 0', fontSize: 13, color: T3 }}>
+                  No trades yet — log your first trade to get started.
+                </p>
+              ) : (
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr>
+                        {['Symbol', 'Dir', 'Entry', 'Exit', 'Qty', 'R:R', 'P&L', 'Result'].map(col => (
+                          <th key={col} style={{
+                            padding: '9px 14px',
+                            textAlign: col === 'P&L' || col === 'Result' ? 'right' : 'left',
+                            fontSize: 10, fontWeight: 600, letterSpacing: '0.08em',
+                            textTransform: 'uppercase', color: T3, whiteSpace: 'nowrap',
+                            borderBottom: `1px solid ${BSUB}`, fontFamily: SANS,
+                          }}>{col}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {displayTrades.map((trade, i) => {
+                        const rrVal = getTradeRiskReward(trade);
+                        return (
+                          <tr
+                            key={trade.id}
+                            style={{ borderBottom: i < displayTrades.length - 1 ? `1px solid ${BSUB}` : 'none', transition: 'background 0.12s' }}
+                            onMouseEnter={e => { (e.currentTarget as HTMLTableRowElement).style.background = 'rgba(255,255,255,0.015)'; }}
+                            onMouseLeave={e => { (e.currentTarget as HTMLTableRowElement).style.background = 'transparent'; }}
+                          >
+                            <td style={{ padding: '9px 14px' }}>
+                              <div style={{ fontSize: 13, fontWeight: 500, fontFamily: MONO, color: T1 }}>{trade.symbol || 'N/A'}</div>
+                              <div style={{ fontSize: 11, color: T3, marginTop: 1 }}>{trade.trade_date}</div>
+                            </td>
+                            <td style={{ padding: '9px 14px' }}>
+                              {(trade.direction === 'Long' || trade.direction === 'Short')
+                                ? <DirBadge dir={trade.direction} />
+                                : <span style={{ color: T3, fontSize: 12 }}>—</span>}
+                            </td>
+                            <td style={{ padding: '9px 14px', fontFamily: MONO, fontVariantNumeric: 'tabular-nums', fontSize: 12, color: T2 }}>
+                              ${trade.entry_price?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? '—'}
+                            </td>
+                            <td style={{ padding: '9px 14px', fontFamily: MONO, fontVariantNumeric: 'tabular-nums', fontSize: 12, color: T2 }}>
+                              ${trade.exit_price?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? '—'}
+                            </td>
+                            <td style={{ padding: '9px 14px', fontFamily: MONO, fontSize: 12, color: T2 }}>
+                              {trade.contract_size}
+                            </td>
+                            <td style={{ padding: '9px 14px', fontFamily: MONO, fontVariantNumeric: 'tabular-nums', fontSize: 12, color: T2 }}>
+                              {rrVal !== null ? fmtRR(rrVal) : '—'}
+                            </td>
+                            <td style={{ padding: '9px 14px', textAlign: 'right', fontFamily: MONO, fontVariantNumeric: 'tabular-nums', fontSize: 12, fontWeight: 600, color: trade.pnl > 0 ? GREEN : trade.pnl < 0 ? RED : AMBER }}>
+                              {fmtUSD(trade.pnl)}
+                            </td>
+                            <td style={{ padding: '9px 14px', textAlign: 'right' }}>
+                              <ResultBadge trade={trade} />
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Card>
+          </div>
+
+          {/* Right column — widgets */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, overflowY: 'auto' }}>
+
+            {/* Win Rate ring */}
+            <Card style={{ padding: 16, flexShrink: 0 }}>
+              <p style={{ fontSize: 12, fontWeight: 600, color: T1, marginBottom: 14 }}>Win Rate</p>
+              <div style={{ position: 'relative', display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
+                <PieChart width={110} height={110}>
+                  <Pie
+                    data={winRingData} dataKey="v"
+                    cx="50%" cy="50%"
+                    innerRadius={40} outerRadius={52}
+                    stroke="none" isAnimationActive={false}
+                    startAngle={90} endAngle={-270}
+                  >
+                    {winRingData.map((entry, i) => <Cell key={i} fill={entry.c} />)}
+                  </Pie>
+                </PieChart>
+                <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', textAlign: 'center' }}>
+                  <div style={{ fontSize: 20, fontWeight: 600, fontFamily: MONO, fontVariantNumeric: 'tabular-nums', color: T1, lineHeight: 1 }}>
+                    {fmtPct(summary.winRate)}
+                  </div>
+                  <div style={{ fontSize: 10, color: T3, marginTop: 3, letterSpacing: '0.06em' }}>Win Rate</div>
                 </div>
               </div>
-            ) : (
-              <span className={`flex flex-1 items-center text-3xl font-bold tracking-tight leading-none ${stat.color}`}>{stat.value}</span>
-            )}
-          </div>
-        ))}
+              <div style={{ display: 'flex', justifyContent: 'center', gap: 16 }}>
+                {[{ label: `${wins} wins`, color: GREEN }, { label: `${losses} losses`, color: RED }].map(l => (
+                  <span key={l.label} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: T2 }}>
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: l.color }} />
+                    {l.label}
+                  </span>
+                ))}
+              </div>
+            </Card>
 
-        <button
-          type="button"
-          onClick={() => navigate('/achievements')}
-          className="justify-self-start inline-flex items-center gap-3 rounded-full border border-emerald-500/40 bg-white/5 px-4 py-2 text-left cursor-pointer transition-all duration-200 hover:scale-105 hover:border-emerald-400/70 hover:bg-white/10 hover:shadow-[0_0_26px_rgba(16,185,129,0.25)]"
-          aria-label="Open achievements"
-        >
-          <Flame
-            size={16}
-            className={streakStats.currentWinStreak > 0 ? 'text-emerald-400' : 'text-slate-400'}
-          />
-          <div className="flex min-w-0 flex-col leading-tight">
-            <span className={`text-sm font-semibold ${streakStats.currentWinStreak > 0 ? 'text-emerald-300' : 'text-slate-300'}`}>
-              {streakStats.currentWinStreak} in a row
-            </span>
-            <span className="text-[11px] text-slate-400">Best: {streakStats.bestWinStreak}</span>
-          </div>
-        </button>
-      </div>
-
-      <div className="glass-card p-6">
-        <MonthlyHeatmap trades={filteredTrades} />
-      </div>
-
-      <div className="glass-card p-6">
-        <h2 className="mb-4 text-sm font-semibold text-slate-300">Equity Curve</h2>
-        <EquityCurve data={equityCurve} />
-      </div>
-
-      <div className="glass-card overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-700/50">
-          <h2 className="text-sm font-semibold text-slate-300">Recent Trades</h2>
-        </div>
-        {recentTrades.length === 0 ? (
-          <p className="py-10 text-center text-sm text-slate-500">No trades yet.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-slate-500 text-xs border-b border-slate-700/40 bg-slate-900/20">
-                  <th className="text-left px-6 py-3 font-medium">Date</th>
-                  <th className="text-left px-4 py-3 font-medium">Symbol</th>
-                  <th className="text-left px-4 py-3 font-medium">Direction</th>
-                  <th className="text-right px-4 py-3 font-medium">Entry</th>
-                  <th className="text-right px-4 py-3 font-medium">Exit</th>
-                  <th className="text-right px-4 py-3 font-medium">Size</th>
-                  <th className="text-right px-4 py-3 font-medium">P&L</th>
-                  <th className="text-right px-6 py-3 font-medium">R:R</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-700/30">
-                {recentTrades.map(trade => {
-                  const rr = getTradeRiskReward(trade);
-                  const direction = trade.direction === 'Long' || trade.direction === 'Short' ? trade.direction : null;
+            {/* Calendar strip */}
+            <Card style={{ padding: 16, flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 2 }}>
+                <p style={{ fontSize: 12, fontWeight: 600, color: T1, margin: 0 }}>
+                  Today, {format(new Date(), 'MMM d')}
+                </p>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                  {weekOffset !== 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setWeekOffset(0)}
+                      style={{
+                        height: 20,
+                        padding: '0 7px',
+                        borderRadius: 4,
+                        border: `1px solid ${BORDER}`,
+                        background: 'transparent',
+                        color: T2,
+                        fontSize: 10,
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Now
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setWeekOffset(prev => prev - 1)}
+                    aria-label="Previous week"
+                    style={{
+                      width: 20,
+                      height: 20,
+                      display: 'grid',
+                      placeItems: 'center',
+                      borderRadius: 4,
+                      border: `1px solid ${BORDER}`,
+                      background: 'transparent',
+                      color: T2,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <ChevronLeft size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setWeekOffset(prev => prev + 1)}
+                    aria-label="Next week"
+                    style={{
+                      width: 20,
+                      height: 20,
+                      display: 'grid',
+                      placeItems: 'center',
+                      borderRadius: 4,
+                      border: `1px solid ${BORDER}`,
+                      background: 'transparent',
+                      color: T2,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <ChevronRight size={12} />
+                  </button>
+                </div>
+              </div>
+              <p style={{ fontSize: 10, color: T3, marginBottom: 12 }}>
+                Week of {format(weekDays[0], 'MMM d')}
+                {weekOffset !== 0 ? ` (${weekOffset > 0 ? '+' : ''}${weekOffset}w)` : ''}
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3 }}>
+                {weekDays.map(day => {
+                  const ds      = format(day, 'yyyy-MM-dd');
+                  const dayTr   = tradesByDate[ds] ?? [];
+                  const isToday = ds === todayStr;
+                  const dayW    = dayTr.filter(t => t.pnl > 0);
+                  const dayL    = dayTr.filter(t => t.pnl < 0);
                   return (
-                    <tr key={trade.id} className="hover:bg-slate-700/20 transition-colors">
-                      <td className="px-6 py-3 text-slate-400 text-xs whitespace-nowrap">
-                        {formatTradeDateLabel(trade.trade_date)}
-                      </td>
-                      <td className="px-4 py-3 text-slate-100 font-semibold">{trade.symbol || 'N/A'}</td>
-                      <td className="px-4 py-3">
-                        {direction ? (
-                          <span
-                            className={`text-xs font-semibold px-2 py-0.5 rounded ${
-                              direction === 'Long'
-                                ? 'bg-emerald-500/15 text-emerald-400'
-                                : 'bg-red-500/15 text-red-400'
-                            }`}
-                          >
-                            {direction.toUpperCase()}
-                          </span>
-                        ) : (
-                          <span className="text-slate-500">N/A</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-right text-slate-300 tabular-nums">
-                        ${formatPrice(trade.entry_price)}
-                      </td>
-                      <td className="px-4 py-3 text-right text-slate-300 tabular-nums">
-                        ${formatPrice(trade.exit_price)}
-                      </td>
-                      <td className="px-4 py-3 text-right text-slate-300">{trade.contract_size}</td>
-                      <td className={`px-4 py-3 text-right font-bold tabular-nums ${trade.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {formatCurrency(trade.pnl)}
-                      </td>
-                      <td className="px-6 py-3 text-right text-slate-400 tabular-nums">
-                        {rr !== null ? `${rr.toFixed(2)}R` : 'N/A'}
-                      </td>
-                    </tr>
+                    <div key={ds} style={{
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+                      padding: '5px 2px', borderRadius: 5,
+                      background: isToday ? AMBER_DIM : 'transparent',
+                    }}>
+                      <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: isToday ? AMBER : T3 }}>
+                        {format(day, 'EEE').slice(0, 2)}
+                      </span>
+                      <span style={{ fontSize: 12, fontWeight: 500, color: isToday ? AMBER : T1 }}>
+                        {format(day, 'd')}
+                      </span>
+                      <div style={{ display: 'flex', gap: 2, flexWrap: 'wrap', justifyContent: 'center', minHeight: 8 }}>
+                        {dayW.slice(0, 3).map((_, i) => <span key={`w${i}`} style={{ width: 4, height: 4, borderRadius: '50%', background: GREEN }} />)}
+                        {dayL.slice(0, 3).map((_, i) => <span key={`l${i}`} style={{ width: 4, height: 4, borderRadius: '50%', background: RED }} />)}
+                      </div>
+                    </div>
                   );
                 })}
-              </tbody>
-            </table>
+              </div>
+            </Card>
+
+            {/* Daily trade log */}
+            <Card style={{ padding: 16, flex: 1 }}>
+              <p style={{ fontSize: 12, fontWeight: 600, color: T1, marginBottom: 12 }}>Today's Log</p>
+              {todayTrades.length === 0 ? (
+                <p style={{ fontSize: 12, color: T3, textAlign: 'center', padding: '16px 0' }}>No trades today.</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {todayTrades.map(trade => {
+                    const open   = !trade.exit_price || trade.exit_price === 0;
+                    const isWin  = trade.pnl > 0;
+                    const badgeBg    = open ? AMBER_DIM   : isWin ? 'rgba(34,197,94,0.10)'  : RED_DIM;
+                    const badgeColor = open ? AMBER        : isWin ? GREEN                    : RED;
+                    const Icon       = open ? TrendingUp   : isWin ? ArrowUpRight             : ArrowDownRight;
+                    return (
+                      <div key={trade.id} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                        <span style={{ fontSize: 10, fontFamily: MONO, color: T3, flexShrink: 0, width: 36 }}>
+                          {(trade.trade_time ?? '--:--').slice(0, 5)}
+                        </span>
+                        <div style={{ width: 28, height: 28, borderRadius: 6, flexShrink: 0, background: badgeBg, color: badgeColor, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <Icon size={13} />
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 12, fontWeight: 500, color: T1, fontFamily: MONO }}>{trade.symbol}</div>
+                          <div style={{ fontSize: 10, color: T3 }}>{trade.direction} · {trade.session}</div>
+                        </div>
+                        <span style={{ fontSize: 12, fontFamily: MONO, fontVariantNumeric: 'tabular-nums', fontWeight: 600, flexShrink: 0, color: open ? AMBER : isWin ? GREEN : RED }}>
+                          {fmtUSD(trade.pnl)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </Card>
           </div>
-        )}
+        </div>
       </div>
     </div>
   );

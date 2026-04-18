@@ -107,6 +107,16 @@ const SESSION_COLORS: Record<SessionTimeKey, string> = {
   newYork: '#34d399',
 };
 
+const AMBER = '#f59e0b';
+const AMBER_DIM = 'rgba(245,158,11,0.1)';
+const S1 = 'var(--app-panel)';
+const S2 = 'var(--app-panel-strong)';
+const BORDER = 'var(--app-border)';
+const BSUB = 'rgba(255,255,255,0.04)';
+const T1 = 'var(--app-text)';
+const T3 = 'var(--app-text-subtle)';
+const SANS = 'var(--font-sans)';
+
 function hexToRgba(hex: string, alpha: number): string {
   const normalized = hex.replace('#', '');
   if (normalized.length !== 6) return `rgba(79,142,247,${alpha})`;
@@ -174,17 +184,17 @@ function SectionDivider({ label }: { label: string }) {
     <div className="mb-5 flex items-center gap-3">
       <span
         style={{
-          color: '#3b82f6',
-          fontSize: '11px',
+          color: T3,
+          fontSize: '10px',
           fontWeight: 600,
           textTransform: 'uppercase',
-          letterSpacing: '0.07em',
+          letterSpacing: '0.09em',
           whiteSpace: 'nowrap',
         }}
       >
         {label}
       </span>
-      <div style={{ flex: 1, height: '1px', background: 'rgba(51,65,85,0.5)' }} />
+      <div style={{ flex: 1, height: '1px', background: BSUB }} />
     </div>
   );
 }
@@ -199,7 +209,7 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
         fontWeight: 600,
         textTransform: 'uppercase',
         letterSpacing: '0.07em',
-        color: 'rgba(100,116,139,0.9)',
+        color: T3,
       }}
     >
       {children}
@@ -229,16 +239,17 @@ function StyledSelect({
         style={{
           width: '100%',
           appearance: 'none',
-          background: '#070c18',
-          border: `1px solid ${focused ? '#2563eb' : 'rgba(255,255,255,0.12)'}`,
-          borderRadius: '8px',
+          background: S2,
+          border: `1px solid ${focused ? AMBER : BORDER}`,
+          borderRadius: '6px',
           padding: compact ? '6px 32px 6px 10px' : '10px 36px 10px 12px',
-          color: '#e2e8f0',
+          color: T1,
           fontSize: compact ? '12px' : '13px',
           outline: 'none',
           cursor: 'pointer',
-          boxShadow: focused ? '0 0 0 3px rgba(37,99,235,0.15)' : 'none',
+          boxShadow: focused ? '0 0 0 3px rgba(245,158,11,0.14)' : 'none',
           transition: 'border-color 0.15s, box-shadow 0.15s',
+          fontFamily: SANS,
         }}
       >
         {children}
@@ -246,7 +257,7 @@ function StyledSelect({
       <ChevronDown
         size={12}
         className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2"
-        style={{ color: 'rgba(100,116,139,0.7)' }}
+        style={{ color: T3 }}
       />
     </div>
   );
@@ -277,16 +288,17 @@ function WorkspaceSelect({
           width: '100%',
           appearance: 'none',
           colorScheme: 'dark',
-          background: '#0a0f1c',
-          border: `1px solid ${focused ? '#4f8ef7' : hovered ? '#2a3f63' : '#1e2d48'}`,
-          borderRadius: '8px',
+          background: S2,
+          border: `1px solid ${focused ? AMBER : hovered ? 'rgba(255,255,255,0.16)' : BORDER}`,
+          borderRadius: '6px',
           padding: '10px 36px 10px 12px',
-          color: '#c8d8f0',
+          color: T1,
           fontSize: '13px',
           fontWeight: 500,
           outline: 'none',
-          boxShadow: focused ? '0 0 0 3px rgba(79,142,247,0.12)' : 'none',
+          boxShadow: focused ? '0 0 0 3px rgba(245,158,11,0.14)' : 'none',
           transition: 'border-color 0.15s, box-shadow 0.15s',
+          fontFamily: SANS,
         }}
       >
         {children}
@@ -299,7 +311,7 @@ function WorkspaceSelect({
           transform: 'translateY(-50%)',
           pointerEvents: 'none',
           display: 'inline-flex',
-          color: '#5f7395',
+          color: T3,
         }}
       >
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
@@ -333,16 +345,17 @@ function SessionTimeField({
         style={{
           width: '100%',
           colorScheme: 'dark',
-          background: '#0a0f1c',
-          border: `1px solid ${focused ? '#4f8ef7' : hovered ? '#2a3f63' : '#1e2d48'}`,
-          borderRadius: '8px',
+          background: S2,
+          border: `1px solid ${focused ? AMBER : hovered ? 'rgba(255,255,255,0.16)' : BORDER}`,
+          borderRadius: '6px',
           padding: '10px 36px 10px 12px',
-          color: '#c8d8f0',
+          color: T1,
           fontSize: '13px',
           fontWeight: 500,
           outline: 'none',
-          boxShadow: focused ? '0 0 0 3px rgba(79,142,247,0.12)' : 'none',
+          boxShadow: focused ? '0 0 0 3px rgba(245,158,11,0.14)' : 'none',
           transition: 'border-color 0.15s, box-shadow 0.15s',
+          fontFamily: SANS,
         }}
       />
       <span
@@ -353,7 +366,7 @@ function SessionTimeField({
           transform: 'translateY(-50%)',
           pointerEvents: 'none',
           display: 'inline-flex',
-          color: '#5f7395',
+          color: T3,
         }}
       >
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -386,7 +399,7 @@ function StatusSelect({
         style={{
           width: '100%',
           appearance: 'none',
-          background: isBlown ? 'rgba(127,29,29,0.82)' : '#08111f',
+          background: isBlown ? 'rgba(127,29,29,0.82)' : S2,
           border: `1px solid ${focused ? palette.color : isBlown ? 'rgba(252,165,165,0.85)' : palette.border}`,
           borderRadius: '999px',
           padding: isBlown ? '6px 28px 6px 31px' : '6px 28px 6px 12px',
@@ -403,6 +416,7 @@ function StatusSelect({
               ? 'inset 0 0 0 1px rgba(239,68,68,0.32), 0 0 20px rgba(239,68,68,0.2)'
               : `inset 0 0 0 1px ${palette.background}`,
           transition: 'border-color 0.15s, box-shadow 0.15s',
+          fontFamily: SANS,
         }}
       >
         {ACCOUNT_STATUSES.map(status => (
@@ -410,7 +424,7 @@ function StatusSelect({
             key={status}
             value={status}
             style={{
-              backgroundColor: '#08111f',
+              backgroundColor: S2,
               color: ACCOUNT_STATUS_STYLES[status].color,
               fontWeight: 700,
             }}
@@ -449,16 +463,16 @@ function SectionCard({
   return (
     <div
       style={{
-        background: '#0d1526',
-        border: '1px solid rgba(30,41,59,0.9)',
-        borderRadius: '14px',
-        padding: '24px',
+        background: S1,
+        border: `1px solid ${BORDER}`,
+        borderRadius: '8px',
+        padding: '16px',
       }}
     >
       <div className="mb-5 flex items-start justify-between gap-4">
         <div>
-          <p style={{ fontSize: '15px', fontWeight: 600, color: '#f1f5f9', marginBottom: '4px' }}>{title}</p>
-          <p style={{ fontSize: '12px', color: 'rgba(100,116,139,0.9)' }}>{subtitle}</p>
+          <p style={{ fontSize: '14px', fontWeight: 600, color: T1, marginBottom: '4px' }}>{title}</p>
+          <p style={{ fontSize: '12px', color: T3 }}>{subtitle}</p>
         </div>
         {headerRight}
       </div>
@@ -572,13 +586,14 @@ export default function Settings() {
     background: 'transparent',
     border: 'none',
     outline: 'none',
-    color: '#e2e8f0',
+    color: T1,
     fontSize: '13px',
     padding: '4px 0',
+    fontFamily: SANS,
   };
 
   const tableInputFocusedStyle: React.CSSProperties = {
-    borderBottom: '1px solid rgba(37,99,235,0.5)',
+    borderBottom: `1px solid ${AMBER}`,
   };
 
   useEffect(() => {
@@ -641,29 +656,34 @@ export default function Settings() {
   ), []);
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div
+      className="animate-fade-in space-y-4"
+      style={{
+        fontFamily: SANS,
+      }}
+    >
 
-      {/* â”€â”€ Page header â”€â”€ */}
+      {/* Page header */}
       <div>
-        <h1 style={{ fontSize: '22px', fontWeight: 600, color: '#f1f5f9', lineHeight: 1.2 }}>Settings</h1>
-        <p style={{ marginTop: '6px', fontSize: '13px', color: 'rgba(100,116,139,0.9)' }}>
+        <h1 style={{ fontSize: '18px', fontWeight: 600, color: T1, lineHeight: 1.2 }}>Settings</h1>
+        <p style={{ marginTop: '4px', fontSize: '12px', color: T3 }}>
           Manage workspace preferences, display defaults, and trading accounts.
         </p>
       </div>
 
-      {/* â”€â”€ Nav cards â”€â”€ */}
+      {/* Nav cards */}
       <div
         style={{
           position: 'sticky',
-          top: '10px',
+          top: '8px',
           zIndex: 25,
           display: 'grid',
           gridTemplateColumns: 'repeat(3, 1fr)',
           gap: '12px',
           padding: '8px',
-          borderRadius: '14px',
-          border: '1px solid rgba(51,65,85,0.42)',
-          background: 'linear-gradient(180deg,rgba(8,13,25,0.92),rgba(8,13,25,0.78))',
+          borderRadius: '8px',
+          border: `1px solid ${BORDER}`,
+          background: S1,
           backdropFilter: 'blur(8px)',
         }}
       >
@@ -676,42 +696,42 @@ export default function Settings() {
               onClick={() => scrollToSection(section.key, section.ref)}
               style={{
                 textAlign: 'left',
-                background: isActive ? '#111d35' : '#0d1526',
-                border: `1px solid ${isActive ? '#2563eb' : 'rgba(30,41,59,0.9)'}`,
-                borderRadius: '12px',
-                padding: '16px',
+                background: isActive ? AMBER_DIM : S2,
+                border: `1px solid ${isActive ? AMBER : BORDER}`,
+                borderRadius: '6px',
+                padding: '12px',
                 cursor: 'pointer',
                 transition: 'border-color 0.15s, background 0.15s',
               }}
               onMouseEnter={e => {
-                if (!isActive) (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(51,65,85,0.9)';
+                if (!isActive) (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(255,255,255,0.16)';
               }}
               onMouseLeave={e => {
-                if (!isActive) (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(30,41,59,0.9)';
+                if (!isActive) (e.currentTarget as HTMLButtonElement).style.borderColor = BORDER;
               }}
             >
               <div className="flex items-start gap-3">
                 <div
                   style={{
-                    width: '32px',
-                    height: '32px',
-                    borderRadius: '8px',
-                    background: isActive ? 'rgba(37,99,235,0.15)' : 'rgba(15,23,42,0.8)',
-                    border: `1px solid ${isActive ? 'rgba(37,99,235,0.3)' : 'rgba(51,65,85,0.5)'}`,
+                    width: '28px',
+                    height: '28px',
+                    borderRadius: '6px',
+                    background: isActive ? AMBER_DIM : S1,
+                    border: `1px solid ${isActive ? 'rgba(245,158,11,0.35)' : BORDER}`,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     flexShrink: 0,
-                    color: isActive ? '#60a5fa' : 'rgba(100,116,139,0.8)',
+                    color: isActive ? AMBER : T3,
                   }}
                 >
                   {section.icon}
                 </div>
                 <div>
-                  <p style={{ fontSize: '13px', fontWeight: 600, color: '#f1f5f9', marginBottom: '3px' }}>
+                  <p style={{ fontSize: '12px', fontWeight: 600, color: T1, marginBottom: '3px' }}>
                     {section.title}
                   </p>
-                  <p style={{ fontSize: '11px', color: 'rgba(100,116,139,0.8)', lineHeight: 1.4 }}>
+                  <p style={{ fontSize: '11px', color: T3, lineHeight: 1.4 }}>
                     {section.description}
                   </p>
                 </div>
@@ -721,7 +741,7 @@ export default function Settings() {
         })}
       </div>
 
-      {/* â”€â”€ General section â”€â”€ */}
+      {/* General section */}
       <section ref={generalRef} style={{ scrollMarginTop: '140px' }}>
         <SectionDivider label="General" />
         <SectionCard
@@ -738,7 +758,7 @@ export default function Settings() {
                   fontWeight: 600,
                   textTransform: 'uppercase',
                   letterSpacing: '0.08em',
-                  color: '#3d4f6e',
+                    color: T3,
                 }}
               >
                 Theme
@@ -761,7 +781,7 @@ export default function Settings() {
                   fontWeight: 600,
                   textTransform: 'uppercase',
                   letterSpacing: '0.08em',
-                  color: '#3d4f6e',
+                    color: T3,
                 }}
               >
                 Date Format
@@ -785,7 +805,7 @@ export default function Settings() {
                   fontWeight: 600,
                   textTransform: 'uppercase',
                   letterSpacing: '0.08em',
-                  color: '#3d4f6e',
+                    color: T3,
                 }}
               >
                 Currency Symbol
@@ -810,7 +830,7 @@ export default function Settings() {
                   fontWeight: 600,
                   textTransform: 'uppercase',
                   letterSpacing: '0.08em',
-                  color: '#3d4f6e',
+                    color: T3,
                 }}
               >
                 Timezone
@@ -847,10 +867,10 @@ export default function Settings() {
                   <div
                     key={session.key}
                     style={{
-                      border: '1px solid #1a2035',
-                      borderRadius: '10px',
+                      border: `1px solid ${BORDER}`,
+                      borderRadius: '8px',
                       padding: '14px',
-                      background: '#0a0f1c',
+                      background: S2,
                     }}
                   >
                     <div className="mb-3 flex items-center justify-between gap-3">
@@ -864,7 +884,7 @@ export default function Settings() {
                             boxShadow: `0 0 0 5px ${hexToRgba(sessionColor, 0.22)}`,
                           }}
                         />
-                        <p style={{ fontSize: '12px', fontWeight: 600, color: '#f1f5f9' }}>
+                        <p style={{ fontSize: '12px', fontWeight: 600, color: T1 }}>
                           {session.label}
                         </p>
                       </div>
@@ -888,13 +908,13 @@ export default function Settings() {
                     <div className="mb-3">
                       <div
                         style={{
-                          position: 'relative',
-                          height: '4px',
-                          borderRadius: '999px',
-                          background: '#141c2e',
-                          overflow: 'hidden',
-                        }}
-                      >
+                            position: 'relative',
+                            height: '4px',
+                            borderRadius: '999px',
+                            background: 'rgba(255,255,255,0.06)',
+                            overflow: 'hidden',
+                          }}
+                        >
                         {timelineSegments.map((segment, index) => (
                           <span
                             key={`${session.key}-${index}`}
@@ -923,8 +943,8 @@ export default function Settings() {
                             style={{
                               textAlign: 'center',
                               fontSize: '9px',
-                              color: '#293552',
-                              fontFamily: 'Geist Mono, Menlo, Monaco, Consolas, monospace',
+                              color: T3,
+                              fontFamily: 'var(--font-mono)',
                             }}
                           >
                             {tick}
@@ -957,7 +977,7 @@ export default function Settings() {
         </div>
       </section>
 
-      {/* â”€â”€ Display section â”€â”€ */}
+      {/* Display section */}
       <section ref={displayRef} style={{ scrollMarginTop: '140px' }}>
         <SectionDivider label="Display" />
         <SectionCard
@@ -993,7 +1013,7 @@ export default function Settings() {
         </SectionCard>
       </section>
 
-      {/* â”€â”€ Accounts section â”€â”€ */}
+      {/* Accounts section */}
       <section ref={accountsRef} style={{ scrollMarginTop: '140px' }}>
         <SectionDivider label="Accounts" />
         <SectionCard
@@ -1004,22 +1024,23 @@ export default function Settings() {
               type="button"
               onClick={() => setShowAddAccountModal(true)}
               style={{
+                height: '34px',
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '6px',
-                background: '#2563eb',
+                background: AMBER,
                 border: 'none',
-                borderRadius: '8px',
-                padding: '7px 14px',
-                color: '#fff',
+                borderRadius: '5px',
+                padding: '0 14px',
+                color: '#000',
                 fontSize: '12px',
                 fontWeight: 600,
                 cursor: 'pointer',
                 flexShrink: 0,
-                transition: 'background 0.15s',
+                transition: 'opacity 0.15s',
               }}
-              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = '#1d4ed8'; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = '#2563eb'; }}
+              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.opacity = '0.88'; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.opacity = '1'; }}
             >
               <Plus size={13} />
               Add Account
@@ -1033,7 +1054,7 @@ export default function Settings() {
               gridTemplateColumns: ACCOUNT_TABLE_GRID_COLUMNS,
               gap: ACCOUNT_TABLE_COLUMN_GAP,
               padding: '0 4px 8px',
-              borderBottom: '1px solid rgba(51,65,85,0.4)',
+              borderBottom: `1px solid ${BSUB}`,
               marginBottom: '4px',
             }}
           >
@@ -1045,7 +1066,7 @@ export default function Settings() {
                   fontWeight: 600,
                   textTransform: 'uppercase',
                   letterSpacing: '0.07em',
-                  color: 'rgba(71,85,105,0.8)',
+                  color: T3,
                 }}
               >
                 {col}
@@ -1066,7 +1087,7 @@ export default function Settings() {
                     padding: '10px 4px',
                     borderBottom: account.status === 'Blown'
                       ? '1px solid rgba(248,113,113,0.26)'
-                      : '1px solid rgba(30,41,59,0.7)',
+                      : `1px solid ${BSUB}`,
                     background: account.status === 'Blown' ? 'rgba(127,29,29,0.08)' : 'transparent',
                     borderRadius: account.status === 'Blown' ? '8px' : '0',
                   }}
@@ -1086,8 +1107,8 @@ export default function Settings() {
                         style={{
                           display: 'inline-block',
                           marginTop: '4px',
-                          background: 'rgba(37,99,235,0.12)',
-                          color: '#60a5fa',
+                          background: AMBER_DIM,
+                          color: AMBER,
                           fontSize: '10px',
                           fontWeight: 600,
                           textTransform: 'uppercase',
@@ -1134,7 +1155,7 @@ export default function Settings() {
                           display: 'inline-block',
                           fontSize: '10px',
                           fontWeight: 600,
-                          color: 'rgba(100,116,139,0.9)',
+                          color: T3,
                         }}
                       >
                         -
@@ -1255,8 +1276,8 @@ export default function Settings() {
               marginTop: '4px',
               background: 'transparent',
               border: 'none',
-              borderTop: '1px solid rgba(30,41,59,0.8)',
-              color: 'rgba(100,116,139,0.7)',
+              borderTop: `1px solid ${BSUB}`,
+              color: T3,
               fontSize: '12px',
               cursor: 'pointer',
               borderRadius: '0 0 6px 6px',
@@ -1264,13 +1285,13 @@ export default function Settings() {
             }}
             onMouseEnter={e => {
               const el = e.currentTarget as HTMLButtonElement;
-              el.style.background = 'rgba(37,99,235,0.06)';
-              el.style.color = '#60a5fa';
+              el.style.background = AMBER_DIM;
+              el.style.color = AMBER;
             }}
             onMouseLeave={e => {
               const el = e.currentTarget as HTMLButtonElement;
               el.style.background = 'transparent';
-              el.style.color = 'rgba(100,116,139,0.7)';
+              el.style.color = T3;
             }}
           >
             <Plus size={13} />
@@ -1291,12 +1312,12 @@ export default function Settings() {
             gap: '8px',
             borderRadius: '999px',
             border: '1px solid rgba(74,222,128,0.45)',
-            background: 'rgba(6,78,59,0.92)',
+            background: 'rgba(6,78,59,0.9)',
             color: '#bbf7d0',
             padding: '9px 14px',
             fontSize: '12px',
             fontWeight: 600,
-            boxShadow: '0 14px 34px rgba(2,6,23,0.34)',
+            boxShadow: '0 12px 30px rgba(2,6,23,0.34)',
           }}
         >
           <Check size={14} />
@@ -1316,17 +1337,17 @@ export default function Settings() {
             style={{
               position: 'relative',
               width: 'min(680px, 100%)',
-              borderRadius: '16px',
-              border: '1px solid rgba(51,65,85,0.9)',
-              background: 'linear-gradient(180deg,rgba(13,21,38,0.96),rgba(8,13,25,0.96))',
-              boxShadow: '0 28px 80px rgba(2,6,23,0.6)',
+              borderRadius: '10px',
+              border: `1px solid ${BORDER}`,
+              background: S1,
+              boxShadow: '0 28px 80px rgba(2,6,23,0.5)',
               padding: '18px',
             }}
           >
             <div className="mb-4 flex items-start justify-between gap-4">
               <div>
-                <p style={{ fontSize: '16px', fontWeight: 600, color: '#f1f5f9' }}>Add Trading Account</p>
-                <p style={{ marginTop: '4px', fontSize: '12px', color: 'rgba(148,163,184,0.9)' }}>
+                <p style={{ fontSize: '15px', fontWeight: 600, color: T1 }}>Add Trading Account</p>
+                <p style={{ marginTop: '4px', fontSize: '12px', color: T3 }}>
                   Create an account profile without cluttering the table.
                 </p>
               </div>
@@ -1340,9 +1361,9 @@ export default function Settings() {
                   width: '34px',
                   height: '34px',
                   borderRadius: '999px',
-                  border: '1px solid rgba(51,65,85,0.7)',
-                  background: 'rgba(2,6,23,0.55)',
-                  color: '#94a3b8',
+                  border: `1px solid ${BORDER}`,
+                  background: S2,
+                  color: T3,
                 }}
               >
                 <X size={14} />
@@ -1355,9 +1376,9 @@ export default function Settings() {
                 <input
                   style={{
                     ...tableInputStyle,
-                    background: '#070c18',
-                    border: '1px solid rgba(51,65,85,0.7)',
-                    borderRadius: '8px',
+                    background: S2,
+                    border: `1px solid ${BORDER}`,
+                    borderRadius: '6px',
                     padding: '10px 12px',
                   }}
                   placeholder="Account name"
@@ -1372,9 +1393,9 @@ export default function Settings() {
                 <input
                   style={{
                     ...tableInputStyle,
-                    background: '#070c18',
-                    border: '1px solid rgba(51,65,85,0.7)',
-                    borderRadius: '8px',
+                    background: S2,
+                    border: `1px solid ${BORDER}`,
+                    borderRadius: '6px',
                     padding: '10px 12px',
                   }}
                   placeholder="Broker"
@@ -1389,9 +1410,9 @@ export default function Settings() {
                   type="password"
                   style={{
                     ...tableInputStyle,
-                    background: '#070c18',
-                    border: '1px solid rgba(51,65,85,0.7)',
-                    borderRadius: '8px',
+                    background: S2,
+                    border: `1px solid ${BORDER}`,
+                    borderRadius: '6px',
                     padding: '10px 12px',
                   }}
                   placeholder="Account login or key"

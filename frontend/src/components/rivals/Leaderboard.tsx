@@ -9,17 +9,28 @@ interface LeaderboardProps {
 }
 
 const TABS: { key: LeaderboardMetric; label: string; unit: string }[] = [
-  { key: 'streak',      label: 'Streak',     unit: 'days' },
-  { key: 'discipline',  label: 'Discipline', unit: 'pts' },
-  { key: 'backtest',    label: 'Backtest',   unit: 'hrs' },
-  { key: 'psychology',  label: 'Psychology', unit: 'pts' },
+  { key: 'streak', label: 'Streak', unit: 'days' },
+  { key: 'discipline', label: 'Discipline', unit: 'pts' },
+  { key: 'backtest', label: 'Backtest', unit: 'hrs' },
+  { key: 'psychology', label: 'Psychology', unit: 'pts' },
 ];
 
-const RANK_CFG: Record<number, { color: string; glow: string; rowBg: string }> = {
-  1: { color: '#f59e0b', glow: 'rgba(245,158,11,0.5)',  rowBg: 'rgba(245,158,11,0.04)' },
-  2: { color: '#94a3b8', glow: 'rgba(148,163,184,0.35)', rowBg: 'rgba(148,163,184,0.025)' },
-  3: { color: '#b87333', glow: 'rgba(184,115,51,0.35)',  rowBg: 'rgba(184,115,51,0.03)' },
+const RANK_CFG: Record<number, { color: string; rowBg: string }> = {
+  1: { color: '#f59e0b', rowBg: 'rgba(245,158,11,0.06)' },
+  2: { color: '#94a3b8', rowBg: 'rgba(148,163,184,0.04)' },
+  3: { color: '#b87333', rowBg: 'rgba(184,115,51,0.04)' },
 };
+
+const COBALT = '#1E6FFF';
+const COBALT_DIM = 'rgba(30,111,255,0.10)';
+const S1 = 'var(--app-panel)';
+const BORDER = 'var(--app-border)';
+const BSUB = 'rgba(255,255,255,0.04)';
+const T1 = 'var(--app-text)';
+const T2 = 'var(--app-text-muted)';
+const T3 = 'var(--app-text-subtle)';
+const MONO = 'var(--font-mono)';
+const SANS = 'var(--font-sans)';
 
 export default function Leaderboard({ rivals, currentUserId, defaultMetric = 'streak' }: LeaderboardProps) {
   const [metric, setMetric] = useState<LeaderboardMetric>(defaultMetric);
@@ -33,34 +44,31 @@ export default function Leaderboard({ rivals, currentUserId, defaultMetric = 'st
   return (
     <div
       style={{
-        background: '#0a1120',
-        border: '1px solid rgba(255,255,255,0.06)',
-        borderRadius: 14,
+        background: S1,
+        border: `1px solid ${BORDER}`,
+        borderRadius: 8,
         overflow: 'hidden',
       }}
     >
-      {/* Header */}
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          padding: '13px 20px 0',
-          background: 'rgba(255,255,255,0.015)',
-          borderBottom: '1px solid rgba(255,255,255,0.06)',
+          padding: '12px 16px 0',
+          borderBottom: `1px solid ${BSUB}`,
           gap: 12,
         }}
       >
-        <div style={{ paddingBottom: 13 }}>
-          <div style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(148,163,184,0.35)', marginBottom: 2 }}>
+        <div style={{ paddingBottom: 12 }}>
+          <div style={{ fontFamily: SANS, fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: T3, marginBottom: 2 }}>
             Ranked by {activeTab.label.toLowerCase()}
           </div>
-          <div style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 14, fontWeight: 700, color: '#c8d4e8', letterSpacing: '-0.01em' }}>
+          <div style={{ fontFamily: SANS, fontSize: 13, fontWeight: 600, color: T1 }}>
             Friend leaderboard
           </div>
         </div>
 
-        {/* Underline tabs */}
         <div style={{ display: 'flex', gap: 0 }}>
           {TABS.map(tab => {
             const isActive = metric === tab.key;
@@ -70,16 +78,17 @@ export default function Leaderboard({ rivals, currentUserId, defaultMetric = 'st
                 type="button"
                 onClick={() => setMetric(tab.key)}
                 style={{
-                  height: 42,
-                  padding: '0 13px',
+                  height: 40,
+                  padding: '0 12px',
                   border: 'none',
-                  borderBottom: isActive ? '2px solid #1d6ef5' : '2px solid transparent',
+                  borderBottom: isActive ? `2px solid ${COBALT}` : '2px solid transparent',
                   background: 'transparent',
-                  fontFamily: "'DM Mono', monospace",
-                  fontSize: 9.5,
-                  letterSpacing: '0.09em',
+                  fontFamily: SANS,
+                  fontSize: 11,
+                  fontWeight: 600,
                   textTransform: 'uppercase',
-                  color: isActive ? '#4d8ef7' : 'rgba(148,163,184,0.40)',
+                  letterSpacing: '0.06em',
+                  color: isActive ? '#6ea8fe' : T3,
                   cursor: 'pointer',
                   transition: 'color 0.15s, border-color 0.15s',
                   whiteSpace: 'nowrap',
@@ -92,7 +101,6 @@ export default function Leaderboard({ rivals, currentUserId, defaultMetric = 'st
         </div>
       </div>
 
-      {/* Rows */}
       <div>
         {sorted.map((rival, idx) => {
           const rank = idx + 1;
@@ -102,8 +110,8 @@ export default function Leaderboard({ rivals, currentUserId, defaultMetric = 'st
           const isMe = rival.id === currentUserId || rival.isMe;
           const stageLabel = getMascotLabel(rival.mascot.stage);
 
-          const rankColor = cfg ? cfg.color : 'rgba(148,163,184,0.25)';
-          const barColor = isMe ? '#1d6ef5' : cfg ? cfg.color : rival.avatarColor;
+          const rankColor = cfg ? cfg.color : T3;
+          const barColor = isMe ? COBALT : cfg ? cfg.color : rival.avatarColor;
 
           return (
             <div
@@ -112,45 +120,38 @@ export default function Leaderboard({ rivals, currentUserId, defaultMetric = 'st
                 display: 'flex',
                 alignItems: 'center',
                 gap: 0,
-                padding: '13px 20px',
-                borderBottom: idx < sorted.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
-                borderLeft: isMe
-                  ? '2px solid #1d6ef5'
-                  : cfg
-                  ? `2px solid ${cfg.color}55`
-                  : '2px solid transparent',
-                background: isMe ? 'rgba(29,110,245,0.05)' : cfg ? cfg.rowBg : 'transparent',
+                padding: '11px 16px',
+                borderBottom: idx < sorted.length - 1 ? `1px solid ${BSUB}` : 'none',
+                borderLeft: isMe ? `2px solid ${COBALT}` : cfg ? `2px solid ${cfg.color}66` : '2px solid transparent',
+                background: isMe ? COBALT_DIM : cfg ? cfg.rowBg : 'transparent',
               }}
             >
-              {/* Rank number */}
               <div
                 style={{
                   flexShrink: 0,
                   width: 30,
-                  fontFamily: "'DM Mono', monospace",
+                  fontFamily: MONO,
                   fontSize: rank <= 3 ? 16 : 12,
-                  fontWeight: rank <= 3 ? 700 : 400,
+                  fontWeight: rank <= 3 ? 700 : 500,
                   color: rankColor,
-                  textShadow: cfg ? `0 0 14px ${cfg.glow}` : 'none',
                   letterSpacing: '-0.02em',
                 }}
               >
                 {rank <= 3 ? `0${rank}` : rank}
               </div>
 
-              {/* Avatar — rounded square */}
               <div
                 style={{
                   flexShrink: 0,
-                  width: 32,
-                  height: 32,
-                  borderRadius: 9,
+                  width: 30,
+                  height: 30,
+                  borderRadius: 8,
                   background: `${rival.avatarColor}14`,
-                  border: `1.5px solid ${rival.avatarColor}38`,
+                  border: `1px solid ${rival.avatarColor}38`,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  fontFamily: "'DM Mono', monospace",
+                  fontFamily: MONO,
                   fontSize: 10,
                   fontWeight: 700,
                   color: rival.avatarColor,
@@ -160,14 +161,13 @@ export default function Leaderboard({ rivals, currentUserId, defaultMetric = 'st
                 {rival.avatarInitials}
               </div>
 
-              {/* Name + stage */}
               <div style={{ flex: '0 0 130px', minWidth: 0, marginRight: 14 }}>
                 <div
                   style={{
-                    fontFamily: "'DM Sans', sans-serif",
+                    fontFamily: SANS,
                     fontSize: 13,
                     fontWeight: 600,
-                    color: isMe ? '#4d8ef7' : '#dde6f5',
+                    color: isMe ? '#6ea8fe' : T1,
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
@@ -176,43 +176,40 @@ export default function Leaderboard({ rivals, currentUserId, defaultMetric = 'st
                 >
                   {rival.displayName}
                 </div>
-                <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'rgba(148,163,184,0.38)', letterSpacing: '0.02em' }}>
+                <div style={{ fontFamily: MONO, fontSize: 10, color: T3, letterSpacing: '0.02em' }}>
                   {stageLabel}
                 </div>
               </div>
 
-              {/* Full-width bar */}
               <div style={{ flex: 1, marginRight: 16 }}>
-                <div style={{ height: 5, borderRadius: 3, background: 'rgba(255,255,255,0.05)', overflow: 'hidden' }}>
+                <div style={{ height: 5, borderRadius: 999, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
                   <div
                     style={{
                       height: '100%',
                       width: `${barPct}%`,
-                      borderRadius: 3,
+                      borderRadius: 999,
                       background: barColor,
-                      transition: 'width 0.5s cubic-bezier(.4,0,.2,1)',
-                      boxShadow: rank === 1 ? `0 0 10px ${barColor}90` : undefined,
+                      transition: 'width 0.4s cubic-bezier(.4,0,.2,1)',
                     }}
                   />
                 </div>
               </div>
 
-              {/* Score */}
-              <div style={{ flexShrink: 0, textAlign: 'right', minWidth: 38 }}>
+              <div style={{ flexShrink: 0, textAlign: 'right', minWidth: 40 }}>
                 <div
                   style={{
-                    fontFamily: "'DM Mono', monospace",
-                    fontSize: 17,
+                    fontFamily: MONO,
+                    fontSize: 16,
                     fontWeight: 600,
-                    color: isMe ? '#4d8ef7' : cfg ? cfg.color : '#64748b',
+                    color: isMe ? '#6ea8fe' : cfg ? cfg.color : T2,
                     lineHeight: 1,
                     marginBottom: 1,
-                    textShadow: cfg && rank === 1 ? `0 0 16px ${cfg.glow}` : 'none',
+                    fontVariantNumeric: 'tabular-nums',
                   }}
                 >
                   {val}
                 </div>
-                <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 8, color: 'rgba(148,163,184,0.30)', textTransform: 'uppercase', letterSpacing: '0.09em' }}>
+                <div style={{ fontFamily: MONO, fontSize: 9, color: T3, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                   {activeTab.unit}
                 </div>
               </div>

@@ -8,20 +8,21 @@ export default {
     extend: {
       colors: {
         primary: {
-          DEFAULT: '#1e40af',
-          light: '#3b82f6',
-          dark: '#1d4ed8',
+          DEFAULT: '#b45309',
+          light: '#f59e0b',
+          dark: '#d97706',
         },
-        accent: '#60a5fa',
+        accent: '#f59e0b',
         surface: {
-          DEFAULT: '#0f172a',
-          card: '#1e293b',
-          hover: '#334155',
+          DEFAULT: '#141312',
+          card: '#1a1917',
+          hover: '#27251f',
         },
-        border: '#1e293b',
+        border: '#27251f',
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
+        sans: ['DM Sans', 'system-ui', 'sans-serif'],
+        mono: ['DM Mono', 'ui-monospace', 'monospace'],
       },
       keyframes: {
         'fade-in': {

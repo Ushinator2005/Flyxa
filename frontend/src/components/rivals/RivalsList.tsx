@@ -8,17 +8,33 @@ interface RivalsListProps {
   onAddRival: (username: string) => void;
 }
 
-const COMPARE_COLOR = { winning: '#22c55e', losing: '#ef4444', tied: '#fbbf24' };
+const COMPARE_COLOR = { winning: '#22c55e', losing: '#ef4444', tied: '#f59e0b' };
 
 const COLS = ['Streak', 'Discipline', 'Consistency', 'Psychology'] as const;
 type ColKey = typeof COLS[number];
 
+const COBALT = '#1E6FFF';
+const COBALT_DIM = 'rgba(30,111,255,0.10)';
+const S1 = 'var(--app-panel)';
+const S2 = 'var(--app-panel-strong)';
+const BORDER = 'var(--app-border)';
+const BSUB = 'rgba(255,255,255,0.04)';
+const T1 = 'var(--app-text)';
+const T2 = 'var(--app-text-muted)';
+const T3 = 'var(--app-text-subtle)';
+const MONO = 'var(--font-mono)';
+const SANS = 'var(--font-sans)';
+
 function getMetricVal(rival: Rival, col: ColKey): number {
   switch (col) {
-    case 'Streak':      return rival.mascot.streakDays;
-    case 'Discipline':  return rival.mascot.stats.discipline;
-    case 'Consistency': return rival.mascot.stats.consistency;
-    case 'Psychology':  return rival.mascot.stats.psychology;
+    case 'Streak':
+      return rival.mascot.streakDays;
+    case 'Discipline':
+      return rival.mascot.stats.discipline;
+    case 'Consistency':
+      return rival.mascot.stats.consistency;
+    case 'Psychology':
+      return rival.mascot.stats.psychology;
   }
 }
 
@@ -33,37 +49,49 @@ export default function RivalsList({ rivals, currentUser, onAddRival }: RivalsLi
     if (!username) return;
     onAddRival(username);
     setSent(true);
-    setTimeout(() => { setSent(false); setUsernameInput(''); setModalOpen(false); }, 1200);
+    setTimeout(() => {
+      setSent(false);
+      setUsernameInput('');
+      setModalOpen(false);
+    }, 1200);
   };
 
   return (
     <>
       <div
         style={{
-          background: '#0a1120',
-          border: '1px solid rgba(255,255,255,0.06)',
-          borderRadius: 14,
+          background: S1,
+          border: `1px solid ${BORDER}`,
+          borderRadius: 8,
           overflow: 'hidden',
         }}
       >
-        {/* Column header bar */}
         <div
           style={{
             display: 'grid',
             gridTemplateColumns: '1fr 76px 88px 92px 84px 52px',
             alignItems: 'center',
-            padding: '13px 20px',
-            borderBottom: '1px solid rgba(255,255,255,0.06)',
+            padding: '12px 16px',
+            borderBottom: `1px solid ${BSUB}`,
             background: 'rgba(255,255,255,0.015)',
           }}
         >
-          {/* Title + add button */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div>
-              <div style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(148,163,184,0.35)', marginBottom: 2 }}>
+              <div
+                style={{
+                  fontFamily: SANS,
+                  fontSize: 10,
+                  fontWeight: 600,
+                  letterSpacing: '0.1em',
+                  textTransform: 'uppercase',
+                  color: T3,
+                  marginBottom: 2,
+                }}
+              >
                 Head-to-head
               </div>
-              <div style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 14, fontWeight: 700, color: '#c8d4e8', letterSpacing: '-0.01em' }}>
+              <div style={{ fontFamily: SANS, fontSize: 13, fontWeight: 600, color: T1 }}>
                 Your rivals
               </div>
             </div>
@@ -74,13 +102,13 @@ export default function RivalsList({ rivals, currentUser, onAddRival }: RivalsLi
                 marginLeft: 4,
                 height: 24,
                 padding: '0 10px',
-                borderRadius: 6,
-                border: '1px solid rgba(29,110,245,0.30)',
-                background: 'rgba(29,110,245,0.08)',
-                fontFamily: "'DM Mono', monospace",
-                fontSize: 9,
-                letterSpacing: '0.06em',
-                color: '#4d8ef7',
+                borderRadius: 5,
+                border: '1px solid rgba(30,111,255,0.35)',
+                background: COBALT_DIM,
+                fontFamily: SANS,
+                fontSize: 11,
+                fontWeight: 600,
+                color: '#6ea8fe',
                 cursor: 'pointer',
                 whiteSpace: 'nowrap',
               }}
@@ -89,17 +117,17 @@ export default function RivalsList({ rivals, currentUser, onAddRival }: RivalsLi
             </button>
           </div>
 
-          {/* Metric column headers */}
           {COLS.map(col => (
             <div
               key={col}
               style={{
                 textAlign: 'right',
-                fontFamily: "'DM Mono', monospace",
-                fontSize: 8.5,
+                fontFamily: SANS,
+                fontSize: 10,
+                fontWeight: 600,
                 textTransform: 'uppercase',
-                letterSpacing: '0.13em',
-                color: 'rgba(148,163,184,0.30)',
+                letterSpacing: '0.08em',
+                color: T3,
               }}
             >
               {col}
@@ -108,7 +136,6 @@ export default function RivalsList({ rivals, currentUser, onAddRival }: RivalsLi
           <div />
         </div>
 
-        {/* Data rows */}
         {rivals.map((rival, idx) => {
           const isMe = !!rival.isMe;
           const isHovered = hoveredId === rival.id;
@@ -123,31 +150,26 @@ export default function RivalsList({ rivals, currentUser, onAddRival }: RivalsLi
                 display: 'grid',
                 gridTemplateColumns: '1fr 76px 88px 92px 84px 52px',
                 alignItems: 'center',
-                padding: '12px 20px',
-                borderBottom: isLast ? 'none' : '1px solid rgba(255,255,255,0.04)',
-                borderLeft: isMe ? '2px solid #1d6ef5' : '2px solid transparent',
-                background: isMe
-                  ? 'rgba(29,110,245,0.05)'
-                  : isHovered
-                  ? 'rgba(255,255,255,0.018)'
-                  : 'transparent',
+                padding: '11px 16px',
+                borderBottom: isLast ? 'none' : `1px solid ${BSUB}`,
+                borderLeft: isMe ? `2px solid ${COBALT}` : '2px solid transparent',
+                background: isMe ? COBALT_DIM : isHovered ? 'rgba(255,255,255,0.02)' : 'transparent',
                 transition: 'background 0.12s',
               }}
             >
-              {/* Identity */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <div
                   style={{
                     flexShrink: 0,
-                    width: 32,
-                    height: 32,
-                    borderRadius: 9,
+                    width: 30,
+                    height: 30,
+                    borderRadius: 8,
                     background: `${rival.avatarColor}14`,
-                    border: `1.5px solid ${rival.avatarColor}38`,
+                    border: `1px solid ${rival.avatarColor}38`,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    fontFamily: "'DM Mono', monospace",
+                    fontFamily: MONO,
                     fontSize: 10,
                     fontWeight: 700,
                     color: rival.avatarColor,
@@ -157,34 +179,32 @@ export default function RivalsList({ rivals, currentUser, onAddRival }: RivalsLi
                   {rival.avatarInitials}
                 </div>
                 <div>
-                  <div style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 13, fontWeight: 600, color: isMe ? '#4d8ef7' : '#dde6f5', marginBottom: 1 }}>
+                  <div style={{ fontFamily: SANS, fontSize: 13, fontWeight: 600, color: isMe ? '#6ea8fe' : T1, marginBottom: 1 }}>
                     {rival.displayName}
                   </div>
-                  <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'rgba(148,163,184,0.38)', letterSpacing: '0.03em' }}>
-                    @{rival.username} · {getMascotLabel(rival.mascot.stage)}
+                  <div style={{ fontFamily: MONO, fontSize: 10, color: T3, letterSpacing: '0.02em' }}>
+                    @{rival.username} - {getMascotLabel(rival.mascot.stage)}
                   </div>
                 </div>
               </div>
 
-              {/* Metric columns */}
               {COLS.map(col => {
                 const theirVal = getMetricVal(rival, col);
                 const myVal = getMetricVal(currentUser, col);
                 const result = isMe ? 'tied' : compareMetric(myVal, theirVal);
-                const color = isMe ? 'rgba(148,163,184,0.6)' : COMPARE_COLOR[result];
-                const arrow = isMe ? '' : result === 'winning' ? ' ↑' : result === 'losing' ? ' ↓' : '';
+                const color = isMe ? T2 : COMPARE_COLOR[result];
+                const suffix = isMe ? '' : result === 'winning' ? ' +' : result === 'losing' ? ' -' : ' =';
 
                 return (
                   <div key={col} style={{ textAlign: 'right' }}>
-                    <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, fontWeight: 500, color }}>
+                    <span style={{ fontFamily: MONO, fontSize: 13, fontWeight: 500, color, fontVariantNumeric: 'tabular-nums' }}>
                       {theirVal}
-                      <span style={{ fontSize: 9 }}>{arrow}</span>
+                      <span style={{ fontSize: 9 }}>{suffix}</span>
                     </span>
                   </div>
                 );
               })}
 
-              {/* Badge */}
               <div style={{ textAlign: 'right' }}>
                 <span
                   style={{
@@ -194,13 +214,13 @@ export default function RivalsList({ rivals, currentUser, onAddRival }: RivalsLi
                     height: 20,
                     padding: '0 7px',
                     borderRadius: 4,
-                    background: isMe ? 'rgba(29,110,245,0.14)' : 'rgba(255,255,255,0.04)',
-                    border: isMe ? '1px solid rgba(29,110,245,0.28)' : '1px solid rgba(255,255,255,0.07)',
-                    fontFamily: "'DM Mono', monospace",
-                    fontSize: 8.5,
+                    background: isMe ? COBALT_DIM : 'rgba(255,255,255,0.04)',
+                    border: isMe ? '1px solid rgba(30,111,255,0.35)' : '1px solid rgba(255,255,255,0.08)',
+                    fontFamily: MONO,
+                    fontSize: 9,
                     fontWeight: 700,
-                    color: isMe ? '#4d8ef7' : 'rgba(148,163,184,0.38)',
-                    letterSpacing: '0.1em',
+                    color: isMe ? '#6ea8fe' : T3,
+                    letterSpacing: '0.06em',
                   }}
                 >
                   {isMe ? 'YOU' : 'VS'}
@@ -211,36 +231,75 @@ export default function RivalsList({ rivals, currentUser, onAddRival }: RivalsLi
         })}
       </div>
 
-      {/* Add Rival Modal */}
       {modalOpen && (
         <div
           style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
           onClick={() => setModalOpen(false)}
         >
-          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.60)', backdropFilter: 'blur(6px)' }} />
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.60)' }} />
           <div
-            style={{ position: 'relative', width: '100%', maxWidth: 380, background: '#0e1526', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: 24, boxShadow: '0 24px 64px rgba(0,0,0,0.5)' }}
+            style={{
+              position: 'relative',
+              width: '100%',
+              maxWidth: 380,
+              background: S2,
+              border: `1px solid ${BORDER}`,
+              borderRadius: 8,
+              padding: 20,
+              boxShadow: '0 24px 64px rgba(0,0,0,0.5)',
+            }}
             onClick={e => e.stopPropagation()}
           >
-            <p style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, letterSpacing: '0.14em', textTransform: 'uppercase', color: '#1d6ef5', marginBottom: 6 }}>Rivals</p>
-            <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: 20, color: '#e2e8f0', fontWeight: 400, margin: '0 0 6px' }}>Challenge someone</h2>
-            <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: 'rgba(148,163,184,0.60)', margin: '0 0 20px', lineHeight: 1.5 }}>
-              Enter their Flyxa username. They'll get a rival request notification.
+            <p style={{ fontFamily: SANS, fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: T3, marginBottom: 6 }}>
+              Rivals
+            </p>
+            <h2 style={{ fontFamily: SANS, fontSize: 18, color: T1, fontWeight: 600, margin: '0 0 6px' }}>
+              Challenge someone
+            </h2>
+            <p style={{ fontFamily: SANS, fontSize: 12, color: T2, margin: '0 0 16px', lineHeight: 1.5 }}>
+              Enter their Flyxa username. They will get a rival request notification.
             </p>
             <input
-              style={{ width: '100%', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.09)', borderRadius: 8, padding: '9px 12px', fontFamily: "'DM Sans', sans-serif", fontSize: 13, color: '#e2e8f0', outline: 'none', boxSizing: 'border-box', marginBottom: 14 }}
+              style={{
+                width: '100%',
+                background: 'rgba(255,255,255,0.03)',
+                border: `1px solid ${BORDER}`,
+                borderRadius: 6,
+                padding: '9px 12px',
+                fontFamily: SANS,
+                fontSize: 13,
+                color: T1,
+                outline: 'none',
+                boxSizing: 'border-box',
+                marginBottom: 12,
+              }}
               placeholder="@username"
               value={usernameInput}
               onChange={e => setUsernameInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') handleSend(); }}
+              onKeyDown={e => {
+                if (e.key === 'Enter') handleSend();
+              }}
             />
             <button
               type="button"
               onClick={handleSend}
               disabled={!usernameInput.trim() || sent}
-              style={{ width: '100%', height: 42, borderRadius: 9, border: '1px solid rgba(29,110,245,0.35)', background: sent ? 'rgba(74,222,128,0.12)' : 'rgba(29,110,245,0.14)', fontFamily: "'DM Sans', sans-serif", fontSize: 13, fontWeight: 600, color: sent ? '#4ade80' : '#4d8ef7', cursor: usernameInput.trim() ? 'pointer' : 'not-allowed', opacity: usernameInput.trim() ? 1 : 0.5, transition: 'all 0.2s' }}
+              style={{
+                width: '100%',
+                height: 38,
+                borderRadius: 6,
+                border: '1px solid rgba(30,111,255,0.40)',
+                background: sent ? 'rgba(34,197,94,0.12)' : COBALT_DIM,
+                fontFamily: SANS,
+                fontSize: 13,
+                fontWeight: 600,
+                color: sent ? '#22c55e' : '#6ea8fe',
+                cursor: usernameInput.trim() ? 'pointer' : 'not-allowed',
+                opacity: usernameInput.trim() ? 1 : 0.5,
+                transition: 'all 0.2s',
+              }}
             >
-              {sent ? '✓ Request sent!' : 'Send request'}
+              {sent ? 'Request sent' : 'Send request'}
             </button>
           </div>
         </div>

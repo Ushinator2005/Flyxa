@@ -18,7 +18,7 @@ import { JournalEntry } from '../types/index.js';
 import Modal from '../components/common/Modal.js';
 import LoadingSpinner from '../components/common/LoadingSpinner.js';
 
-// ─── constants ────────────────────────────────────────────────────────────────
+// constants
 
 const JOURNAL_MOOD_STORAGE_KEY = 'tw-journal-moods';
 const JOURNAL_TITLE_STORAGE_KEY = 'tw-journal-titles';
@@ -39,7 +39,19 @@ const MOOD_STYLES: Record<string, { bg: string; color: string; border: string }>
   Tired:      { bg: '#1f1a2e', color: '#a78bfa', border: '#2a2240' },
 };
 
-// ─── helpers ──────────────────────────────────────────────────────────────────
+const AMBER = '#f59e0b';
+const GREEN = '#22c55e';
+const S1 = 'var(--app-panel)';
+const S2 = 'var(--app-panel-strong)';
+const BORDER = 'var(--app-border)';
+const BSUB = 'rgba(255,255,255,0.04)';
+const T1 = 'var(--app-text)';
+const T2 = 'var(--app-text-muted)';
+const T3 = 'var(--app-text-subtle)';
+const ACCENT = 'var(--accent)';
+const ACCENT_DIM = 'var(--accent-dim)';
+
+// helpers
 
 function wordCount(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
@@ -107,7 +119,7 @@ function formatEntryDate(date: string, pattern: string) {
   return Number.isNaN(parsed.getTime()) ? (date || 'Unknown date') : format(parsed, pattern);
 }
 
-// ─── EntryItem ────────────────────────────────────────────────────────────────
+// EntryItem
 
 function EntryItem({
   entry,
@@ -137,14 +149,20 @@ function EntryItem({
         display: 'flex',
         alignItems: 'stretch',
         width: '100%',
-        borderRadius: '11px',
-        border: `1px solid ${selected ? '#2563eb' : '#1a2336'}`,
-        background: selected ? '#0f1e38' : '#111620',
+        borderRadius: '8px',
+        border: `1px solid ${selected ? ACCENT : BORDER}`,
+        background: selected ? ACCENT_DIM : S1,
         marginBottom: '8px',
         cursor: 'pointer',
         textAlign: 'left',
         overflow: 'hidden',
         transition: 'border-color 0.15s, background 0.15s',
+      }}
+      onMouseEnter={e => {
+        if (!selected) (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.02)';
+      }}
+      onMouseLeave={e => {
+        if (!selected) (e.currentTarget as HTMLButtonElement).style.background = S1;
       }}
     >
       {/* Date badge */}
@@ -152,7 +170,7 @@ function EntryItem({
         style={{
           width: '52px',
           flexShrink: 0,
-          borderRight: `1px solid ${selected ? '#1a3166' : '#1a2336'}`,
+          borderRight: `1px solid ${selected ? 'rgba(245,158,11,0.3)' : BORDER}`,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
@@ -165,7 +183,7 @@ function EntryItem({
           style={{
             fontSize: '9px',
             fontWeight: 700,
-            color: '#3b82f6',
+            color: selected ? AMBER : T3,
             textTransform: 'uppercase',
             letterSpacing: '0.06em',
           }}
@@ -174,10 +192,12 @@ function EntryItem({
         </span>
         <span
           style={{
-            fontSize: '22px',
-            fontWeight: 700,
-            color: '#d0dae6',
+            fontSize: '20px',
+            fontWeight: 600,
+            color: selected ? AMBER : T1,
             lineHeight: 1,
+            fontFamily: 'var(--font-mono)',
+            fontVariantNumeric: 'tabular-nums',
           }}
         >
           {formatEntryDate(entry.date, 'd')}
@@ -188,9 +208,9 @@ function EntryItem({
       <div style={{ flex: 1, padding: '14px 16px', minWidth: 0 }}>
         <p
           style={{
-            fontSize: '14px',
+            fontSize: '13px',
             fontWeight: 600,
-            color: selected ? '#e2e8f0' : '#c9d3e0',
+            color: T1,
             whiteSpace: 'nowrap',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
@@ -201,8 +221,8 @@ function EntryItem({
         </p>
         <p
           style={{
-            fontSize: '12px',
-            color: '#4a5a6e',
+            fontSize: '11px',
+            color: T2,
             whiteSpace: 'nowrap',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
@@ -215,7 +235,7 @@ function EntryItem({
       {/* Meta */}
       <div
         style={{
-          padding: '14px 16px',
+          padding: '14px 14px',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'flex-end',
@@ -225,7 +245,7 @@ function EntryItem({
         }}
       >
         {hasContent && (
-          <span style={{ fontSize: '10px', color: '#2d3d52' }}>{wc}w</span>
+          <span style={{ fontSize: '10px', color: T3, fontFamily: 'var(--font-mono)' }}>{wc}w</span>
         )}
         {mood && moodStyle && (
           <span
@@ -247,7 +267,7 @@ function EntryItem({
   );
 }
 
-// ─── Journal page ─────────────────────────────────────────────────────────────
+// Journal page
 
 export default function Journal() {
   const [searchParams] = useSearchParams();
@@ -459,43 +479,58 @@ export default function Journal() {
 
   return (
     <div
-      className="animate-fade-in -m-8 flex flex-col lg:min-h-[calc(100vh-3.5rem)]"
-      style={{ fontFamily: "'DM Sans', sans-serif" }}
+      className="animate-fade-in flex flex-col"
+      style={{
+        fontFamily: 'var(--font-sans)',
+        height: '100%',
+        overflowY: 'auto',
+        padding: '24px',
+        gap: '16px',
+      }}
     >
 
-      {/* ── Timeline section ─────────────────────────────────────────────── */}
-      <section style={{ padding: '16px 32px 10px', flexShrink: 0 }}>
+      {/* Timeline section */}
+      <section
+        style={{
+          padding: '16px',
+          flexShrink: 0,
+          borderRadius: '8px',
+          border: `1px solid ${BORDER}`,
+          background: S1,
+        }}
+      >
 
         {/* Header row */}
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '10px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', gap: '12px' }}>
           <div>
-            <h1 style={{ fontSize: '18px', fontWeight: 600, color: '#c9d3e0', margin: 0, lineHeight: 1.2 }}>
+            <h1 style={{ fontSize: '18px', fontWeight: 600, color: T1, margin: 0, lineHeight: 1.2 }}>
               Daily Journal
             </h1>
-            <p style={{ fontSize: '12px', color: '#3d4e62', marginTop: '4px' }}>
-              Your private trading log — pick up where you left off.
+            <p style={{ fontSize: '12px', color: T3, marginTop: '4px' }}>
+              Your private trading log - pick up where you left off.
             </p>
           </div>
           <button
             type="button"
             onClick={createEntry}
             style={{
+              height: '34px',
               display: 'inline-flex',
               alignItems: 'center',
               gap: '6px',
-              background: '#2563eb',
+              background: AMBER,
               border: 'none',
-              borderRadius: '8px',
-              padding: '7px 14px',
-              color: '#fff',
+              borderRadius: '5px',
+              padding: '0 14px',
+              color: '#000',
               fontSize: '12px',
               fontWeight: 600,
               cursor: 'pointer',
               flexShrink: 0,
-              transition: 'background 0.15s',
+              transition: 'opacity 0.15s',
             }}
-            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = '#1d4ed8'; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = '#2563eb'; }}
+            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.opacity = '0.88'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.opacity = '1'; }}
           >
             <Plus size={13} />
             New entry
@@ -511,7 +546,7 @@ export default function Journal() {
               left: '12px',
               top: '50%',
               transform: 'translateY(-50%)',
-              color: '#2d3d52',
+              color: T3,
               pointerEvents: 'none',
             }}
           />
@@ -522,18 +557,18 @@ export default function Journal() {
             placeholder="Search entries..."
             style={{
               width: '100%',
-              background: '#111620',
-              border: '1px solid #1a2336',
-              borderRadius: '9px',
-              padding: '9px 12px 9px 36px',
-              fontSize: '13px',
-              color: '#8892a0',
+              background: S2,
+              border: `1px solid ${BORDER}`,
+              borderRadius: '6px',
+              padding: '8px 12px 8px 34px',
+              fontSize: '12px',
+              color: T2,
               outline: 'none',
               boxSizing: 'border-box',
               transition: 'border-color 0.15s',
             }}
-            onFocus={e => { e.target.style.borderColor = '#2d3d52'; }}
-            onBlur={e => { e.target.style.borderColor = '#1a2336'; }}
+            onFocus={e => { e.target.style.borderColor = ACCENT; }}
+            onBlur={e => { e.target.style.borderColor = BORDER; }}
           />
         </div>
 
@@ -541,11 +576,11 @@ export default function Journal() {
         <div style={{ maxHeight: 'min(24vh, 280px)', overflowY: 'auto', paddingRight: '2px' }}>
         {grouped.length === 0 ? (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px 0', gap: '10px' }}>
-            <PenLine size={22} style={{ color: '#2d3d52' }} />
-            <p style={{ fontSize: '13px', color: '#4a5a6e', margin: 0 }}>
+            <PenLine size={20} style={{ color: T3 }} />
+            <p style={{ fontSize: '13px', color: T2, margin: 0 }}>
               {search ? 'No matching entries' : 'No entries yet'}
             </p>
-            <p style={{ fontSize: '12px', color: '#2d3d52', margin: 0 }}>
+            <p style={{ fontSize: '11px', color: T3, margin: 0 }}>
               {search ? 'Try a different keyword.' : 'Hit "New entry" to begin your first session note.'}
             </p>
           </div>
@@ -558,7 +593,7 @@ export default function Journal() {
                   style={{
                     fontSize: '10px',
                     fontWeight: 700,
-                    color: '#3b82f6',
+                    color: T3,
                     textTransform: 'uppercase',
                     letterSpacing: '0.1em',
                     whiteSpace: 'nowrap',
@@ -566,8 +601,8 @@ export default function Journal() {
                 >
                   {month}
                 </span>
-                <div style={{ flex: 1, height: '1px', background: '#1a2236' }} />
-                <span style={{ fontSize: '10px', color: '#2d3d52', whiteSpace: 'nowrap' }}>
+                <div style={{ flex: 1, height: '1px', background: BSUB }} />
+                <span style={{ fontSize: '10px', color: T3, whiteSpace: 'nowrap' }}>
                   {monthEntries.length} {monthEntries.length === 1 ? 'entry' : 'entries'}
                 </span>
               </div>
@@ -588,18 +623,21 @@ export default function Journal() {
         </div>
       </section>
 
-      {/* ── Divider ──────────────────────────────────────────────────────── */}
-      {selected && <div style={{ height: '1px', background: '#1a2236' }} />}
+      {/* Divider */}
+      {selected && <div style={{ height: '1px', background: BSUB }} />}
 
-      {/* ── Detail panel ─────────────────────────────────────────────────── */}
+      {/* Detail panel */}
       {selected && (
         <section
           style={{
-            padding: '18px 32px 32px',
+            padding: '16px',
             display: 'flex',
             flex: 1,
             flexDirection: 'column',
             minHeight: 0,
+            borderRadius: '8px',
+            border: `1px solid ${BORDER}`,
+            background: S1,
           }}
         >
 
@@ -608,7 +646,7 @@ export default function Journal() {
             style={{
               fontSize: '10px',
               fontWeight: 700,
-              color: '#3b82f6',
+              color: T3,
               textTransform: 'uppercase',
               letterSpacing: '0.1em',
               marginBottom: '10px',
@@ -632,9 +670,9 @@ export default function Journal() {
             <div>
               <h2
                 style={{
-                  fontSize: '28px',
-                  fontWeight: 700,
-                  color: '#e2e8f0',
+                  fontSize: '20px',
+                  fontWeight: 600,
+                  color: T1,
                   letterSpacing: '-0.03em',
                   margin: 0,
                   lineHeight: 1.1,
@@ -642,11 +680,11 @@ export default function Journal() {
               >
                 {formatEntryDate(selected.date, 'EEEE, MMMM d')}
               </h2>
-              <p style={{ fontSize: '11px', color: '#2d3d52', marginTop: '7px' }}>
+              <p style={{ fontSize: '11px', color: T3, marginTop: '7px' }}>
                 {formatEntryDate(selected.date, 'yyyy')}
-                <span style={{ margin: '0 5px' }}>·</span>
+                <span style={{ margin: '0 5px' }}>|</span>
                 {selectedWordCount}w
-                <span style={{ margin: '0 5px' }}>·</span>
+                <span style={{ margin: '0 5px' }}>|</span>
                 {totalWords} overall
               </p>
             </div>
@@ -659,12 +697,12 @@ export default function Journal() {
                 value={selected.date}
                 onChange={e => void handleDateChange(e.target.value)}
                 style={{
-                  background: '#111620',
-                  border: '1px solid #1a2336',
-                  borderRadius: '8px',
+                  background: S2,
+                  border: `1px solid ${BORDER}`,
+                  borderRadius: '6px',
                   padding: '6px 10px',
                   fontSize: '12px',
-                  color: '#8892a0',
+                  color: T2,
                   colorScheme: 'dark',
                   outline: 'none',
                   cursor: 'pointer',
@@ -678,10 +716,10 @@ export default function Journal() {
                   alignItems: 'center',
                   gap: '6px',
                   padding: '6px 10px',
-                  border: '1px solid #1a2336',
-                  borderRadius: '7px',
+                  border: `1px solid ${BORDER}`,
+                  borderRadius: '6px',
                   fontSize: '11px',
-                  color: saving ? '#fbbf24' : '#4a5a6e',
+                  color: saving ? AMBER : T2,
                   cursor: 'default',
                   userSelect: 'none',
                 }}
@@ -692,11 +730,11 @@ export default function Journal() {
                     height: '6px',
                     borderRadius: '50%',
                     flexShrink: 0,
-                    background: saving ? '#f59e0b' : saved ? '#10b981' : '#10b981',
+                    background: saving ? AMBER : GREEN,
                     opacity: saving ? 1 : saved ? 1 : 0.4,
                   }}
                 />
-                {saving ? 'Saving…' : saved ? 'Auto-saved' : 'Auto-save on'}
+                {saving ? 'Saving...' : saved ? 'Auto-saved' : 'Auto-save on'}
               </span>
 
               {/* Delete */}
@@ -708,11 +746,11 @@ export default function Journal() {
                   alignItems: 'center',
                   gap: '5px',
                   padding: '6px 10px',
-                  border: '1px solid #1a2336',
-                  borderRadius: '7px',
+                  border: `1px solid ${BORDER}`,
+                  borderRadius: '6px',
                   background: 'transparent',
                   fontSize: '11px',
-                  color: '#4a5a6e',
+                  color: T2,
                   cursor: 'pointer',
                   transition: 'border-color 0.15s, color 0.15s',
                 }}
@@ -723,8 +761,8 @@ export default function Journal() {
                 }}
                 onMouseLeave={e => {
                   const el = e.currentTarget as HTMLButtonElement;
-                  el.style.borderColor = '#1a2336';
-                  el.style.color = '#4a5a6e';
+                  el.style.borderColor = BORDER;
+                  el.style.color = T2;
                 }}
               >
                 <Trash2 size={12} />
@@ -751,10 +789,10 @@ export default function Journal() {
                     gap: '5px',
                     padding: '5px 12px',
                     borderRadius: '20px',
-                    border: `1px solid ${isActive ? ms.border : '#1a2336'}`,
-                    background: isActive ? ms.bg : '#111620',
+                    border: `1px solid ${isActive ? ms.border : BORDER}`,
+                    background: isActive ? ms.bg : S2,
                     fontSize: '11px',
-                    color: isActive ? ms.color : '#4a5a6e',
+                    color: isActive ? ms.color : T2,
                     cursor: 'pointer',
                     transition: 'background 0.15s, border-color 0.15s, color 0.15s',
                   }}
@@ -773,15 +811,15 @@ export default function Journal() {
 
           {/* Writing area */}
           <div
-            className="min-h-[500px] lg:h-[55vh]"
             style={{
-              background: '#111620',
-              border: '1px solid #1a2336',
-              borderRadius: '12px',
+              background: S2,
+              border: `1px solid ${BORDER}`,
+              borderRadius: '8px',
               overflow: 'hidden',
               display: 'flex',
               flex: 1,
               flexDirection: 'column',
+              minHeight: '420px',
             }}
           >
             {/* Title input */}
@@ -800,28 +838,28 @@ export default function Journal() {
                 outline: 'none',
                 fontSize: '14px',
                 fontWeight: 600,
-                color: '#c9d3e0',
+                color: T1,
                 boxSizing: 'border-box',
                 fontFamily: 'inherit',
               }}
             />
-            <style>{`input[type="text"]::placeholder { color: #2d3d52; } textarea::placeholder { color: #2d3d52; }`}</style>
+            <style>{`input[type="text"]::placeholder { color: var(--app-text-subtle); } textarea::placeholder { color: var(--app-text-subtle); }`}</style>
 
             {/* Hint bar */}
             <div
               style={{
-                borderTop: '1px solid #131c2a',
-                borderBottom: '1px solid #131c2a',
+                borderTop: `1px solid ${BSUB}`,
+                borderBottom: `1px solid ${BSUB}`,
                 padding: '8px 18px',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
               }}
             >
-              <span style={{ fontSize: '11px', color: '#2d3d52' }}>
-                What happened · What you felt · What to carry forward
+              <span style={{ fontSize: '11px', color: T3 }}>
+                What happened | What you felt | What to carry forward
               </span>
-              <span style={{ fontSize: '11px', color: '#2d3d52' }}>Autosaves after 1.5s</span>
+              <span style={{ fontSize: '11px', color: T3 }}>Autosaves after 1.5s</span>
             </div>
 
             {/* Body textarea */}
@@ -829,7 +867,7 @@ export default function Journal() {
               ref={textareaRef}
               value={getEntryContent(selected)}
               onChange={e => handleContentChange(e.target.value)}
-              placeholder={`Write your reflection for ${formatEntryDate(selected.date, 'MMMM d, yyyy')}…`}
+              placeholder={`Write your reflection for ${formatEntryDate(selected.date, 'MMMM d, yyyy')}...`}
               style={{
                 display: 'block',
                 width: '100%',
@@ -840,8 +878,8 @@ export default function Journal() {
                 border: 'none',
                 outline: 'none',
                 resize: 'none',
-                fontSize: '13.5px',
-                color: '#8892a0',
+                fontSize: '13px',
+                color: T2,
                 lineHeight: 1.75,
                 fontFamily: 'inherit',
                 boxSizing: 'border-box',
@@ -851,7 +889,7 @@ export default function Journal() {
         </section>
       )}
 
-      {/* ── Delete modal ──────────────────────────────────────────────────── */}
+      {/* Delete modal */}
       <Modal isOpen={!!deleteTarget} onClose={() => setDeleteTarget(null)} title="Delete Journal Entry">
         <p className="mb-6 text-[13px] leading-relaxed text-slate-300">
           Permanently delete the entry for{' '}

@@ -571,14 +571,14 @@ export default function Chart() {
 
   if (!config) {
     return (
-      <div className="min-h-[calc(100vh-56px)] bg-[radial-gradient(circle_at_top_left,_rgba(41,98,255,0.16),_transparent_28%),linear-gradient(180deg,_#0b1020_0%,_#0a0d15_34%,_#090b10_100%)] px-6 py-8 text-slate-100">
+      <div className="min-h-[calc(100vh-56px)] bg-[radial-gradient(circle_at_top_left,_rgba(245,158,11,0.08),_transparent_28%),linear-gradient(180deg,_#141312_0%,_#111009_34%,_#0e0d0d_100%)] px-6 py-8 text-slate-100">
         <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
-          <div className="relative overflow-hidden rounded-[32px] border border-[#1b2640] bg-[linear-gradient(135deg,rgba(14,23,46,0.96),rgba(11,15,24,0.94))] px-8 py-8 shadow-[0_30px_100px_rgba(0,0,0,0.48)]">
-            <div className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-[#2962ff]/20 blur-3xl" />
-            <div className="pointer-events-none absolute bottom-0 right-0 h-36 w-full bg-[linear-gradient(90deg,transparent,rgba(41,98,255,0.08),transparent)]" />
+          <div className="relative overflow-hidden rounded-[32px] border border-[rgba(255,255,255,0.07)] bg-[linear-gradient(135deg,rgba(26,25,23,0.96),rgba(20,19,18,0.94))] px-8 py-8 shadow-[0_30px_100px_rgba(0,0,0,0.48)]">
+            <div className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-[rgba(245,158,11,0.08)] blur-3xl" />
+            <div className="pointer-events-none absolute bottom-0 right-0 h-36 w-full bg-[linear-gradient(90deg,transparent,rgba(245,158,11,0.04),transparent)]" />
             <div className="relative grid gap-8 lg:grid-cols-[1.25fr_0.75fr] lg:items-end">
               <div className="space-y-5">
-                <div className="inline-flex items-center rounded-full border border-[#2962ff]/25 bg-[#2962ff]/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.26em] text-[#8fb2ff]">
+                <div className="inline-flex items-center rounded-full border border-[rgba(245,158,11,0.25)] bg-[#d97706]/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.26em] text-[#f59e0b]">
                   Backtest Dashboard
                 </div>
                 <div className="space-y-3">
@@ -590,15 +590,15 @@ export default function Chart() {
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-3 text-sm text-slate-400">
-                  <div className="rounded-full border border-[#22304f] bg-[#111a2c] px-3 py-2">TradingView replay shell</div>
-                  <div className="rounded-full border border-[#22304f] bg-[#111a2c] px-3 py-2">Saved setup history</div>
-                  <div className="rounded-full border border-[#22304f] bg-[#111a2c] px-3 py-2">One-click session resume</div>
+                  <div className="rounded-full border border-[rgba(255,255,255,0.07)] bg-[#1a1917] px-3 py-2">TradingView replay shell</div>
+                  <div className="rounded-full border border-[rgba(255,255,255,0.07)] bg-[#1a1917] px-3 py-2">Saved setup history</div>
+                  <div className="rounded-full border border-[rgba(255,255,255,0.07)] bg-[#1a1917] px-3 py-2">One-click session resume</div>
                 </div>
               </div>
 
-              <div className="grid gap-3 rounded-[28px] border border-[#1a2338] bg-[linear-gradient(180deg,rgba(10,14,24,0.82),rgba(9,12,19,0.88))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] backdrop-blur-sm">
+              <div className="grid gap-3 rounded-[28px] border border-[rgba(255,255,255,0.07)] bg-[linear-gradient(180deg,rgba(26,25,23,0.82),rgba(20,19,18,0.88))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] backdrop-blur-sm">
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-2xl border border-[#202b43] bg-[#101727] px-4 py-4 shadow-[0_14px_34px_rgba(0,0,0,0.24)]">
+                  <div className="rounded-2xl border border-[rgba(255,255,255,0.07)] bg-[#1a1917] px-4 py-4 shadow-[0_14px_34px_rgba(0,0,0,0.24)]">
                     <p className="text-[11px] uppercase tracking-[0.22em] text-slate-500">Current Focus</p>
                     <p className="mt-3 text-lg font-semibold text-white">
                       {savedConfig ? savedConfig.symbolDisplay : 'No active session'}
@@ -607,7 +607,7 @@ export default function Chart() {
                       {savedConfig ? `${getTimeframeLabel(savedConfig.timeframe)} replay ready` : 'Set up your first replay workspace'}
                     </p>
                   </div>
-                  <div className="rounded-2xl border border-[#202b43] bg-[#101727] px-4 py-4 shadow-[0_14px_34px_rgba(0,0,0,0.24)]">
+                  <div className="rounded-2xl border border-[rgba(255,255,255,0.07)] bg-[#1a1917] px-4 py-4 shadow-[0_14px_34px_rgba(0,0,0,0.24)]">
                     <p className="text-[11px] uppercase tracking-[0.22em] text-slate-500">Library Size</p>
                     <p className="mt-3 text-lg font-semibold text-white">{dashboardStats.totalSessions} sessions</p>
                     <p className="mt-1 text-sm text-slate-400">{dashboardStats.uniqueMarkets} markets tracked</p>
@@ -619,7 +619,7 @@ export default function Chart() {
                     <button
                       type="button"
                       onClick={() => resumeSession(savedConfig)}
-                      className="inline-flex h-12 items-center justify-center rounded-2xl border border-[#4e7dff]/35 bg-[#16327a] px-5 text-sm font-semibold text-[#c6d7ff] transition-colors hover:bg-[#1c3f97]"
+                      className="inline-flex h-12 items-center justify-center rounded-2xl border border-[rgba(245,158,11,0.35)] bg-[rgba(245,158,11,0.12)] px-5 text-sm font-semibold text-[#f59e0b] transition-colors hover:bg-[rgba(245,158,11,0.20)]"
                     >
                       Resume Current Session
                     </button>
@@ -627,7 +627,7 @@ export default function Chart() {
                   <button
                     type="button"
                     onClick={openSetupModal}
-                    className="inline-flex h-12 items-center justify-center rounded-2xl bg-[#2962ff] px-6 text-sm font-semibold text-white shadow-[0_12px_30px_rgba(41,98,255,0.28)] transition-colors hover:bg-[#3f74ff]"
+                    className="inline-flex h-12 items-center justify-center rounded-2xl bg-[#d97706] px-6 text-sm font-semibold text-white shadow-[0_12px_30px_rgba(245,158,11,0.20)] transition-colors hover:bg-[#b45309]"
                   >
                     Start New Backtest Session
                   </button>
@@ -647,8 +647,8 @@ export default function Chart() {
                 key={label}
                 className={`group rounded-[26px] border px-5 py-5 shadow-[0_22px_60px_rgba(0,0,0,0.28)] transition-transform duration-200 hover:-translate-y-0.5 ${
                   index === 0
-                    ? 'border-[#2d4479] bg-[linear-gradient(180deg,rgba(16,28,56,0.96),rgba(11,15,24,0.96))]'
-                    : 'border-[#1a2233] bg-[linear-gradient(180deg,rgba(17,20,28,0.98),rgba(12,14,20,0.98))]'
+                    ? 'border-[rgba(245,158,11,0.25)] bg-[linear-gradient(180deg,rgba(32,31,29,0.96),rgba(20,19,18,0.96))]'
+                    : 'border-[rgba(255,255,255,0.07)] bg-[linear-gradient(180deg,rgba(17,20,28,0.98),rgba(12,14,20,0.98))]'
                 }`}
               >
                 <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">{label}</p>
@@ -660,7 +660,7 @@ export default function Chart() {
 
           {savedConfig && (
             <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-              <div className="rounded-[28px] border border-[#1a2233] bg-[linear-gradient(180deg,rgba(15,18,26,0.98),rgba(11,13,18,0.98))] p-6 shadow-[0_24px_70px_rgba(0,0,0,0.3)]">
+              <div className="rounded-[28px] border border-[rgba(255,255,255,0.07)] bg-[linear-gradient(180deg,rgba(26,25,23,0.98),rgba(20,19,18,0.98))] p-6 shadow-[0_24px_70px_rgba(0,0,0,0.3)]">
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Current Session Ready</p>
@@ -672,7 +672,7 @@ export default function Chart() {
                   <button
                     type="button"
                     onClick={() => resumeSession(savedConfig)}
-                    className="inline-flex h-11 items-center justify-center rounded-2xl border border-[#4e7dff]/35 bg-[#16327a] px-4 text-sm font-semibold text-[#c6d7ff] transition-colors hover:bg-[#1c3f97]"
+                    className="inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(245,158,11,0.35)] bg-[rgba(245,158,11,0.12)] px-4 text-sm font-semibold text-[#f59e0b] transition-colors hover:bg-[rgba(245,158,11,0.20)]"
                   >
                     Open Session
                   </button>
@@ -685,7 +685,7 @@ export default function Chart() {
                     ['Date Window', `${savedConfig.startDate} -> ${savedConfig.endDate}`],
                     ['Balance', formatCurrency(savedConfig.accountBalance)],
                   ].map(([label, value]) => (
-                    <div key={label} className="rounded-2xl border border-[#1f293b] bg-[#111722] px-4 py-4">
+                    <div key={label} className="rounded-2xl border border-[rgba(255,255,255,0.07)] bg-[#1a1917] px-4 py-4">
                       <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</p>
                       <p className="mt-3 text-sm font-medium leading-6 text-slate-100">{value}</p>
                     </div>
@@ -693,20 +693,20 @@ export default function Chart() {
                 </div>
               </div>
 
-              <div className="rounded-[28px] border border-[#1a2233] bg-[linear-gradient(180deg,rgba(15,18,26,0.98),rgba(11,13,18,0.98))] p-6 shadow-[0_24px_70px_rgba(0,0,0,0.3)]">
+              <div className="rounded-[28px] border border-[rgba(255,255,255,0.07)] bg-[linear-gradient(180deg,rgba(26,25,23,0.98),rgba(20,19,18,0.98))] p-6 shadow-[0_24px_70px_rgba(0,0,0,0.3)]">
                 <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Latest Session</p>
                 {dashboardStats.latestSession ? (
                   <div className="mt-5">
-                    <div className="rounded-[24px] border border-[#24365f] bg-[linear-gradient(180deg,rgba(16,29,61,0.7),rgba(11,15,24,0.9))] p-5">
+                    <div className="rounded-[24px] border border-[rgba(245,158,11,0.20)] bg-[linear-gradient(180deg,rgba(32,31,29,0.70),rgba(20,19,18,0.90))] p-5">
                       <p className="text-2xl font-semibold tracking-tight text-white">{dashboardStats.latestSession.symbolDisplay}</p>
                       <p className="mt-2 text-sm text-slate-300">
                         Last opened {formatSessionDate(dashboardStats.latestSession.lastOpenedAt)}
                       </p>
                       <div className="mt-5 flex flex-wrap gap-2 text-xs uppercase tracking-[0.16em] text-slate-300">
-                        <span className="rounded-full border border-[#24324f] bg-[#0f1728] px-3 py-2">
+                        <span className="rounded-full border border-[rgba(255,255,255,0.07)] bg-[#141312] px-3 py-2">
                           {getTimeframeLabel(dashboardStats.latestSession.timeframe)}
                         </span>
-                        <span className="rounded-full border border-[#24324f] bg-[#0f1728] px-3 py-2">
+                        <span className="rounded-full border border-[rgba(255,255,255,0.07)] bg-[#141312] px-3 py-2">
                           {dashboardStats.latestSession.startDate} to {dashboardStats.latestSession.endDate}
                         </span>
                       </div>
@@ -721,7 +721,7 @@ export default function Chart() {
             </div>
           )}
 
-          <div className="rounded-[30px] border border-[#1a2233] bg-[linear-gradient(180deg,rgba(14,17,24,0.98),rgba(10,12,16,0.98))] p-6 shadow-[0_28px_80px_rgba(0,0,0,0.34)]">
+          <div className="rounded-[30px] border border-[rgba(255,255,255,0.07)] bg-[linear-gradient(180deg,rgba(26,25,23,0.98),rgba(20,19,18,0.98))] p-6 shadow-[0_28px_80px_rgba(0,0,0,0.34)]">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Session Library</p>
@@ -733,26 +733,26 @@ export default function Chart() {
               <button
                 type="button"
                 onClick={openSetupModal}
-                className="inline-flex h-11 items-center justify-center rounded-2xl border border-[#23304b] bg-[#111827] px-4 text-sm font-medium text-slate-100 transition-colors hover:bg-[#172033]"
+                className="inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(255,255,255,0.07)] bg-[#1a1917] px-4 text-sm font-medium text-slate-100 transition-colors hover:bg-[#27251f]"
               >
                 New Session
               </button>
             </div>
 
             {sessionHistory.length > 0 ? (
-              <div className="mt-6 overflow-hidden rounded-[24px] border border-[#1b2539] bg-[#0d121b]">
-                <div className="grid grid-cols-[1.25fr_0.75fr_1fr_0.9fr_0.75fr] gap-3 border-b border-[#1b2539] bg-[#121927] px-5 py-3 text-[11px] uppercase tracking-[0.16em] text-slate-500">
+              <div className="mt-6 overflow-hidden rounded-[24px] border border-[rgba(255,255,255,0.07)] bg-[#141312]">
+                <div className="grid grid-cols-[1.25fr_0.75fr_1fr_0.9fr_0.75fr] gap-3 border-b border-[rgba(255,255,255,0.07)] bg-[#1a1917] px-5 py-3 text-[11px] uppercase tracking-[0.16em] text-slate-500">
                   <span>Market</span>
                   <span>Timeframe</span>
                   <span>Range</span>
                   <span>Balance</span>
                   <span className="text-right">Action</span>
                 </div>
-                <div className="divide-y divide-[#182131]">
+                <div className="divide-y divide-[rgba(255,255,255,0.05)]">
                   {sessionHistory.slice(0, 8).map(item => (
                     <div
                       key={item.sessionId}
-                      className="grid grid-cols-[1.25fr_0.75fr_1fr_0.9fr_0.75fr] items-center gap-3 bg-transparent px-5 py-4 text-sm text-slate-200 transition-colors hover:bg-[#121927]"
+                      className="grid grid-cols-[1.25fr_0.75fr_1fr_0.9fr_0.75fr] items-center gap-3 bg-transparent px-5 py-4 text-sm text-slate-200 transition-colors hover:bg-[#1a1917]"
                     >
                       <div>
                         <p className="font-medium text-white">{item.symbolDisplay}</p>
@@ -765,7 +765,7 @@ export default function Chart() {
                         <button
                           type="button"
                           onClick={() => resumeSession(item)}
-                          className="inline-flex h-9 items-center justify-center rounded-xl border border-[#4e7dff]/35 bg-[#16327a]/80 px-4 text-sm font-medium text-[#c6d7ff] transition-colors hover:bg-[#1c3f97]"
+                          className="inline-flex h-9 items-center justify-center rounded-xl border border-[rgba(245,158,11,0.35)] bg-[rgba(245,158,11,0.12)]/80 px-4 text-sm font-medium text-[#f59e0b] transition-colors hover:bg-[rgba(245,158,11,0.20)]"
                         >
                           Open
                         </button>
@@ -775,9 +775,9 @@ export default function Chart() {
                 </div>
               </div>
             ) : (
-              <div className="mt-6 grid gap-5 rounded-[26px] border border-[#233150] bg-[linear-gradient(180deg,rgba(18,26,42,0.82),rgba(12,15,22,0.92))] px-8 py-10 lg:grid-cols-[1.1fr_0.9fr] lg:items-center shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
+              <div className="mt-6 grid gap-5 rounded-[26px] border border-[rgba(255,255,255,0.07)] bg-[linear-gradient(180deg,rgba(26,25,23,0.82),rgba(20,19,18,0.92))] px-8 py-10 lg:grid-cols-[1.1fr_0.9fr] lg:items-center shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
                 <div>
-                  <p className="text-[11px] uppercase tracking-[0.2em] text-[#88aeff]">Ready To Start</p>
+                  <p className="text-[11px] uppercase tracking-[0.2em] text-[#f59e0b]">Ready To Start</p>
                   <p className="mt-3 text-2xl font-semibold tracking-tight text-white">No backtesting sessions saved yet.</p>
                   <p className="mt-3 max-w-xl text-sm leading-7 text-slate-300">
                     Start one fresh session and this library will begin filling out with reusable setups for different markets, date ranges, and account sizes.
@@ -790,8 +790,8 @@ export default function Chart() {
                     'Set the date window and the starting balance for context',
                     'Launch the chart and come back here anytime to reopen it',
                   ].map((item, index) => (
-                    <div key={item} className="flex items-start gap-3 rounded-2xl border border-[#22304d] bg-[#101726] px-4 py-3">
-                      <span className="mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded-full bg-[#2962ff]/20 text-xs font-semibold text-[#9cbbff]">
+                    <div key={item} className="flex items-start gap-3 rounded-2xl border border-[rgba(255,255,255,0.07)] bg-[#1a1917] px-4 py-3">
+                      <span className="mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded-full bg-[#d97706]/20 text-xs font-semibold text-[#f59e0b]">
                         {index + 1}
                       </span>
                       <span className="leading-6">{item}</span>
@@ -937,7 +937,7 @@ export default function Chart() {
                       onClick={() => setSetupSymbolInput(item.display)}
                       className={`rounded-full border px-3 py-1.5 text-sm font-medium transition-colors ${
                         setupSymbolInput === item.display
-                          ? 'border-[#2962ff]/50 bg-[#2962ff]/15 text-[#74a4ff]'
+                          ? 'border-[rgba(245,158,11,0.50)] bg-[#d97706]/15 text-[#f59e0b]'
                           : 'border-[#222] bg-[#151515] text-slate-300 hover:bg-[#1a1a1a]'
                       }`}
                     >
@@ -972,7 +972,7 @@ export default function Chart() {
                   </p>
                   <button
                     type="submit"
-                    className="inline-flex h-12 items-center justify-center rounded-2xl bg-[#2962ff] px-6 text-sm font-semibold text-white transition-colors hover:bg-[#3a6dff]"
+                    className="inline-flex h-12 items-center justify-center rounded-2xl bg-[#d97706] px-6 text-sm font-semibold text-white transition-colors hover:bg-[#b45309]"
                   >
                     Launch Backtest
                   </button>
@@ -1065,7 +1065,7 @@ export default function Chart() {
                         setShowTimeframeMenu(false);
                       }}
                       className={`flex w-full items-center justify-between px-4 py-3 text-left text-sm transition-colors hover:bg-[#1a1a1a] ${
-                        interval === item.value ? 'text-[#2962ff]' : 'text-slate-100'
+                        interval === item.value ? 'text-[#f59e0b]' : 'text-slate-100'
                       }`}
                     >
                       <span>{item.label}</span>
@@ -1127,7 +1127,7 @@ export default function Chart() {
                         setShowSpeedMenu(false);
                       }}
                       className={`flex w-full items-center px-4 py-3 text-left text-sm transition-colors hover:bg-[#1a1a1a] ${
-                        replaySpeed === option ? 'text-[#2962ff]' : 'text-slate-100'
+                        replaySpeed === option ? 'text-[#f59e0b]' : 'text-slate-100'
                       }`}
                     >
                       {option}x
@@ -1151,7 +1151,7 @@ export default function Chart() {
               onClick={() => setDarkToggle(current => !current)}
               className="inline-flex h-8 items-center gap-2 rounded-full border border-[#222] bg-[#141414] px-3 text-xs font-medium text-slate-100 transition-colors hover:bg-[#1a1a1a]"
             >
-              <span className={`relative h-4 w-8 rounded-full transition-colors ${darkToggle ? 'bg-[#2962ff]' : 'bg-[#1f2937]'}`}>
+              <span className={`relative h-4 w-8 rounded-full transition-colors ${darkToggle ? 'bg-[#d97706]' : 'bg-[#1f2937]'}`}>
                 <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-transform ${darkToggle ? 'translate-x-4' : 'translate-x-0.5'}`} />
               </span>
               {darkToggle ? <Moon size={14} /> : <Sun size={14} />}
@@ -1201,7 +1201,7 @@ export default function Chart() {
                     <button
                       type="button"
                       onClick={() => navigate('/journal')}
-                      className="inline-flex h-10 w-full items-center justify-center rounded-xl bg-[#2962ff] px-4 text-sm font-medium text-white transition-colors hover:bg-[#3a6dff]"
+                      className="inline-flex h-10 w-full items-center justify-center rounded-xl bg-[#d97706] px-4 text-sm font-medium text-white transition-colors hover:bg-[#b45309]"
                     >
                       Open Journal
                     </button>
@@ -1233,7 +1233,7 @@ export default function Chart() {
                     <button
                       type="button"
                       onClick={() => setRailPanel(null)}
-                      className="inline-flex h-10 w-full items-center justify-center rounded-xl bg-[#2962ff] px-4 text-sm font-medium text-white transition-colors hover:bg-[#3a6dff]"
+                      className="inline-flex h-10 w-full items-center justify-center rounded-xl bg-[#d97706] px-4 text-sm font-medium text-white transition-colors hover:bg-[#b45309]"
                     >
                       Close
                     </button>
@@ -1272,7 +1272,7 @@ export default function Chart() {
                 type="button"
                 onClick={item.onClick}
                 className={`mb-2 flex w-full flex-col items-center gap-1 px-2 py-3 text-[11px] transition-colors hover:bg-[#1a1a1a] ${
-                  item.active ? 'bg-[#10214f] text-[#2962ff]' : 'text-slate-300'
+                  item.active ? 'bg-[rgba(245,158,11,0.10)] text-[#f59e0b]' : 'text-slate-300'
                 }`}
               >
                 <span>{item.icon}</span>
@@ -1288,14 +1288,14 @@ export default function Chart() {
             <button
               type="button"
               onClick={() => setUsePercentScale(current => !current)}
-              className={`transition-colors hover:text-white ${usePercentScale ? 'text-[#2962ff]' : 'text-slate-400'}`}
+              className={`transition-colors hover:text-white ${usePercentScale ? 'text-[#f59e0b]' : 'text-slate-400'}`}
             >
               %
             </button>
             <button
               type="button"
               onClick={() => setAutoScale(current => !current)}
-              className={`transition-colors hover:text-white ${autoScale ? 'text-[#2962ff]' : 'text-slate-400'}`}
+              className={`transition-colors hover:text-white ${autoScale ? 'text-[#f59e0b]' : 'text-slate-400'}`}
             >
               log/auto
             </button>

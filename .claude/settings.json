@@ -27,7 +27,9 @@
       "Bash(pkill -f \"src/index.ts\")",
       "Bash(netstat -ano)",
       "Bash(awk '{print $5}')",
-      "Bash(xargs -I{} taskkill //PID {} //F)"
+      "Bash(xargs -I{} taskkill //PID {} //F)",
+      "Bash(python skills/ui-ux-pro-max/scripts/search.py \"trading dashboard fintech professional distinctive\" --design-system -f markdown)",
+      "Bash(python3 skills/ui-ux-pro-max/scripts/search.py \"trading dashboard fintech professional distinctive\" --design-system -f markdown)"
     ]
   }
 }

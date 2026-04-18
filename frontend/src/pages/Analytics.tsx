@@ -177,10 +177,10 @@ function MetricCard({
   valueClassName: string;
 }) {
   return (
-    <div className="min-h-[144px] rounded-2xl border border-[#22324d] bg-[#0a1428] px-5 py-4">
-      <p className="text-xs uppercase tracking-[0.14em] text-[#5f7297]">{label}</p>
-      <p className={`mt-2.5 text-2xl font-semibold leading-[1.05] md:text-[40px] ${valueClassName}`}>{value}</p>
-      <p className="mt-2.5 text-sm leading-[1.25] text-[#6d82a7] md:text-[16px]">{subtitle}</p>
+    <div className="min-h-[112px] rounded-lg border border-[var(--app-border)] bg-[var(--app-panel)] px-4 py-3">
+      <p className="text-[10px] uppercase tracking-[0.1em] text-[var(--app-text-subtle)]">{label}</p>
+      <p className={`mt-2 text-[22px] font-semibold leading-tight ${valueClassName}`}>{value}</p>
+      <p className="mt-2 text-xs leading-[1.3] text-[var(--app-text-muted)]">{subtitle}</p>
     </div>
   );
 }
@@ -289,7 +289,7 @@ export default function Analytics() {
   const winLossData = useMemo(() => {
     const scoredTrades = metrics.wins.length + metrics.losses.length;
     if (scoredTrades === 0) {
-      return [{ name: 'No trades', value: 1, color: '#22314f' }];
+      return [{ name: 'No trades', value: 1, color: 'var(--app-panel-strong)' }];
     }
 
     return [
@@ -491,11 +491,11 @@ export default function Analytics() {
     .slice(0, 5);
 
   return (
-    <div className="animate-fade-in space-y-5">
+    <div className="animate-fade-in space-y-4">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-3xl font-semibold leading-[1.05] text-[#e2ebfb] md:text-[38px]">Analytics</h1>
-          <p className="mt-1.5 text-sm text-[#6d82a7] md:text-[18px]">Performance breakdown for your selected period</p>
+          <h1 className="text-[18px] font-semibold leading-tight text-[var(--app-text)]">Analytics</h1>
+          <p className="mt-1 text-xs text-[var(--app-text-muted)]">Performance breakdown for your selected period</p>
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -506,10 +506,10 @@ export default function Analytics() {
                 key={option.key}
                 type="button"
                 onClick={() => setPeriod(option.key)}
-                className={`rounded-xl border px-3.5 py-1.5 text-sm font-medium transition-colors md:px-4 md:py-2 md:text-[16px] ${
+                className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
                   active
-                    ? 'border-[#3b82f6] bg-[#132c52] text-[#8fc4ff]'
-                    : 'border-[#22324d] bg-[#0d1a31] text-[#8096ba] hover:text-[#bfd1ee]'
+                    ? 'border-[var(--accent)] bg-[var(--accent-dim)] text-[var(--accent)]'
+                    : 'border-[var(--app-border)] bg-[var(--app-panel)] text-[var(--app-text-muted)] hover:text-[var(--app-text)]'
                 }`}
               >
                 {option.label}
@@ -534,13 +534,13 @@ export default function Analytics() {
           label="Win Rate"
           value={`${metrics.winRate.toFixed(0)}%`}
           subtitle={`${metrics.wins.length}W / ${metrics.losses.length}L`}
-          valueClassName="text-[#e2ebfb]"
+          valueClassName="text-[var(--app-text)]"
         />
         <MetricCard
           label="Profit Factor"
           value={metrics.profitFactor >= 999 ? '∞' : metrics.profitFactor.toFixed(2)}
           subtitle={metrics.profitFactor >= 1 ? 'Above breakeven' : 'Below breakeven'}
-          valueClassName={metrics.profitFactor >= 1 ? 'text-[#60a5fa]' : 'text-[#f87171]'}
+          valueClassName={metrics.profitFactor >= 1 ? 'text-[var(--accent)]' : 'text-[#f87171]'}
         />
         <MetricCard
           label="Avg Win"
@@ -558,28 +558,28 @@ export default function Analytics() {
           label="Total Trades"
           value={String(metrics.totalTrades)}
           subtitle={`${metrics.tradesPerDay.toFixed(1)}/ day avg`}
-          valueClassName="text-[#e2ebfb]"
+          valueClassName="text-[var(--app-text)]"
         />
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[2fr_1fr]">
-        <section className="rounded-2xl border border-[#22324d] bg-[#0a1428] p-5">
+        <section className="rounded-lg border border-[var(--app-border)] bg-[var(--app-panel)] p-4">
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-2xl font-semibold text-[#e2ebfb] md:text-[32px]">Cumulative P&amp;L</h2>
-            <div className="flex items-center gap-4 text-sm text-[#6d82a7] md:text-[20px]">
+            <h2 className="text-sm font-semibold text-[var(--app-text)]">Cumulative P&amp;L</h2>
+            <div className="flex items-center gap-3 text-xs text-[var(--app-text-muted)]">
               <span className="inline-flex items-center gap-2">
                 <span className="h-3 w-3 rounded-full bg-emerald-400" />
                 P&amp;L
               </span>
               <span className="inline-flex items-center gap-2">
-                <span className="h-3 w-3 rounded-full bg-[#3b82f6]" />
+                <span className="h-3 w-3 rounded-full bg-[var(--accent)]" />
                 Breakeven
               </span>
             </div>
           </div>
 
           {equityCurveData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={300}>
+            <ResponsiveContainer width="100%" height={240}>
               <AreaChart data={equityCurveData} margin={{ top: 8, right: 10, left: 2, bottom: 2 }}>
                 <defs>
                   <linearGradient id="pnl-fill" x1="0" y1="0" x2="0" y2="1">
@@ -587,21 +587,21 @@ export default function Analytics() {
                     <stop offset="100%" stopColor={DASHBOARD_GREEN} stopOpacity={0.04} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid stroke="#1a2943" vertical={false} />
-                <XAxis dataKey="label" tick={{ fill: '#60769b', fontSize: 12 }} axisLine={false} tickLine={false} />
+                <CartesianGrid stroke="var(--app-panel-strong)" vertical={false} />
+                <XAxis dataKey="label" tick={{ fill: 'var(--app-text-subtle)', fontSize: 12 }} axisLine={false} tickLine={false} />
                 <YAxis
-                  tick={{ fill: '#60769b', fontSize: 12 }}
+                  tick={{ fill: 'var(--app-text-subtle)', fontSize: 12 }}
                   axisLine={false}
                   tickLine={false}
                   tickFormatter={value => `$${Number(value).toLocaleString()}`}
                 />
                 <Tooltip
-                  contentStyle={{ background: '#0d1930', border: '1px solid #22324d', borderRadius: 10 }}
-                  labelStyle={{ color: '#97abcf' }}
-                  itemStyle={{ color: '#e2ebfb' }}
+                  contentStyle={{ background: 'var(--app-panel)', border: '1px solid var(--app-border)', borderRadius: 10 }}
+                  labelStyle={{ color: 'var(--app-text-muted)' }}
+                  itemStyle={{ color: 'var(--app-text)' }}
                   formatter={(value: number, name) => [formatCurrency(value), name === 'cumulative' ? 'P&L' : 'Breakeven']}
                 />
-                <ReferenceLine y={0} stroke="#3b82f6" strokeDasharray="4 4" />
+                <ReferenceLine y={0} stroke="var(--accent)" strokeDasharray="4 4" />
                 <Area
                   type="monotone"
                   dataKey="cumulative"
@@ -613,22 +613,22 @@ export default function Analytics() {
               </AreaChart>
             </ResponsiveContainer>
           ) : (
-            <div className="flex h-[300px] items-center justify-center text-base text-[#6d82a7]">
+            <div className="flex h-[240px] items-center justify-center text-sm text-[var(--app-text-muted)]">
               No trades in this period.
             </div>
           )}
         </section>
 
-        <section className="rounded-2xl border border-[#22324d] bg-[#0a1428] p-5">
+        <section className="rounded-lg border border-[var(--app-border)] bg-[var(--app-panel)] p-4">
           <div className="mb-3 flex items-center justify-between gap-3">
-            <h2 className="text-2xl font-semibold text-[#e2ebfb] md:text-[32px]">Win / Loss</h2>
-            <span className="rounded-xl bg-[#12315f] px-3 py-1 text-xs text-[#60a5fa] md:text-[16px]">
+            <h2 className="text-sm font-semibold text-[var(--app-text)]">Win / Loss</h2>
+            <span className="rounded-md bg-[var(--accent-dim)] px-2.5 py-1 text-[11px] text-[var(--accent)]">
               {metrics.winRate.toFixed(0)}% win rate
             </span>
           </div>
 
           <div className="mt-4 grid grid-cols-[1fr_auto] items-start gap-3">
-            <div className="h-[230px] min-h-[230px]">
+            <div className="h-[190px] min-h-[190px]">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
@@ -649,32 +649,32 @@ export default function Analytics() {
               </ResponsiveContainer>
             </div>
 
-            <div className="space-y-3 text-base md:text-[20px]">
+            <div className="space-y-2.5 text-sm">
               <div className="flex items-center justify-between gap-5">
-                <span className="inline-flex items-center gap-2 text-[#6d82a7]">
+                <span className="inline-flex items-center gap-2 text-[var(--app-text-muted)]">
                   <span className="h-3 w-3 rounded-full bg-emerald-400" />
                   Wins
                 </span>
                 <span className="text-emerald-400">{metrics.wins.length}</span>
               </div>
               <div className="flex items-center justify-between gap-5">
-                <span className="inline-flex items-center gap-2 text-[#6d82a7]">
+                <span className="inline-flex items-center gap-2 text-[var(--app-text-muted)]">
                   <span className="h-3 w-3 rounded-full bg-red-400" />
                   Losses
                 </span>
                 <span className="text-red-400">{metrics.losses.length}</span>
               </div>
-              <div className="border-t border-[#22324d] pt-3 text-[13px]">
-                <div className="mb-2 flex items-center justify-between gap-3 text-[#6d82a7]">
+              <div className="border-t border-[var(--app-border)] pt-3 text-xs">
+                <div className="mb-2 flex items-center justify-between gap-3 text-[var(--app-text-muted)]">
                   <span>Avg hold (wins)</span>
-                  <span className="text-[#e2ebfb]">{formatHoldDuration(metrics.avgWinHold)}</span>
+                  <span className="text-[var(--app-text)]">{formatHoldDuration(metrics.avgWinHold)}</span>
                 </div>
-                <div className="flex items-center justify-between gap-3 text-[#6d82a7]">
+                <div className="flex items-center justify-between gap-3 text-[var(--app-text-muted)]">
                   <span>Avg hold (losses)</span>
-                  <span className="text-[#e2ebfb]">{formatHoldDuration(metrics.avgLossHold)}</span>
+                  <span className="text-[var(--app-text)]">{formatHoldDuration(metrics.avgLossHold)}</span>
                 </div>
                 {winLossTotal === 0 && (
-                  <p className="mt-3 text-[#6d82a7]">No scored trades yet.</p>
+                  <p className="mt-3 text-[var(--app-text-muted)]">No scored trades yet.</p>
                 )}
               </div>
             </div>
@@ -683,13 +683,13 @@ export default function Analytics() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-        <section className="rounded-2xl border border-[#22324d] bg-[#0a1428] p-5">
-          <h3 className="text-2xl font-semibold text-[#e2ebfb] md:text-[30px]">P&amp;L by day of week</h3>
+        <section className="rounded-lg border border-[var(--app-border)] bg-[var(--app-panel)] p-4">
+          <h3 className="text-sm font-semibold text-[var(--app-text)]">P&amp;L by day of week</h3>
           <div className="mt-5 space-y-2.5">
             {dayOfWeekRows.map(row => (
               <div key={row.label} className="grid grid-cols-[46px_minmax(0,1fr)_92px] items-center gap-2.5">
-                <span className="w-[46px] text-lg leading-none text-[#9aaed0] md:text-[16px]">{row.label}</span>
-                <div className="min-w-0 h-2.5 rounded-full bg-[#1a2943]">
+                <span className="w-[46px] text-xs leading-none text-[var(--app-text-muted)]">{row.label}</span>
+                <div className="min-w-0 h-2.5 rounded-full bg-[var(--app-panel-strong)]">
                   <div
                     className="h-2.5 rounded-full"
                     style={{
@@ -698,7 +698,7 @@ export default function Analytics() {
                     }}
                   />
                 </div>
-                <span className={`text-right text-base tabular-nums whitespace-nowrap md:text-[16px] ${row.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                <span className={`text-right text-xs tabular-nums whitespace-nowrap ${row.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                   {formatSignedCurrency(row.pnl)}
                 </span>
               </div>
@@ -706,13 +706,13 @@ export default function Analytics() {
           </div>
         </section>
 
-        <section className="rounded-2xl border border-[#22324d] bg-[#0a1428] p-5">
-          <h3 className="text-2xl font-semibold text-[#e2ebfb] md:text-[30px]">P&amp;L by session</h3>
+        <section className="rounded-lg border border-[var(--app-border)] bg-[var(--app-panel)] p-4">
+          <h3 className="text-sm font-semibold text-[var(--app-text)]">P&amp;L by session</h3>
           <div className="mt-5 space-y-3">
             {sessionRows.map(row => (
               <div key={row.key} className="grid grid-cols-[92px_minmax(0,1fr)_92px] items-center gap-2.5">
-                <span className="w-[92px] text-lg leading-[1.05] text-[#9aaed0] md:text-[16px]">{row.label}</span>
-                <div className="min-w-0 h-2.5 rounded-full bg-[#1a2943]">
+                <span className="w-[92px] text-xs leading-[1.05] text-[var(--app-text-muted)]">{row.label}</span>
+                <div className="min-w-0 h-2.5 rounded-full bg-[var(--app-panel-strong)]">
                   <div
                     className="h-2.5 rounded-full"
                     style={{
@@ -721,7 +721,7 @@ export default function Analytics() {
                     }}
                   />
                 </div>
-                <span className={`text-right text-base tabular-nums whitespace-nowrap md:text-[16px] ${row.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                <span className={`text-right text-xs tabular-nums whitespace-nowrap ${row.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                   {formatSignedCurrency(row.pnl)}
                 </span>
               </div>
@@ -729,15 +729,15 @@ export default function Analytics() {
           </div>
         </section>
 
-        <section className="rounded-2xl border border-[#22324d] bg-[#0a1428] p-5">
-          <h3 className="text-2xl font-semibold text-[#e2ebfb] md:text-[30px]">Win/loss streak</h3>
-          <p className="mt-3 text-sm text-[#6d82a7] md:text-[18px]">Last 20 trades</p>
+        <section className="rounded-lg border border-[var(--app-border)] bg-[var(--app-panel)] p-4">
+          <h3 className="text-sm font-semibold text-[var(--app-text)]">Win/loss streak</h3>
+          <p className="mt-3 text-xs text-[var(--app-text-muted)]">Last 20 trades</p>
 
           <div className="mt-4 flex flex-wrap gap-2">
             {streakStats.recent.map((outcome, index) => (
               <span
                 key={`${outcome}-${index}`}
-                className="h-8 w-2.5 rounded-full"
+                className="h-6 w-2 rounded-full"
                 style={{
                   backgroundColor: outcome > 0 ? DASHBOARD_GREEN : outcome < 0 ? DASHBOARD_RED : '#334155',
                 }}
@@ -745,44 +745,44 @@ export default function Analytics() {
             ))}
           </div>
 
-          <div className="mt-5 grid grid-cols-2 gap-4 text-sm md:text-[15px]">
+          <div className="mt-5 grid grid-cols-2 gap-4 text-xs">
             <div>
-              <p className="text-[#6d82a7]">CURRENT</p>
+              <p className="text-[var(--app-text-muted)]">CURRENT</p>
               <p className={streakStats.currentType >= 0 ? 'text-emerald-400' : 'text-red-400'}>
                 {streakStats.currentLength}{streakStats.currentType >= 0 ? 'W' : 'L'} streak
               </p>
             </div>
             <div>
-              <p className="text-[#6d82a7]">BEST</p>
+              <p className="text-[var(--app-text-muted)]">BEST</p>
               <p className="text-emerald-400">{streakStats.bestWin}W streak</p>
             </div>
             <div>
-              <p className="text-[#6d82a7]">WORST LOSS</p>
+              <p className="text-[var(--app-text-muted)]">WORST LOSS</p>
               <p className="text-red-400">{streakStats.worstLoss}L streak</p>
             </div>
             <div>
-              <p className="text-[#6d82a7]">LARGEST LOSS</p>
+              <p className="text-[var(--app-text-muted)]">LARGEST LOSS</p>
               <p className="text-red-400">{metrics.largestLoss < 0 ? formatCurrency(metrics.largestLoss) : '$0.00'}</p>
             </div>
           </div>
         </section>
       </div>
 
-      <section className="rounded-2xl border border-[#22324d] bg-[#0a1428] p-5">
+      <section className="rounded-lg border border-[var(--app-border)] bg-[var(--app-panel)] p-4">
         <div className="mb-5 flex items-center justify-between gap-3">
-          <h3 className="text-2xl font-semibold text-[#e2ebfb] md:text-[30px]">P&amp;L by time of day</h3>
-          <p className="text-xs text-[#6d82a7] md:text-[16px]">Avg P&amp;L in your most traded 30-min windows</p>
+          <h3 className="text-sm font-semibold text-[var(--app-text)]">P&amp;L by time of day</h3>
+          <p className="text-xs text-[var(--app-text-muted)]">Avg P&amp;L in your most traded 30-min windows</p>
         </div>
 
         <div className="grid grid-cols-7 gap-2">
           {timeOfDayRows.map(row => (
             <div key={row.label} className="text-center">
-              <p className="mb-1.5 text-xs text-[#6d82a7] md:text-[13px]">{row.label}</p>
+              <p className="mb-1.5 text-[11px] text-[var(--app-text-muted)]">{row.label}</p>
               <div
-                className="rounded-lg px-2 py-2 text-xs font-medium md:text-[14px]"
+                className="rounded-md px-2 py-2 text-xs font-medium"
                 style={{
                   backgroundColor: row.avgPnL === null
-                    ? '#1a2943'
+                    ? 'var(--app-panel-strong)'
                     : row.avgPnL >= 0
                       ? `rgba(52,211,153,${0.3 + (row.ratio * 0.42)})`
                       : `rgba(248,113,113,${0.3 + (row.ratio * 0.42)})`,
@@ -796,13 +796,13 @@ export default function Analytics() {
         </div>
 
         <div className="mt-5 flex items-center justify-between">
-          <span className="text-xs text-[#6d82a7] md:text-[14px]">Mon-Fri</span>
-          <div className="flex items-center gap-2 text-xs text-[#6d82a7] md:text-[14px]">
+          <span className="text-xs text-[var(--app-text-muted)]">Mon-Fri</span>
+          <div className="flex items-center gap-2 text-xs text-[var(--app-text-muted)]">
             <span>Loss</span>
-            <span className="h-3 w-6 rounded bg-[#7f1d1d]" />
+            <span className="h-3 w-6 rounded bg-red-900/60" />
             <span className="h-3 w-6 rounded bg-red-400" />
-            <span className="h-3 w-6 rounded bg-[#1a2943]" />
-            <span className="h-3 w-6 rounded bg-[#166534]" />
+            <span className="h-3 w-6 rounded bg-[var(--app-panel-strong)]" />
+            <span className="h-3 w-6 rounded bg-emerald-900/60" />
             <span className="h-3 w-6 rounded bg-emerald-400" />
             <span className="h-3 w-6 rounded bg-emerald-400" />
             <span>Profit</span>
@@ -810,29 +810,29 @@ export default function Analytics() {
         </div>
       </section>
 
-      <section className="rounded-2xl border border-[#22324d] bg-[#0a1428] p-5">
+      <section className="rounded-lg border border-[var(--app-border)] bg-[var(--app-panel)] p-4">
         <div className="mb-5 flex items-center justify-between gap-3">
-          <h3 className="text-2xl font-semibold text-[#e2ebfb] md:text-[30px]">Confluence Performance</h3>
-          <p className="text-xs text-[#6d82a7] md:text-[16px]">Ranked by net P&amp;L contribution</p>
+          <h3 className="text-sm font-semibold text-[var(--app-text)]">Confluence Performance</h3>
+          <p className="text-xs text-[var(--app-text-muted)]">Ranked by net P&amp;L contribution</p>
         </div>
 
         {confluenceRows.length === 0 ? (
-          <p className="text-sm text-[#6d82a7]">Add confluences on trades to unlock this breakdown.</p>
+          <p className="text-sm text-[var(--app-text-muted)]">Add confluences on trades to unlock this breakdown.</p>
         ) : (
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
             <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
               <p className="text-xs uppercase tracking-[0.14em] text-emerald-300">Most Profitable</p>
               <div className="mt-3 space-y-2.5">
                 {strongestConfluences.length > 0 ? strongestConfluences.map(row => (
-                  <div key={row.label} className="flex items-center justify-between gap-2 rounded-lg border border-white/5 bg-[#0a1428] px-3 py-2">
+                  <div key={row.label} className="flex items-center justify-between gap-2 rounded-lg border border-white/5 bg-[var(--app-panel)] px-3 py-2">
                     <div>
-                      <p className="text-sm text-[#e2ebfb]">{row.label}</p>
-                      <p className="text-xs text-[#6d82a7]">{row.trades} trades | {row.winRate.toFixed(0)}% win</p>
+                      <p className="text-sm text-[var(--app-text)]">{row.label}</p>
+                      <p className="text-xs text-[var(--app-text-muted)]">{row.trades} trades | {row.winRate.toFixed(0)}% win</p>
                     </div>
                     <p className="text-sm font-semibold text-emerald-400">{formatSignedCurrency(row.netPnL)}</p>
                   </div>
                 )) : (
-                  <p className="text-xs text-[#6d82a7]">No profitable confluences in this period.</p>
+                  <p className="text-xs text-[var(--app-text-muted)]">No profitable confluences in this period.</p>
                 )}
               </div>
             </div>
@@ -841,15 +841,15 @@ export default function Analytics() {
               <p className="text-xs uppercase tracking-[0.14em] text-red-300">Most Costly</p>
               <div className="mt-3 space-y-2.5">
                 {weakestConfluences.length > 0 ? weakestConfluences.map(row => (
-                  <div key={row.label} className="flex items-center justify-between gap-2 rounded-lg border border-white/5 bg-[#0a1428] px-3 py-2">
+                  <div key={row.label} className="flex items-center justify-between gap-2 rounded-lg border border-white/5 bg-[var(--app-panel)] px-3 py-2">
                     <div>
-                      <p className="text-sm text-[#e2ebfb]">{row.label}</p>
-                      <p className="text-xs text-[#6d82a7]">{row.trades} trades | {row.winRate.toFixed(0)}% win</p>
+                      <p className="text-sm text-[var(--app-text)]">{row.label}</p>
+                      <p className="text-xs text-[var(--app-text-muted)]">{row.trades} trades | {row.winRate.toFixed(0)}% win</p>
                     </div>
                     <p className="text-sm font-semibold text-red-400">{formatSignedCurrency(row.netPnL)}</p>
                   </div>
                 )) : (
-                  <p className="text-xs text-[#6d82a7]">No losing confluences in this period.</p>
+                  <p className="text-xs text-[var(--app-text-muted)]">No losing confluences in this period.</p>
                 )}
               </div>
             </div>
