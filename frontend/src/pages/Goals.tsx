@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react';
 import { Plus } from 'lucide-react';
 import GoalCard from '../components/goals/GoalCard.js';
 import AddGoalPanel from '../components/goals/AddGoalPanel.js';
-import { useGoals, type Goal, type GoalInput } from '../hooks/useGoals.js';
+import { useGoals } from '../hooks/useGoals.js';
+import type { Goal, GoalInput } from '../types/goals.js';
 
 type Filter = 'All' | 'Active' | 'Achieved' | 'Paused';
 
@@ -13,7 +14,7 @@ const GHOST_CARDS = [
 ];
 
 export default function Goals() {
-  const { goals, addGoal, updateGoal, deleteGoal, achieveGoal, addStep, toggleStep, deleteStep } = useGoals();
+  const { goals, addGoal, updateGoal, toggleStep } = useGoals();
   const [panelOpen, setPanelOpen] = useState(false);
   const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
   const [filter, setFilter] = useState<Filter>('All');
@@ -21,7 +22,7 @@ export default function Goals() {
   const stats = useMemo(() => ({
     active:         goals.filter(g => g.status === 'Active').length,
     achieved:       goals.filter(g => g.status === 'Achieved').length,
-    totalStepsDone: goals.reduce((n, g) => n + g.steps.filter(s => s.completed).length, 0),
+    totalStepsDone: goals.reduce((n, g) => n + g.steps.filter(s => s.done).length, 0),
   }), [goals]);
 
   const filteredGoals = useMemo(
@@ -34,9 +35,13 @@ export default function Goals() {
 
   const handleSave = (data: GoalInput) => {
     if (editingGoal) {
-      updateGoal(editingGoal.id, data);
+      updateGoal({ ...editingGoal, ...data });
     } else {
-      addGoal(data);
+      addGoal({
+        ...data,
+        id: crypto.randomUUID(),
+        createdAt: new Date().toISOString(),
+      });
     }
   };
 
@@ -115,17 +120,12 @@ export default function Goals() {
           </p>
         ) : (
           <div className="columns-1 gap-5 md:columns-2 xl:columns-3">
-            {filteredGoals.map((goal, index) => (
+            {filteredGoals.map((goal) => (
               <GoalCard
                 key={goal.id}
                 goal={goal}
-                index={index}
-                onEdit={openEdit}
-                onDelete={deleteGoal}
-                onAchieve={achieveGoal}
+                onEdit={(id) => openEdit(goals.find(g => g.id === id)!)}
                 onToggleStep={toggleStep}
-                onAddStep={addStep}
-                onDeleteStep={deleteStep}
               />
             ))}
           </div>

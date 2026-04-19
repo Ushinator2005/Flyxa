@@ -1,9 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { type ChangeEvent, type DragEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowUpRight, ChevronLeft, ChevronRight, Image as ImageIcon, Search, Trash2 } from 'lucide-react';
-import ScreenshotImportModal from '../components/scanner/ScreenshotImportModal.js';
+import TradeForm from '../components/scanner/TradeForm.js';
+import { buildScannerAssets } from '../components/scanner/ScreenshotImportModal.js';
 import { useTrades } from '../hooks/useTrades.js';
+import { useAppSettings } from '../contexts/AppSettingsContext.js';
+import { lookupContract } from '../constants/futuresContracts.js';
+import { aiApi } from '../services/api.js';
 import { Trade } from '../types/index.js';
+import { formatRiskRewardRatio } from '../utils/riskReward.js';
 
 export type FlyxaJournalDirection = 'LONG' | 'SHORT';
 export type FlyxaJournalRuleState = 'ok' | 'fail' | 'unchecked';
@@ -71,8 +76,14 @@ export interface FlyxaJournalPageProps {
   date?: string;
   entries?: FlyxaJournalEntry[];
   account?: FlyxaJournalAccount;
-  onOpenTradeScanner?: () => void;
+  tradesById?: Record<string, Trade>;
+  initialTradeId?: string;
+  forceImportPrompt?: boolean;
   onDeleteTrade?: (tradeId: string) => Promise<void> | void;
+  onUpdateTrade?: (tradeId: string, data: Partial<Trade>) => Promise<void> | void;
+  onImportFirstTradeImage?: (file: File) => void;
+  isImportingFirstTrade?: boolean;
+  firstTradeImportError?: string | null;
 }
 
 type ReflectionTab = 'pre' | 'post' | 'lessons';
@@ -425,8 +436,10 @@ function toPercent(value: number): string {
 }
 
 function toR(value: number): string {
-  if (!Number.isFinite(value)) return '0.00R';
-  return `${value.toFixed(2)}R`;
+  return formatRiskRewardRatio(value, {
+    includeSign: true,
+    placeholder: '0 RR',
+  });
 }
 
 function formatDayTitle(date: string): string {
@@ -479,6 +492,366 @@ function getPnLColor(value: number): string {
   return 'var(--amber)';
 }
 
+const SCAN_SYMBOL_MAP: Record<string, string> = {
+  NQM26: 'NQ', NQH26: 'NQ', NQU26: 'NQ', NQZ26: 'NQ',
+  ESM26: 'ES', ESH26: 'ES', ESU26: 'ES', ESZ26: 'ES',
+  MNQM26: 'MNQ', MNQH26: 'MNQ', MNQU26: 'MNQ', MNQZ26: 'MNQ',
+  MESM26: 'MES', MESH26: 'MES', MESU26: 'MES', MESZ26: 'MES',
+};
+
+const INTERNAL_SCAN_WARNINGS = new Set([
+  'Exact price-label review failed, so price levels relied on the broader chart reads.',
+  'Exit verification failed — relying on manual chart read.',
+  'Exit verification failed, so the final answer relied on the manual chart read.',
+  'Stop/target sanity check failed, so the final answer relied on the broader exit review.',
+  'Header symbol/timeframe read failed, so identity relied on the broader chart reads.',
+  'Primary chart extraction failed, so the scanner fell back to the human-style review pass.',
+  'Human-style review failed, so the scanner relied on the primary extraction pass.',
+  'Final consensus review failed, so the result relied on the primary extraction passes.',
+  'Sanity check failed — relying on exit verification result.',
+]);
+
+type ScannerExtraction = Awaited<ReturnType<typeof aiApi.scanChart>>;
+
+function filterScanWarnings(warnings: string[] | undefined): string[] {
+  if (!Array.isArray(warnings)) return [];
+  return warnings.filter(msg => !INTERNAL_SCAN_WARNINGS.has(msg));
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function toScanTime(value: string | null | undefined): string {
+  if (!value) return '';
+  const match = value.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return '';
+  const hours = Math.min(23, Math.max(0, Number(match[1])));
+  const minutes = Math.min(59, Math.max(0, Number(match[2])));
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}
+
+function resolveScanSymbol(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const upper = raw.trim().toUpperCase();
+  if (!upper || ['UNKNOWN', 'UNKWN', 'N/A', 'NA', 'NONE', 'NULL'].includes(upper)) return null;
+  return SCAN_SYMBOL_MAP[upper] ?? upper;
+}
+
+function inferSymbolFromFileName(fileName: string): string | null {
+  const upper = fileName.toUpperCase();
+  const match = upper.match(/(?:^|[^A-Z0-9])(MNQ|MES|NQ|ES|MYM|YM|M2K|RTY|CL|MCL|GC|MGC|SI|SIL|6E)(?=[^A-Z0-9]|$)/);
+  return match ? match[1] : null;
+}
+
+function resolveExitReason(extracted: {
+  exit_reason?: 'TP' | 'SL' | null;
+  pnl_result?: 'Win' | 'Loss' | null;
+}): 'TP' | 'SL' | null {
+  if (extracted.exit_reason === 'TP' || extracted.exit_reason === 'SL') return extracted.exit_reason;
+  if (extracted.pnl_result === 'Win') return 'TP';
+  if (extracted.pnl_result === 'Loss') return 'SL';
+  return null;
+}
+
+function getTodayDate(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getNowTime(): string {
+  return new Date().toLocaleTimeString('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+}
+
+function toDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = event => {
+      if (typeof event.target?.result === 'string') {
+        resolve(event.target.result);
+        return;
+      }
+      reject(new Error('Failed to read image file'));
+    };
+    reader.onerror = () => reject(new Error('Failed to read image file'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function buildTradePatchFromScan(options: {
+  extracted: ScannerExtraction;
+  fileName: string;
+  baseTrade?: Partial<Trade>;
+  fallbackDate: string;
+  fallbackTime: string;
+  accountId?: string;
+  screenshotDataUrl?: string;
+}): {
+  patch: Partial<Trade>;
+  aiFields: Set<string>;
+  warnings: string[];
+  evidence: string;
+} {
+  const { extracted, fileName, baseTrade, fallbackDate, fallbackTime, accountId, screenshotDataUrl } = options;
+  const aiFields = new Set<string>();
+  const patch: Partial<Trade> = {
+    ...(baseTrade ?? {}),
+    accountId: accountId ?? baseTrade?.accountId ?? baseTrade?.account_id,
+    trade_date: baseTrade?.trade_date || fallbackDate,
+    trade_time: baseTrade?.trade_time || fallbackTime,
+    contract_size: Math.max(1, Number(baseTrade?.contract_size ?? 1)),
+  };
+
+  if (screenshotDataUrl) {
+    patch.screenshot_url = screenshotDataUrl;
+  }
+
+  const extractedSymbol = resolveScanSymbol(extracted.symbol);
+  const symbol = extractedSymbol ?? inferSymbolFromFileName(fileName) ?? patch.symbol ?? null;
+  if (symbol) {
+    patch.symbol = symbol;
+    if (extractedSymbol) {
+      aiFields.add('symbol');
+    }
+    const contract = lookupContract(symbol);
+    if (contract) {
+      patch.point_value = contract.point_value;
+    }
+  }
+
+  if (extracted.direction) {
+    patch.direction = extracted.direction;
+    aiFields.add('direction');
+  }
+  if (isFiniteNumber(extracted.entry_price)) {
+    patch.entry_price = Number(extracted.entry_price);
+    aiFields.add('entry_price');
+  }
+  if (isFiniteNumber(extracted.sl_price)) {
+    patch.sl_price = Number(extracted.sl_price);
+    aiFields.add('sl_price');
+  }
+  if (isFiniteNumber(extracted.tp_price)) {
+    patch.tp_price = Number(extracted.tp_price);
+    aiFields.add('tp_price');
+  }
+
+  const resolvedExitReason = resolveExitReason(extracted);
+  if (resolvedExitReason) {
+    patch.exit_reason = resolvedExitReason;
+    patch.exit_price = resolvedExitReason === 'TP'
+      ? Number(extracted.tp_price ?? patch.tp_price ?? 0)
+      : Number(extracted.sl_price ?? patch.sl_price ?? 0);
+    aiFields.add('exit_reason');
+  }
+
+  const extractedTime = toScanTime(extracted.entry_time);
+  if (extractedTime) {
+    patch.trade_time = extractedTime;
+    aiFields.add('trade_time');
+  }
+
+  if (isFiniteNumber(extracted.trade_length_seconds)) {
+    patch.trade_length_seconds = Number(extracted.trade_length_seconds);
+    aiFields.add('trade_length_seconds');
+  }
+  if (isFiniteNumber(extracted.candle_count)) {
+    patch.candle_count = Number(extracted.candle_count);
+  }
+  if (isFiniteNumber(extracted.timeframe_minutes)) {
+    patch.timeframe_minutes = Number(extracted.timeframe_minutes);
+  }
+
+  return {
+    patch,
+    aiFields,
+    warnings: filterScanWarnings(extracted.warnings),
+    evidence: extracted.first_touch_evidence ?? '',
+  };
+}
+
+function toJournalDirection(direction: Trade['direction']): FlyxaJournalDirection {
+  return direction === 'Short' ? 'SHORT' : 'LONG';
+}
+
+function toClockTime(value: string | undefined): string {
+  if (!value) return '00:00';
+  const match = value.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return '00:00';
+  const hours = Math.min(23, Math.max(0, Number(match[1])));
+  const minutes = Math.min(59, Math.max(0, Number(match[2])));
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}
+
+function addSecondsToTime(time: string, seconds: number | undefined): string {
+  const [hours, minutes] = toClockTime(time).split(':').map(Number);
+  const safeSeconds = Number.isFinite(seconds) ? Math.max(0, Math.round(seconds as number)) : 0;
+  const total = ((hours * 3600) + (minutes * 60) + safeSeconds) % 86400;
+  const outHours = Math.floor(total / 3600);
+  const outMinutes = Math.floor((total % 3600) / 60);
+  return `${String(outHours).padStart(2, '0')}:${String(outMinutes).padStart(2, '0')}`;
+}
+
+function getTradeStatus(trade: Trade): FlyxaJournalTrade['status'] {
+  if (trade.exit_reason === 'TP') return 'win';
+  if (trade.exit_reason === 'SL') return 'loss';
+  return 'open';
+}
+
+function getTradeR(trade: Trade): number {
+  const risk = Math.abs(trade.entry_price - trade.sl_price);
+  if (!Number.isFinite(risk) || risk <= 0) return 0;
+  const reward = trade.direction === 'Long'
+    ? trade.exit_price - trade.entry_price
+    : trade.entry_price - trade.exit_price;
+  return Number((reward / risk).toFixed(2));
+}
+
+function getDayGrade(totalPnl: number, winRate: number): string {
+  if (totalPnl > 0 && winRate >= 70) return 'A';
+  if (totalPnl > 0 && winRate >= 50) return 'B';
+  if (totalPnl >= 0) return 'B-';
+  if (winRate >= 50) return 'C';
+  return 'D';
+}
+
+function getEmotionLabel(state: Trade['emotional_state'] | undefined): string {
+  if (!state) return 'Focused';
+  if (state === 'Revenge Trading') return 'Revenge trading';
+  return state;
+}
+
+function getEmotionTone(state: Trade['emotional_state'] | undefined): FlyxaEmotionTone {
+  if (state === 'Calm' || state === 'Confident') return 's-g';
+  if (state === 'FOMO' || state === 'Overconfident') return 's-a';
+  return 's-r';
+}
+
+function toJournalEntries(trades: Trade[]): FlyxaJournalEntry[] {
+  if (trades.length === 0) return [];
+
+  const byDate = new Map<string, Trade[]>();
+  trades.forEach(trade => {
+    const fallbackDate = typeof trade.created_at === 'string'
+      ? trade.created_at.slice(0, 10)
+      : new Date().toISOString().slice(0, 10);
+    const dateKey = /^\d{4}-\d{2}-\d{2}$/.test(trade.trade_date) ? trade.trade_date : fallbackDate;
+    const existing = byDate.get(dateKey);
+    if (existing) {
+      existing.push(trade);
+    } else {
+      byDate.set(dateKey, [trade]);
+    }
+  });
+
+  const entries: FlyxaJournalEntry[] = [];
+  byDate.forEach((dayTradesRaw, dateKey) => {
+    const dayTrades = [...dayTradesRaw].sort((a, b) => toClockTime(a.trade_time).localeCompare(toClockTime(b.trade_time)));
+
+    const mappedTrades: FlyxaJournalTrade[] = dayTrades.map(trade => {
+      const entryTime = toClockTime(trade.trade_time);
+      const exitTime = addSecondsToTime(entryTime, trade.trade_length_seconds);
+      const signedMove = trade.direction === 'Long'
+        ? trade.exit_price - trade.entry_price
+        : trade.entry_price - trade.exit_price;
+
+      return {
+        id: trade.id,
+        symbol: trade.symbol,
+        direction: toJournalDirection(trade.direction),
+        entryTime,
+        exitTime,
+        entryPrice: trade.entry_price,
+        exitPrice: trade.exit_price,
+        cents: Math.round(signedMove * 100),
+        rr: getTradeR(trade),
+        pnl: trade.pnl,
+        status: getTradeStatus(trade),
+        screenshotUrl: trade.screenshot_url,
+      };
+    });
+
+    const dayPnl = mappedTrades.reduce((sum, trade) => sum + trade.pnl, 0);
+    const wins = mappedTrades.filter(trade => trade.status === 'win').length;
+    const winRate = mappedTrades.length > 0 ? (wins / mappedTrades.length) * 100 : 0;
+    const grade = getDayGrade(dayPnl, winRate);
+
+    const screenshots = dayTrades
+      .map(trade => trade.screenshot_url?.trim() ?? '')
+      .filter(url => url.length > 0)
+      .slice(0, 3);
+
+    const firstPre = dayTrades
+      .map(trade => trade.pre_trade_notes?.trim() ?? '')
+      .find(note => note.length > 0);
+    const firstPost = dayTrades
+      .map(trade => trade.post_trade_notes?.trim() ?? '')
+      .find(note => note.length > 0);
+
+    const confidenceValues = dayTrades
+      .map(trade => trade.confidence_level)
+      .filter((value): value is number => Number.isFinite(value));
+    const avgConfidence = confidenceValues.length > 0
+      ? confidenceValues.reduce((sum, value) => sum + value, 0) / confidenceValues.length
+      : 7;
+    const avgScore5 = Number(Math.min(5, Math.max(1, avgConfidence / 2)).toFixed(1));
+    const followedPlanCount = dayTrades.filter(trade => Boolean(trade.followed_plan)).length;
+    const followedPlanRatio = dayTrades.length > 0 ? followedPlanCount / dayTrades.length : 0;
+    const disciplineScore = Number((1 + (followedPlanRatio * 4)).toFixed(1));
+    const executionScore = Number((1 + ((winRate / 100) * 4)).toFixed(1));
+
+    const emotionByLabel = new Map<string, FlyxaEmotionTone>();
+    dayTrades.forEach(trade => {
+      const label = getEmotionLabel(trade.emotional_state);
+      if (!emotionByLabel.has(label)) {
+        emotionByLabel.set(label, getEmotionTone(trade.emotional_state));
+      }
+    });
+
+    entries.push({
+      date: dateKey,
+      pnl: dayPnl,
+      grade,
+      trades: mappedTrades,
+      screenshots,
+      reflection: {
+        pre: firstPre ?? 'Game plan, key levels, bias, setups you are watching...',
+        post: firstPost ?? 'Session complete. Log your process review and execution quality.',
+        lessons: dayPnl >= 0
+          ? 'Execution held up. Keep repeating your highest-quality setups.'
+          : 'Protect capital first. Tighten selection and avoid low-quality entries.',
+      },
+      rules: [
+        {
+          id: `plan-${dateKey}`,
+          label: 'Followed daily game plan',
+          state: followedPlanRatio >= 0.8 ? 'ok' : followedPlanRatio <= 0.3 ? 'fail' : 'unchecked',
+        },
+        { id: `setups-${dateKey}`, label: 'Only traded A/B setups', state: 'unchecked' },
+        { id: `risk-${dateKey}`, label: 'Respected position sizing rules', state: 'unchecked' },
+      ],
+      psychology: {
+        setupQuality: avgScore5,
+        setupQualityNote: `${dayTrades.length} trade${dayTrades.length === 1 ? '' : 's'} reviewed`,
+        discipline: disciplineScore,
+        disciplineNote: `${followedPlanCount}/${dayTrades.length} followed plan`,
+        execution: executionScore,
+        executionNote: `${wins}/${dayTrades.length} reached target`,
+      },
+      emotions: Array.from(emotionByLabel.entries()).map(([label, tone]) => ({ label, tone })),
+    });
+  });
+
+  return entries.sort((a, b) => b.date.localeCompare(a.date));
+}
+
 const JOURNAL_THEME = {
   '--bg': 'var(--app-bg)',
   '--surface-1': 'var(--app-panel)',
@@ -503,15 +876,39 @@ export function FlyxaJournalPage({
   date,
   entries = DEFAULT_ENTRIES,
   account = DEFAULT_ACCOUNT,
-  onOpenTradeScanner,
+  tradesById = {},
+  initialTradeId,
+  forceImportPrompt = false,
   onDeleteTrade,
+  onUpdateTrade,
+  onImportFirstTradeImage,
+  isImportingFirstTrade = false,
+  firstTradeImportError = null,
 }: FlyxaJournalPageProps) {
   const [entriesState, setEntriesState] = useState<FlyxaJournalEntry[]>(entries);
   const [deletingTradeId, setDeletingTradeId] = useState<string | null>(null);
+  const [firstTradeDropActive, setFirstTradeDropActive] = useState(false);
+  const [selectedTradeId, setSelectedTradeId] = useState<string | null>(null);
+  const [editorDraft, setEditorDraft] = useState<Partial<Trade> | null>(null);
+  const [editorImagePreview, setEditorImagePreview] = useState<string | null>(null);
+  const [editorAiFields, setEditorAiFields] = useState<Set<string>>(new Set());
+  const [editorWarnings, setEditorWarnings] = useState<string[]>([]);
+  const [editorScanEvidence, setEditorScanEvidence] = useState('');
+  const [editorScanError, setEditorScanError] = useState('');
+  const [editorScanning, setEditorScanning] = useState(false);
+  const [editorSaving, setEditorSaving] = useState(false);
+  const [editorDropActive, setEditorDropActive] = useState(false);
+  const [showImportPrompt, setShowImportPrompt] = useState(forceImportPrompt);
+  const firstTradeFileInputRef = useRef<HTMLInputElement>(null);
+  const editorFileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setEntriesState(entries);
   }, [entries]);
+
+  useEffect(() => {
+    setShowImportPrompt(forceImportPrompt);
+  }, [forceImportPrompt]);
 
   const sortedEntries = useMemo(
     () => [...entriesState].sort((a, b) => b.date.localeCompare(a.date)),
@@ -599,6 +996,53 @@ export function FlyxaJournalPage({
   const activeReflection = activeEntry
     ? (reflectionByDate[activeEntry.date] ?? activeEntry.reflection)
     : null;
+  const shouldShowImportPrompt = showImportPrompt || !activeEntry;
+
+  useEffect(() => {
+    if (!forceImportPrompt && activeEntry && !isImportingFirstTrade && showImportPrompt) {
+      setShowImportPrompt(false);
+    }
+  }, [activeEntry, forceImportPrompt, isImportingFirstTrade, showImportPrompt]);
+
+  useEffect(() => {
+    if (!activeEntry || activeEntry.trades.length === 0) {
+      setSelectedTradeId(null);
+      return;
+    }
+
+    if (initialTradeId && activeEntry.trades.some(trade => trade.id === initialTradeId)) {
+      setSelectedTradeId(initialTradeId);
+      return;
+    }
+
+    if (!selectedTradeId || !activeEntry.trades.some(trade => trade.id === selectedTradeId)) {
+      setSelectedTradeId(activeEntry.trades[0].id);
+    }
+  }, [activeEntry, initialTradeId, selectedTradeId]);
+
+  const selectedTrade = useMemo(() => {
+    if (!selectedTradeId) return null;
+    return tradesById[selectedTradeId] ?? null;
+  }, [selectedTradeId, tradesById]);
+
+  useEffect(() => {
+    if (!selectedTrade) {
+      setEditorDraft(null);
+      setEditorImagePreview(null);
+      setEditorAiFields(new Set());
+      setEditorWarnings([]);
+      setEditorScanEvidence('');
+      setEditorScanError('');
+      return;
+    }
+
+    setEditorDraft(selectedTrade);
+    setEditorImagePreview(selectedTrade.screenshot_url ?? null);
+    setEditorAiFields(new Set());
+    setEditorWarnings([]);
+    setEditorScanEvidence('');
+    setEditorScanError('');
+  }, [selectedTrade]);
 
   const monthSummary = useMemo(() => {
     const monthPnl = monthEntries.reduce((sum, entry) => sum + entry.pnl, 0);
@@ -622,7 +1066,7 @@ export function FlyxaJournalPage({
         { label: 'P&L', value: '$0', tone: 'var(--txt)' },
         { label: 'Win Rate', value: '0.0%', tone: 'var(--txt)' },
         { label: 'Trades', value: '0', tone: 'var(--txt)' },
-        { label: 'Best R', value: '0.00R', tone: 'var(--txt)' },
+        { label: 'Best R:R', value: '0 RR', tone: 'var(--txt)' },
       ];
     }
 
@@ -635,7 +1079,7 @@ export function FlyxaJournalPage({
       { label: 'P&L', value: toCurrency(activeEntry.pnl), tone: getPnLColor(activeEntry.pnl) },
       { label: 'Win Rate', value: toPercent(winRate), tone: 'var(--txt)' },
       { label: 'Trades', value: String(activeEntry.trades.length), tone: 'var(--txt)' },
-      { label: 'Best R', value: toR(bestR), tone: 'var(--txt)' },
+      { label: 'Best R:R', value: toR(bestR), tone: 'var(--txt)' },
     ];
   }, [activeEntry]);
 
@@ -666,22 +1110,149 @@ export function FlyxaJournalPage({
     setDeletingTradeId(tradeId);
     try {
       await onDeleteTrade?.(tradeId);
-      setEntriesState(current => current.map(entry => {
-        if (entry.date !== activeEntry.date) return entry;
-        const nextTrades = entry.trades.filter(trade => trade.id !== tradeId);
-        const nextPnl = nextTrades.reduce((sum, trade) => sum + trade.pnl, 0);
-        return {
-          ...entry,
-          trades: nextTrades,
-          pnl: nextPnl,
-        };
-      }));
+      setEntriesState(current => current
+        .map(entry => {
+          if (entry.date !== activeEntry.date) return entry;
+          const nextTrades = entry.trades.filter(trade => trade.id !== tradeId);
+          const nextPnl = nextTrades.reduce((sum, trade) => sum + trade.pnl, 0);
+          return {
+            ...entry,
+            trades: nextTrades,
+            pnl: nextPnl,
+          };
+        })
+        .filter(entry => entry.trades.length > 0));
     } finally {
       setDeletingTradeId(null);
     }
   };
 
+  const handleFirstTradeDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setFirstTradeDropActive(false);
+    if (isImportingFirstTrade) {
+      return;
+    }
+    const file = event.dataTransfer.files?.[0];
+    if (file && file.type.startsWith('image/')) {
+      onImportFirstTradeImage?.(file);
+    }
+  };
+
+  const handleFirstTradeInputChange = (event: ChangeEvent<HTMLInputElement>) => {
+    if (isImportingFirstTrade) {
+      event.currentTarget.value = '';
+      return;
+    }
+    const file = event.target.files?.[0];
+    event.currentTarget.value = '';
+    if (!file || !file.type.startsWith('image/')) {
+      return;
+    }
+    onImportFirstTradeImage?.(file);
+  };
+
+  const openFirstTradeFilePicker = () => {
+    firstTradeFileInputRef.current?.click();
+  };
+
+  const openEditorFilePicker = () => {
+    editorFileInputRef.current?.click();
+  };
+
+  const resetEditorState = () => {
+    if (!selectedTrade) return;
+    setEditorDraft(selectedTrade);
+    setEditorImagePreview(selectedTrade.screenshot_url ?? null);
+    setEditorAiFields(new Set());
+    setEditorWarnings([]);
+    setEditorScanEvidence('');
+    setEditorScanError('');
+  };
+
+  const handleEditorScan = async (file: File) => {
+    if (!selectedTradeId || editorScanning) {
+      return;
+    }
+
+    setEditorDropActive(false);
+    setEditorScanError('');
+    setEditorWarnings([]);
+    setEditorScanning(true);
+    try {
+      const screenshotDataUrl = await toDataUrl(file);
+      const baseTrade = editorDraft ?? selectedTrade ?? {};
+      const scanDate = baseTrade.trade_date || getTodayDate();
+      const scanTime = toScanTime(baseTrade.trade_time) || getNowTime();
+      const { focusImages, scannerContext, uploadImage } = await buildScannerAssets(file);
+      const extracted = await aiApi.scanChart(
+        uploadImage,
+        scanDate,
+        scanTime,
+        focusImages,
+        scannerContext ?? undefined
+      );
+      const mapped = buildTradePatchFromScan({
+        extracted,
+        fileName: file.name,
+        baseTrade,
+        fallbackDate: scanDate,
+        fallbackTime: scanTime,
+        screenshotDataUrl,
+      });
+
+      setEditorImagePreview(screenshotDataUrl);
+      setEditorDraft(mapped.patch);
+      setEditorAiFields(mapped.aiFields);
+      setEditorWarnings(mapped.warnings);
+      setEditorScanEvidence(mapped.evidence);
+    } catch (error) {
+      setEditorScanError(error instanceof Error ? error.message : 'Failed to analyse trade screenshot.');
+    } finally {
+      setEditorScanning(false);
+    }
+  };
+
+  const handleEditorDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setEditorDropActive(false);
+    const file = event.dataTransfer.files?.[0];
+    if (file && file.type.startsWith('image/')) {
+      void handleEditorScan(file);
+    }
+  };
+
+  const handleEditorInputChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.currentTarget.value = '';
+    if (!file || !file.type.startsWith('image/')) {
+      return;
+    }
+    void handleEditorScan(file);
+  };
+
+  const handleSaveTradeEditor = async (data: Partial<Trade>) => {
+    if (!selectedTradeId) {
+      return;
+    }
+
+    setEditorScanError('');
+    setEditorSaving(true);
+    try {
+      await onUpdateTrade?.(selectedTradeId, {
+        ...data,
+        screenshot_url: editorImagePreview ?? data.screenshot_url,
+      });
+      setEditorAiFields(new Set());
+    } catch (error) {
+      setEditorScanError(error instanceof Error ? error.message : 'Failed to save trade.');
+    } finally {
+      setEditorSaving(false);
+    }
+  };
+
   const monthLabel = formatMonthLabel(monthCursor);
+  const showGlobalAnalysisPill = isImportingFirstTrade || editorScanning;
 
   return (
     <div style={{ ...JOURNAL_THEME, height: '100vh', display: 'flex', overflow: 'hidden', background: 'var(--bg)' }}>
@@ -701,6 +1272,7 @@ export function FlyxaJournalPage({
         .flyxa-shot-slot:hover { border-color: var(--cobalt); color: var(--cobalt); }
         .flyxa-rule-row:hover { background: rgba(255,255,255,0.02); }
         .flyxa-state-tag:hover { border-color: var(--txt-3); color: var(--txt); }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         .flyxa-btn-log-trade {
           height: 36px;
           border: 1px solid #d89000;
@@ -752,6 +1324,42 @@ export function FlyxaJournalPage({
           cursor: not-allowed;
         }
       `}</style>
+
+      {showGlobalAnalysisPill && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 14,
+            right: 18,
+            zIndex: 120,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 10,
+            padding: '10px 16px',
+            borderRadius: 999,
+            border: '1px solid rgba(251,146,60,0.6)',
+            background: 'rgba(7,10,18,0.94)',
+            color: '#ffffff',
+            fontSize: 14,
+            fontWeight: 600,
+            boxShadow: '0 14px 40px rgba(0,0,0,0.4)',
+            pointerEvents: 'none',
+          }}
+        >
+          <span
+            style={{
+              width: 16,
+              height: 16,
+              borderRadius: '50%',
+              border: '2px solid #f59e0b',
+              borderTopColor: 'transparent',
+              display: 'inline-block',
+              animation: 'spin 0.8s linear infinite',
+            }}
+          />
+          Flyxa is analysing your trade
+        </div>
+      )}
 
       <aside
         style={{
@@ -1039,7 +1647,21 @@ export function FlyxaJournalPage({
       </aside>
 
       <section style={{ flex: 1, minWidth: 0, overflowY: 'auto' }} className="flyxa-entry-scroll">
-        {activeEntry && activeReflection && (
+        <input
+          ref={firstTradeFileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={handleFirstTradeInputChange}
+        />
+        <input
+          ref={editorFileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={handleEditorInputChange}
+        />
+        {activeEntry && activeReflection && !shouldShowImportPrompt && (
           <>
             <header
               style={{
@@ -1072,12 +1694,33 @@ export function FlyxaJournalPage({
                 <button
                   type="button"
                   className="flyxa-btn-log-trade"
-                  onClick={onOpenTradeScanner}
+                  onClick={() => setShowImportPrompt(true)}
+                  disabled={!onImportFirstTradeImage || isImportingFirstTrade}
+                  style={{
+                    opacity: onImportFirstTradeImage && !isImportingFirstTrade ? 1 : 0.5,
+                    cursor: onImportFirstTradeImage && !isImportingFirstTrade ? 'pointer' : 'not-allowed',
+                  }}
                 >
                   <ArrowUpRight size={14} strokeWidth={2.5} />
                   Log Trade
                 </button>
-                <button type="button" className="flyxa-btn-primary">Save entry</button>
+                <button
+                  type="button"
+                  className="flyxa-btn-primary"
+                  onClick={() => {
+                    if (!selectedTradeId || !editorDraft || editorSaving) {
+                      return;
+                    }
+                    void handleSaveTradeEditor(editorDraft);
+                  }}
+                  disabled={!selectedTradeId || !editorDraft || editorSaving}
+                  style={{
+                    opacity: !selectedTradeId || !editorDraft || editorSaving ? 0.6 : 1,
+                    cursor: !selectedTradeId || !editorDraft || editorSaving ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  {editorSaving ? 'Saving…' : 'Save entry'}
+                </button>
               </div>
             </header>
 
@@ -1123,18 +1766,85 @@ export function FlyxaJournalPage({
                   {activeEntry.trades.length === 0 ? (
                     <div
                       style={{
+                        position: 'relative',
                         background: 'var(--surface-1)',
-                        border: '1px solid var(--border)',
+                        border: firstTradeDropActive
+                          ? '1px dashed rgba(59,130,246,0.6)'
+                          : '1px solid var(--border)',
                         borderRadius: 6,
-                        padding: '12px 14px',
-                        fontSize: 12,
-                        color: 'var(--txt-3)',
+                        padding: '24px 20px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: 10,
+                        transition: 'border-color 0.16s, background 0.16s',
+                        backgroundColor: firstTradeDropActive ? 'rgba(59,130,246,0.08)' : 'var(--surface-1)',
                       }}
+                      onDragOver={event => {
+                        if (isImportingFirstTrade) return;
+                        event.preventDefault();
+                        setFirstTradeDropActive(true);
+                      }}
+                      onDragLeave={() => setFirstTradeDropActive(false)}
+                      onDrop={handleFirstTradeDrop}
                     >
-                      No trades logged for this day.
+                      <div
+                        style={{
+                          width: 42,
+                          height: 42,
+                          borderRadius: '50%',
+                          border: firstTradeDropActive
+                            ? '1px solid rgba(59,130,246,0.6)'
+                            : '1px solid rgba(245,158,11,0.35)',
+                          background: firstTradeDropActive
+                            ? 'rgba(59,130,246,0.16)'
+                            : 'rgba(245,158,11,0.12)',
+                          display: 'grid',
+                          placeItems: 'center',
+                          color: firstTradeDropActive ? '#60a5fa' : 'var(--amber)',
+                        }}
+                      >
+                        <ArrowUpRight size={16} strokeWidth={2.3} />
+                      </div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)' }}>
+                        {firstTradeDropActive ? 'Drop your trade screenshot to analyse' : 'No trades logged for this day'}
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--txt-3)', textAlign: 'center', maxWidth: 460 }}>
+                        {firstTradeDropActive
+                          ? 'Flyxa will analyse your chart and save this trade in the background.'
+                          : 'Drag and drop your trade image here, or select a file to analyse and add it to your journal.'}
+                      </div>
+                      {firstTradeImportError && (
+                        <div
+                          style={{
+                            fontSize: 12,
+                            color: '#fca5a5',
+                            background: 'rgba(239,68,68,0.12)',
+                            border: '1px solid rgba(248,113,113,0.35)',
+                            borderRadius: 6,
+                            padding: '8px 10px',
+                            maxWidth: 540,
+                          }}
+                        >
+                          {firstTradeImportError}
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        className="flyxa-btn-primary"
+                        onClick={openFirstTradeFilePicker}
+                        disabled={!onImportFirstTradeImage || isImportingFirstTrade}
+                        style={{
+                          opacity: onImportFirstTradeImage && !isImportingFirstTrade ? 1 : 0.5,
+                          cursor: onImportFirstTradeImage && !isImportingFirstTrade ? 'pointer' : 'not-allowed',
+                        }}
+                      >
+                        Select File
+                      </button>
                     </div>
                   ) : activeEntry.trades.map(trade => {
                     const outcome = getTradeOutcome(trade);
+                    const selected = trade.id === selectedTradeId;
                     const leftBorderColor =
                       outcome === 'win' ? 'var(--green)' : outcome === 'loss' ? 'var(--red)' : 'var(--amber)';
                     const directionBg = trade.direction === 'LONG' ? 'var(--cobalt-dim)' : 'var(--red-dim)';
@@ -1145,12 +1855,17 @@ export function FlyxaJournalPage({
                       <div
                         key={trade.id}
                         className="flyxa-trade-card"
+                        onClick={() => setSelectedTradeId(trade.id)}
                         style={{
                           background: 'var(--surface-1)',
-                          border: '1px solid var(--border)',
+                          border: selected
+                            ? '1px solid rgba(110,168,254,0.55)'
+                            : '1px solid var(--border)',
                           borderRadius: 6,
                           borderLeft: `2px solid ${leftBorderColor}`,
                           padding: '11px 14px',
+                          cursor: 'pointer',
+                          boxShadow: selected ? '0 0 0 1px rgba(110,168,254,0.2)' : 'none',
                         }}
                       >
                         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -1219,6 +1934,7 @@ export function FlyxaJournalPage({
                           <button
                             type="button"
                             className="flyxa-shot-slot"
+                            onClick={event => { event.stopPropagation(); }}
                             style={{
                               width: 48,
                               height: 32,
@@ -1252,7 +1968,10 @@ export function FlyxaJournalPage({
                             type="button"
                             className="flyxa-btn-delete"
                             aria-label={`Delete ${trade.symbol} trade`}
-                            onClick={() => { void handleDeleteTrade(trade.id); }}
+                            onClick={event => {
+                              event.stopPropagation();
+                              void handleDeleteTrade(trade.id);
+                            }}
                             disabled={deletingTradeId === trade.id}
                             title="Delete trade"
                           >
@@ -1307,10 +2026,153 @@ export function FlyxaJournalPage({
                 </div>
               </div>
 
-              <div style={{ marginBottom: 24 }}>
-                <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--txt-3)', marginBottom: 10 }}>
-                  Reflection
-                </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 10, alignItems: 'start', marginBottom: 24 }}>
+
+                {/* LEFT: Chart Scanner + day-level reflection sections */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+
+                  {selectedTrade && editorDraft && (
+                    <div
+                      style={{
+                        background: 'var(--surface-1)',
+                        border: '1px solid var(--border)',
+                        borderRadius: 6,
+                        padding: 12,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 10,
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                        <div>
+                          <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--txt-3)' }}>
+                            Chart Scanner
+                          </div>
+                          <div style={{ marginTop: 4, fontSize: 14, fontWeight: 600, color: 'var(--txt)' }}>
+                            Import screenshot
+                          </div>
+                          <div style={{ marginTop: 3, fontSize: 11, color: 'var(--txt-3)' }}>
+                            Analyze this chart and auto-fill entry, exit, SL, TP, and duration.
+                          </div>
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          border: editorDropActive
+                            ? '1px dashed rgba(59,130,246,0.6)'
+                            : '1px dashed var(--border)',
+                          borderRadius: 6,
+                          overflow: 'hidden',
+                          background: 'var(--surface-2)',
+                          minHeight: 210,
+                          display: 'grid',
+                          placeItems: 'center',
+                          position: 'relative',
+                          cursor: 'pointer',
+                        }}
+                        onClick={openEditorFilePicker}
+                        onDragOver={event => {
+                          event.preventDefault();
+                          if (!editorScanning) {
+                            setEditorDropActive(true);
+                          }
+                        }}
+                        onDragLeave={() => setEditorDropActive(false)}
+                        onDrop={handleEditorDrop}
+                      >
+                        {editorImagePreview ? (
+                          <img
+                            src={editorImagePreview}
+                            alt="Trade screenshot preview"
+                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                          />
+                        ) : (
+                          <span style={{ display: 'grid', placeItems: 'center', gap: 5, color: 'var(--txt-3)' }}>
+                            <ImageIcon size={18} />
+                            <span style={{ fontSize: 11 }}>Drop chart or click to upload</span>
+                          </span>
+                        )}
+                      </div>
+
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button
+                          type="button"
+                          className="flyxa-btn-primary"
+                          onClick={openEditorFilePicker}
+                          disabled={editorScanning}
+                          style={{ height: 34 }}
+                        >
+                          Import File
+                        </button>
+                        <button
+                          type="button"
+                          className="flyxa-btn-primary"
+                          onClick={resetEditorState}
+                          disabled={editorScanning}
+                          style={{ height: 34 }}
+                        >
+                          Reset Draft
+                        </button>
+                      </div>
+
+                      {editorScanEvidence && (
+                        <div
+                          style={{
+                            fontSize: 11,
+                            color: '#bfdbfe',
+                            background: 'rgba(59,130,246,0.12)',
+                            border: '1px solid rgba(59,130,246,0.3)',
+                            borderRadius: 6,
+                            padding: '8px 10px',
+                          }}
+                        >
+                          {editorScanEvidence}
+                        </div>
+                      )}
+
+                      {editorWarnings.length > 0 && (
+                        <div
+                          style={{
+                            fontSize: 11,
+                            color: '#fcd34d',
+                            background: 'rgba(250,204,21,0.1)',
+                            border: '1px solid rgba(250,204,21,0.3)',
+                            borderRadius: 6,
+                            padding: '8px 10px',
+                            display: 'grid',
+                            gap: 4,
+                          }}
+                        >
+                          {editorWarnings.map(warning => (
+                            <span key={warning}>{warning}</span>
+                          ))}
+                        </div>
+                      )}
+
+                      {editorScanError && (
+                        <div
+                          style={{
+                            fontSize: 11,
+                            color: '#fca5a5',
+                            background: 'rgba(239,68,68,0.12)',
+                            border: '1px solid rgba(248,113,113,0.35)',
+                            borderRadius: 6,
+                            padding: '8px 10px',
+                          }}
+                        >
+                          {editorScanError}
+                        </div>
+                      )}
+                    </div>
+
+                  )}
+
+                  {/* Reflection */}
+                  <div>
+                  <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--txt-3)', marginBottom: 8 }}>
+                    Reflection
+                  </div>
 
                 <div style={{ background: 'var(--surface-1)', border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
                   <div style={{ display: 'flex', borderBottom: '1px solid var(--border-sub)' }}>
@@ -1407,13 +2269,14 @@ export function FlyxaJournalPage({
                       }}
                     />
                   </div>
-                </div>
-              </div>
+                  </div>
+                  </div>
 
-              <div style={{ marginBottom: 24 }}>
-                <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--txt-3)', marginBottom: 10 }}>
-                  Rule Checklist
-                </div>
+                  {/* Rule Checklist */}
+                  <div>
+                  <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--txt-3)', marginBottom: 8 }}>
+                    Rule Checklist
+                  </div>
 
                 <div style={{ background: 'var(--surface-1)', border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
                   {activeEntry.rules.map((rule, index) => {
@@ -1472,15 +2335,16 @@ export function FlyxaJournalPage({
                       </div>
                     );
                   })}
-                </div>
-              </div>
+                  </div>
+                  </div>
 
-              <div style={{ marginBottom: 24 }}>
-                <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--txt-3)', marginBottom: 10 }}>
-                  Psychology
-                </div>
+                  {/* Psychology */}
+                  <div>
+                  <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--txt-3)', marginBottom: 8 }}>
+                    Psychology
+                  </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10 }}>
                   {[
                     {
                       label: 'Setup Quality',
@@ -1570,59 +2434,179 @@ export function FlyxaJournalPage({
                 </div>
               </div>
 
-              <div>
-                <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--txt-3)', marginBottom: 10 }}>
-                  State of Mind
+                  {/* State of Mind */}
+                  <div style={{ background: 'var(--surface-1)', border: '1px solid var(--border)', borderRadius: 6, padding: '12px 14px' }}>
+                    <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--txt-3)', marginBottom: 10 }}>
+                      State of Mind
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                      {STATE_OF_MIND_TAGS.map(tag => {
+                        const tone = selectedEmotionTone.get(tag.toLowerCase());
+                        const selected = Boolean(tone);
+
+                        let border = 'var(--border)';
+                        let color = 'var(--txt-2)';
+                        let background = 'transparent';
+
+                        if (selected && tone === 's-g') {
+                          border = 'rgba(52,211,153,0.3)';
+                          color = 'var(--green)';
+                          background = 'var(--green-dim)';
+                        }
+                        if (selected && tone === 's-a') {
+                          border = 'rgba(251,191,36,0.3)';
+                          color = 'var(--amber)';
+                          background = 'var(--amber-dim)';
+                        }
+                        if (selected && tone === 's-r') {
+                          border = 'rgba(248,113,113,0.3)';
+                          color = 'var(--red)';
+                          background = 'var(--red-dim)';
+                        }
+
+                        return (
+                          <button
+                            key={tag}
+                            type="button"
+                            className="flyxa-state-tag"
+                            style={{
+                              fontSize: 11,
+                              padding: '4px 10px',
+                              borderRadius: 3,
+                              border: `1px solid ${border}`,
+                              color,
+                              background,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {tag}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
 
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                  {STATE_OF_MIND_TAGS.map(tag => {
-                    const tone = selectedEmotionTone.get(tag.toLowerCase());
-                    const selected = Boolean(tone);
-
-                    let border = 'var(--border)';
-                    let color = 'var(--txt-2)';
-                    let background = 'transparent';
-
-                    if (selected && tone === 's-g') {
-                      border = 'rgba(52,211,153,0.3)';
-                      color = 'var(--green)';
-                      background = 'var(--green-dim)';
-                    }
-                    if (selected && tone === 's-a') {
-                      border = 'rgba(251,191,36,0.3)';
-                      color = 'var(--amber)';
-                      background = 'var(--amber-dim)';
-                    }
-                    if (selected && tone === 's-r') {
-                      border = 'rgba(248,113,113,0.3)';
-                      color = 'var(--red)';
-                      background = 'var(--red-dim)';
-                    }
-
-                    return (
-                      <button
-                        key={tag}
-                        type="button"
-                        className="flyxa-state-tag"
-                        style={{
-                          fontSize: 11,
-                          padding: '4px 10px',
-                          borderRadius: 3,
-                          border: `1px solid ${border}`,
-                          color,
-                          background,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        {tag}
-                      </button>
-                    );
-                  })}
-                </div>
+                {/* RIGHT: TradeForm */}
+                {selectedTrade && editorDraft && (
+                  <div
+                    style={{
+                      background: 'var(--surface-1)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 6,
+                      padding: 12,
+                    }}
+                  >
+                    <TradeForm
+                      initialData={editorDraft}
+                      aiFields={editorAiFields}
+                      tradeDate={editorDraft.trade_date ?? ''}
+                      tradeTime={editorDraft.trade_time ?? ''}
+                      onSubmit={data => { void handleSaveTradeEditor(data); }}
+                      onDraftChange={setEditorDraft}
+                      onCancel={resetEditorState}
+                      isLoading={editorSaving}
+                    />
+                  </div>
+                )}
               </div>
             </div>
           </>
+        )}
+        {shouldShowImportPrompt && (
+          <div
+            style={{
+              minHeight: '100%',
+              padding: '32px 24px',
+              display: 'grid',
+              placeItems: 'center',
+            }}
+          >
+            <div
+              style={{
+                position: 'relative',
+                width: '100%',
+                maxWidth: 760,
+                minHeight: 320,
+                borderRadius: 10,
+                border: firstTradeDropActive
+                  ? '1px dashed rgba(59,130,246,0.65)'
+                  : '1px dashed rgba(245,158,11,0.35)',
+                background: firstTradeDropActive
+                  ? 'linear-gradient(180deg, rgba(59,130,246,0.18), rgba(59,130,246,0.08))'
+                  : 'linear-gradient(180deg, rgba(245,158,11,0.1), rgba(245,158,11,0.04))',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 14,
+                padding: '28px 24px',
+                textAlign: 'center',
+                transition: 'border-color 0.16s, background 0.16s',
+              }}
+              onDragOver={event => {
+                if (isImportingFirstTrade) return;
+                event.preventDefault();
+                setFirstTradeDropActive(true);
+              }}
+              onDragLeave={() => setFirstTradeDropActive(false)}
+              onDrop={handleFirstTradeDrop}
+            >
+              <div
+                style={{
+                  width: 56,
+                  height: 56,
+                  borderRadius: '50%',
+                  border: firstTradeDropActive
+                    ? '1px solid rgba(59,130,246,0.55)'
+                    : '1px solid rgba(245,158,11,0.4)',
+                  background: firstTradeDropActive
+                    ? 'rgba(59,130,246,0.2)'
+                    : 'rgba(245,158,11,0.15)',
+                  display: 'grid',
+                  placeItems: 'center',
+                  color: firstTradeDropActive ? '#60a5fa' : 'var(--amber)',
+                }}
+              >
+                <ArrowUpRight size={20} strokeWidth={2.4} />
+              </div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--txt)' }}>
+                {firstTradeDropActive ? 'Drop your trade screenshot to analyse' : 'Drag and drop to analyse a trade'}
+              </div>
+              <div style={{ maxWidth: 520, fontSize: 13, color: 'var(--txt-3)', lineHeight: 1.65 }}>
+                {firstTradeDropActive
+                  ? 'We will analyse this in the background and populate your first journal trade.'
+                  : 'Your trade journal is empty. Drag and drop a trade screenshot here, or select a file to analyse.'}
+              </div>
+              {firstTradeImportError && (
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: '#fca5a5',
+                    background: 'rgba(239,68,68,0.12)',
+                    border: '1px solid rgba(248,113,113,0.35)',
+                    borderRadius: 6,
+                    padding: '8px 10px',
+                    maxWidth: 540,
+                  }}
+                >
+                  {firstTradeImportError}
+                </div>
+              )}
+              <button
+                type="button"
+                className="flyxa-btn-primary"
+                onClick={openFirstTradeFilePicker}
+                disabled={!onImportFirstTradeImage || isImportingFirstTrade}
+                style={{
+                  opacity: onImportFirstTradeImage && !isImportingFirstTrade ? 1 : 0.5,
+                  cursor: onImportFirstTradeImage && !isImportingFirstTrade ? 'pointer' : 'not-allowed',
+                }}
+              >
+                Select File
+              </button>
+            </div>
+          </div>
         )}
       </section>
     </div>
@@ -1630,38 +2614,122 @@ export function FlyxaJournalPage({
 }
 
 export default function TradeScanner() {
-  const { createTrade, deleteTrade } = useTrades();
-  const [showAdd, setShowAdd] = useState(false);
+  const { trades, createTrade, updateTrade, deleteTrade } = useTrades();
+  const { getDefaultTradeAccountId } = useAppSettings();
+  const navigate = useNavigate();
+  const [isImportingFirstTrade, setIsImportingFirstTrade] = useState(false);
+  const [firstTradeImportError, setFirstTradeImportError] = useState<string | null>(null);
   const [searchParams] = useSearchParams();
   const requestedDate = searchParams.get('date') ?? undefined;
-
-  const handleSave = async (data: Partial<Trade>) => {
-    await createTrade(data);
-    setShowAdd(false);
-  };
+  const requestedTradeId = searchParams.get('tradeId') ?? undefined;
+  const importMode = searchParams.get('import') === '1';
+  const journalEntries = useMemo(() => toJournalEntries(trades), [trades]);
+  const tradesById = useMemo(
+    () => Object.fromEntries(trades.map(trade => [trade.id, trade])),
+    [trades]
+  );
 
   const handleDeleteTrade = async (tradeId: string) => {
-    const isSeededTrade = /^t-\d/.test(tradeId);
-    if (isSeededTrade) return;
     await deleteTrade(tradeId);
   };
 
+  const handleUpdateTrade = async (tradeId: string, data: Partial<Trade>) => {
+    await updateTrade(tradeId, data);
+  };
+
+  const handleImportFirstTradeImage = async (file: File) => {
+    if (isImportingFirstTrade) {
+      return;
+    }
+
+    setFirstTradeImportError(null);
+    setIsImportingFirstTrade(true);
+    try {
+      const scanDate = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate ?? '') ? (requestedDate as string) : getTodayDate();
+      const scanTime = getNowTime();
+      const screenshotDataUrl = await toDataUrl(file);
+      const { focusImages, scannerContext, uploadImage } = await buildScannerAssets(file);
+      const extracted = await aiApi.scanChart(
+        uploadImage,
+        scanDate,
+        scanTime,
+        focusImages,
+        scannerContext ?? undefined
+      );
+
+      const mapped = buildTradePatchFromScan({
+        extracted,
+        fileName: file.name,
+        fallbackDate: scanDate,
+        fallbackTime: scanTime,
+        accountId: getDefaultTradeAccountId(),
+        screenshotDataUrl,
+      });
+
+      const symbol = mapped.patch.symbol;
+      const direction = mapped.patch.direction;
+      const entryPrice = mapped.patch.entry_price;
+      const slPrice = mapped.patch.sl_price;
+      const tpPrice = mapped.patch.tp_price;
+      const exitReason = mapped.patch.exit_reason;
+
+      if (!symbol || !direction || !isFiniteNumber(entryPrice) || !isFiniteNumber(slPrice) || !isFiniteNumber(tpPrice) || !exitReason || (exitReason !== 'TP' && exitReason !== 'SL')) {
+        throw new Error('Could not extract enough trade details from this screenshot. Try a clearer chart image.');
+      }
+
+      const pointValue = lookupContract(symbol)?.point_value ?? 1;
+      const tradeTime = toScanTime(mapped.patch.trade_time) || scanTime;
+      const mappedTrade: Partial<Trade> = {
+        ...mapped.patch,
+        accountId: getDefaultTradeAccountId(),
+        symbol,
+        direction,
+        entry_price: Number(entryPrice),
+        sl_price: Number(slPrice),
+        tp_price: Number(tpPrice),
+        exit_reason: exitReason as 'TP' | 'SL',
+        exit_price: exitReason === 'TP' ? Number(tpPrice) : Number(slPrice),
+        contract_size: 1,
+        point_value: pointValue,
+        trade_date: scanDate,
+        trade_time: tradeTime,
+        trade_length_seconds: isFiniteNumber(mapped.patch.trade_length_seconds) ? Number(mapped.patch.trade_length_seconds) : 0,
+        candle_count: isFiniteNumber(mapped.patch.candle_count) ? Number(mapped.patch.candle_count) : 0,
+        timeframe_minutes: isFiniteNumber(mapped.patch.timeframe_minutes) ? Number(mapped.patch.timeframe_minutes) : 1,
+        emotional_state: 'Calm',
+        confidence_level: 7,
+        pre_trade_notes: '',
+        post_trade_notes: '',
+        confluences: [],
+        followed_plan: true,
+        screenshot_url: mapped.patch.screenshot_url ?? screenshotDataUrl,
+      };
+
+      const createdTrade = await createTrade(mappedTrade);
+      if (importMode) {
+        navigate(`/scanner?date=${encodeURIComponent(scanDate)}&tradeId=${encodeURIComponent(createdTrade.id)}`, { replace: true });
+      }
+    } catch (error) {
+      setFirstTradeImportError(error instanceof Error ? error.message : 'Failed to analyse trade screenshot.');
+    } finally {
+      setIsImportingFirstTrade(false);
+    }
+  };
+
   return (
-    <>
-      <FlyxaJournalPage
-        date={requestedDate}
-        entries={DEFAULT_ENTRIES}
-        account={DEFAULT_ACCOUNT}
-        onOpenTradeScanner={() => setShowAdd(true)}
-        onDeleteTrade={handleDeleteTrade}
-      />
-      <ScreenshotImportModal
-        isOpen={showAdd}
-        onClose={() => setShowAdd(false)}
-        onSave={handleSave}
-      />
-    </>
+    <FlyxaJournalPage
+      date={requestedDate}
+      entries={journalEntries}
+      account={DEFAULT_ACCOUNT}
+      tradesById={tradesById}
+      initialTradeId={requestedTradeId}
+      forceImportPrompt={importMode}
+      onImportFirstTradeImage={handleImportFirstTradeImage}
+      isImportingFirstTrade={isImportingFirstTrade}
+      firstTradeImportError={firstTradeImportError}
+      onDeleteTrade={handleDeleteTrade}
+      onUpdateTrade={handleUpdateTrade}
+    />
   );
 }
-
 

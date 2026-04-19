@@ -400,9 +400,9 @@ function buildDynamicFocusCrops(scannerContext: ScannerContext | null): CropPres
   ];
 }
 
-async function buildScannerAssets(file: File): Promise<{
+export async function buildScannerAssets(file: File): Promise<{
   focusImages: File[];
-  scannerContext: ScannerContext | null;
+  scannerContext: Record<string, unknown> | null;
   uploadImage: File;
 }> {
   const image = await loadImage(file);
@@ -443,7 +443,7 @@ async function buildScannerAssets(file: File): Promise<{
 
   const uploadImage = await buildUploadImage(image, file.name);
 
-  return { focusImages, scannerContext, uploadImage };
+  return { focusImages, scannerContext: scannerContext ? scannerContext as unknown as Record<string, unknown> : null, uploadImage };
 }
 
 interface Props {
@@ -452,9 +452,10 @@ interface Props {
   onSave: (data: Partial<Trade>) => Promise<void>;
   editTrade?: Trade | null;
   prefillTrade?: Partial<Trade> | null;
+  initialImageFile?: File | null;
 }
 
-export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTrade, prefillTrade }: Props) {
+export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTrade, prefillTrade, initialImageFile }: Props) {
   const { accounts, getDefaultTradeAccountId, isTradeAccountAllocatable, resolveTradeAccountId } = useAppSettings();
   const getInitialTradeAccountId = useCallback(() => {
     const baseTrade = editTrade ?? prefillTrade ?? null;
@@ -497,6 +498,7 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
   );
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const autoImportedImageKeyRef = useRef('');
   const accountById = useMemo(() => new Map(accounts.map(account => [account.id, account] as const)), [accounts]);
   const existingTradeAccountId = editTrade ? resolveTradeAccountId(editTrade) : null;
   const selectedTradeAccount = accountById.get(tradeAccountId);
@@ -752,6 +754,25 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
     if (file?.type.startsWith('image/')) handleImageSelected(file);
   }, [handleImageSelected]);
 
+  useEffect(() => {
+    if (!isOpen) {
+      autoImportedImageKeyRef.current = '';
+      return;
+    }
+
+    if (!initialImageFile || editTrade) {
+      return;
+    }
+
+    const imageKey = `${initialImageFile.name}:${initialImageFile.size}:${initialImageFile.lastModified}`;
+    if (autoImportedImageKeyRef.current === imageKey) {
+      return;
+    }
+
+    autoImportedImageKeyRef.current = imageKey;
+    void handleImageSelected(initialImageFile);
+  }, [editTrade, handleImageSelected, initialImageFile, isOpen]);
+
   const handleSave = async (data: Partial<Trade>) => {
     if (!tradeAccountId || !selectedTradeAccount) {
       alert('Select an account before saving this trade.');
@@ -848,13 +869,21 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
           <div className="flex h-full flex-col overflow-hidden rounded-[30px] border border-slate-700/70 bg-slate-900/95 shadow-[0_32px_120px_rgba(2,6,23,0.58)]">
             <div className="flex items-center justify-between border-b border-slate-700/80 px-5 py-4">
               <h2 className="text-lg font-semibold text-white">{editTrade ? 'Edit Trade' : 'Add Trade'}</h2>
-              <button
-                type="button"
-                onClick={handleClose}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-700/70 bg-slate-900/80 text-slate-400 transition hover:border-slate-500 hover:text-white"
-              >
-                <X size={18} />
-              </button>
+              <div className="flex items-center gap-3">
+                {scanning && (
+                  <div className="inline-flex items-center gap-2 rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-xs text-blue-200">
+                    <span className="h-3 w-3 rounded-full border-2 border-blue-300 border-t-transparent animate-spin" />
+                    Flyxa is analysing your trade
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={handleClose}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-700/70 bg-slate-900/80 text-slate-400 transition hover:border-slate-500 hover:text-white"
+                >
+                  <X size={18} />
+                </button>
+              </div>
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-5 md:py-5">

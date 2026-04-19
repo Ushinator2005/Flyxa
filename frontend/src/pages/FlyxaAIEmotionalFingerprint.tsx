@@ -10,10 +10,17 @@ import { Trade } from '../types/index.js';
 
 // ── constants ────────────────────────────────────────────────────────────────
 
-const CARD_BORDER = '1px solid rgba(255,255,255,0.07)';
+const EC = {
+  d0: '#0e0d0d', d1: '#141312', d2: '#1a1917', d3: '#201f1d', d4: '#27251f',
+  b0: 'rgba(255,255,255,0.07)', b1: 'rgba(255,255,255,0.12)',
+  t0: '#e8e3dc', t1: '#8a8178', t2: '#5c5751',
+  acc: '#f59e0b', grn: '#22d68a', red: '#f05252',
+};
+
+const CARD_BORDER = `1px solid ${EC.b0}`;
 const SECTION_LABEL: CSSProperties = {
-  fontSize: 9, fontWeight: 600, letterSpacing: '0.1em',
-  textTransform: 'uppercase', color: '#64748b',
+  fontSize: 9.5, fontWeight: 500, letterSpacing: '0.12em',
+  textTransform: 'uppercase', color: EC.t2,
 };
 
 const EMOTION_META: Record<string, { color: string; bg: string }> = {
@@ -83,7 +90,7 @@ function currency(value: number) {
 // ── sub-components ───────────────────────────────────────────────────────────
 
 function StatPill({ label, value, tone }: { label: string; value: string; tone?: 'pos' | 'neg' | 'neutral' }) {
-  const color = tone === 'pos' ? '#22c55e' : tone === 'neg' ? '#ef4444' : '#94a3b8';
+  const color = tone === 'pos' ? EC.grn : tone === 'neg' ? EC.red : EC.t1;
   return (
     <div>
       <p style={SECTION_LABEL}>{label}</p>
@@ -93,22 +100,22 @@ function StatPill({ label, value, tone }: { label: string; value: string; tone?:
 }
 
 function EmotionCard({ stat }: { stat: EmotionStats }) {
-  const meta = EMOTION_META[stat.emotion] ?? { color: '#94a3b8', bg: 'rgba(148,163,184,0.1)' };
+  const meta = EMOTION_META[stat.emotion] ?? { color: EC.t1, bg: 'rgba(138,129,120,0.1)' };
   const pnlTone = stat.avgPnL >= 0 ? 'pos' : 'neg';
 
   return (
     <div
-      className="rounded-xl p-4 space-y-3"
-      style={{ backgroundColor: '#0d1526', border: CARD_BORDER }}
+      className="rounded-[8px] p-4 space-y-3"
+      style={{ backgroundColor: EC.d2, border: CARD_BORDER }}
     >
       <div className="flex items-center justify-between">
         <span
-          className="rounded-full px-2.5 py-1 text-[11px] font-semibold"
+          className="rounded-[4px] px-2.5 py-1 text-[11px] font-semibold"
           style={{ color: meta.color, backgroundColor: meta.bg, border: `1px solid ${meta.color}30` }}
         >
           {stat.emotion}
         </span>
-        <span className="text-[12px] text-[#64748b]">{stat.trades} trade{stat.trades !== 1 ? 's' : ''}</span>
+        <span className="text-[12px]" style={{ color: EC.t2 }}>{stat.trades} trade{stat.trades !== 1 ? 's' : ''}</span>
       </div>
 
       <div className="grid grid-cols-2 gap-x-4 gap-y-3">
@@ -118,11 +125,10 @@ function EmotionCard({ stat }: { stat: EmotionStats }) {
         <StatPill label="Avg confid." value={`${stat.avgConfidence.toFixed(1)}/10`} tone="neutral" />
       </div>
 
-      {/* Win-rate bar */}
       <div>
-        <div className="h-1.5 rounded-full bg-white/10">
+        <div className="h-[2px] rounded-[2px]" style={{ backgroundColor: EC.d4 }}>
           <div
-            className="h-1.5 rounded-full transition-all"
+            className="h-[2px] rounded-[2px] transition-all"
             style={{ width: `${stat.winRate}%`, backgroundColor: meta.color }}
           />
         </div>
@@ -136,13 +142,13 @@ function EmotionCard({ stat }: { stat: EmotionStats }) {
 function ChartTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: EmotionStats }> }) {
   if (!active || !payload?.length) return null;
   const d = payload[0].payload;
-  const meta = EMOTION_META[d.emotion] ?? { color: '#94a3b8', bg: 'rgba(148,163,184,0.1)' };
+  const meta = EMOTION_META[d.emotion] ?? { color: EC.t1, bg: 'rgba(138,129,120,0.1)' };
   return (
-    <div className="rounded-lg border border-white/10 bg-[#0d1526] px-3 py-2 text-[12px] space-y-1">
+    <div className="rounded-[8px] border px-3 py-2 text-[12px] space-y-1" style={{ borderColor: EC.b1, backgroundColor: EC.d2 }}>
       <p style={{ color: meta.color, fontWeight: 600 }}>{d.emotion}</p>
-      <p className="text-[#94a3b8]">Avg P&L: <span style={{ color: d.avgPnL >= 0 ? '#22c55e' : '#ef4444' }}>{currency(d.avgPnL)}</span></p>
-      <p className="text-[#94a3b8]">Win rate: {pct(d.winRate)}</p>
-      <p className="text-[#94a3b8]">Trades: {d.trades}</p>
+      <p style={{ color: EC.t1 }}>Avg P&L: <span style={{ color: d.avgPnL >= 0 ? EC.grn : EC.red }}>{currency(d.avgPnL)}</span></p>
+      <p style={{ color: EC.t1 }}>Win rate: {pct(d.winRate)}</p>
+      <p style={{ color: EC.t1 }}>Trades: {d.trades}</p>
     </div>
   );
 }
@@ -161,8 +167,8 @@ export default function FlyxaAIEmotionalFingerprint() {
 
   if (loading) {
     return (
-      <div className="animate-fade-in -m-8 h-[calc(100vh-3.5rem)] overflow-hidden bg-[#060a12] text-[#e2e8f0]">
-        <div className="grid h-full grid-cols-[200px_minmax(0,1fr)] overflow-hidden">
+      <div className="animate-fade-in h-[calc(100vh-3.5rem)] overflow-hidden rounded-2xl" style={{ backgroundColor: EC.d0 }}>
+        <div className="grid h-full grid-cols-[178px_minmax(0,1fr)] overflow-hidden">
           <FlyxaNav />
           <div className="flex items-center justify-center">
             <LoadingSpinner size="lg" />
@@ -175,160 +181,149 @@ export default function FlyxaAIEmotionalFingerprint() {
   const hasData = stats.length > 0;
 
   return (
-    <div className="animate-fade-in -m-8 h-[calc(100vh-3.5rem)] overflow-hidden bg-[#060a12] text-[#e2e8f0]">
-      <div className="grid h-full grid-cols-[200px_minmax(0,1fr)] overflow-hidden">
+    <div className="animate-fade-in h-[calc(100vh-3.5rem)] overflow-hidden rounded-2xl" style={{ backgroundColor: EC.d0, color: EC.t0 }}>
+      <div className="grid h-full grid-cols-[178px_minmax(0,1fr)] overflow-hidden">
         <FlyxaNav />
 
-        <main className="min-h-0 overflow-y-auto px-6 py-6">
-          <div className="space-y-6">
+        <main className="min-h-0 overflow-hidden" style={{ backgroundColor: EC.d0 }}>
+          <div className="flex h-full min-h-0 flex-col">
+            <section className="border-b px-6 py-5" style={{ borderColor: EC.b0 }}>
+              <p className="text-[9.5px] uppercase tracking-[0.12em]" style={{ color: EC.t2 }}>Flyxa AI</p>
+              <h1 className="mt-2 text-[24px] font-bold tracking-[-0.02em]" style={{ color: EC.t0 }}>Emotional fingerprint</h1>
+              <p className="mt-1 text-[12px]" style={{ color: EC.t2 }}>How your mental state shapes execution quality and P&amp;L.</p>
+            </section>
 
-            {/* Header */}
-            <header>
-              <h1 className="text-[26px] font-semibold text-[#e2e8f0]">Emotional fingerprint</h1>
-              <p className="mt-1 text-[13px] text-[#64748b]">How your mental state shapes execution quality and P&L.</p>
-            </header>
-
-            {!hasData ? (
-              <div
-                className="rounded-xl border p-10 text-center"
-                style={{ border: CARD_BORDER, backgroundColor: '#0d1526' }}
-              >
-                <p className="text-[14px] text-[#64748b]">No trade data yet.</p>
-                <p className="mt-1 text-[12px] text-[#475569]">Log trades with an emotional state to see your fingerprint.</p>
-              </div>
-            ) : (
-              <>
-                {/* Summary insight cards */}
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                  {bestState && (
-                    <div className="rounded-xl border p-4" style={{ border: CARD_BORDER, backgroundColor: '#0d1526' }}>
-                      <p style={SECTION_LABEL}>Your best state</p>
-                      <div className="mt-2 flex items-center gap-2">
-                        <span
-                          className="rounded-full px-2.5 py-1 text-[12px] font-semibold"
-                          style={{ color: EMOTION_META[bestState.emotion]?.color ?? '#94a3b8', backgroundColor: EMOTION_META[bestState.emotion]?.bg ?? 'rgba(148,163,184,0.1)' }}
-                        >
-                          {bestState.emotion}
-                        </span>
-                      </div>
-                      <p className="mt-2 text-[22px] font-semibold text-[#22c55e]">{pct(bestState.winRate)} WR</p>
-                      <p className="text-[12px] text-[#64748b]">{currency(bestState.avgPnL)} avg · {bestState.trades} trades</p>
-                    </div>
-                  )}
-
-                  {worstState && worstState.emotion !== bestState?.emotion && (
-                    <div className="rounded-xl border p-4" style={{ border: CARD_BORDER, backgroundColor: '#0d1526' }}>
-                      <p style={SECTION_LABEL}>Biggest risk state</p>
-                      <div className="mt-2 flex items-center gap-2">
-                        <span
-                          className="rounded-full px-2.5 py-1 text-[12px] font-semibold"
-                          style={{ color: EMOTION_META[worstState.emotion]?.color ?? '#94a3b8', backgroundColor: EMOTION_META[worstState.emotion]?.bg ?? 'rgba(148,163,184,0.1)' }}
-                        >
-                          {worstState.emotion}
-                        </span>
-                      </div>
-                      <p className="mt-2 text-[22px] font-semibold text-[#ef4444]">{pct(worstState.winRate)} WR</p>
-                      <p className="text-[12px] text-[#64748b]">{currency(worstState.avgPnL)} avg · {worstState.trades} trades</p>
-                    </div>
-                  )}
-
-                  {planLeader && (
-                    <div className="rounded-xl border p-4" style={{ border: CARD_BORDER, backgroundColor: '#0d1526' }}>
-                      <p style={SECTION_LABEL}>Most disciplined state</p>
-                      <div className="mt-2 flex items-center gap-2">
-                        <span
-                          className="rounded-full px-2.5 py-1 text-[12px] font-semibold"
-                          style={{ color: EMOTION_META[planLeader.emotion]?.color ?? '#94a3b8', backgroundColor: EMOTION_META[planLeader.emotion]?.bg ?? 'rgba(148,163,184,0.1)' }}
-                        >
-                          {planLeader.emotion}
-                        </span>
-                      </div>
-                      <p className="mt-2 text-[22px] font-semibold text-[#4a9eff]">{pct(planLeader.planRate)} plan rate</p>
-                      <p className="text-[12px] text-[#64748b]">{pct(planLeader.winRate)} WR · {planLeader.trades} trades</p>
-                    </div>
-                  )}
-                </div>
-
-                {/* Avg P&L by emotion — bar chart */}
-                <div className="rounded-xl border p-4" style={{ border: CARD_BORDER, backgroundColor: '#0d1526' }}>
-                  <p style={SECTION_LABEL}>Average P&L by emotional state</p>
-                  <div className="mt-4 h-52">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={stats} barCategoryGap="30%" margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                        <XAxis
-                          dataKey="emotion"
-                          tick={{ fill: '#64748b', fontSize: 11 }}
-                          axisLine={false}
-                          tickLine={false}
-                          tickFormatter={e => e.length > 8 ? e.slice(0, 8) + '…' : e}
-                        />
-                        <YAxis
-                          tick={{ fill: '#64748b', fontSize: 11 }}
-                          axisLine={false}
-                          tickLine={false}
-                          tickFormatter={v => `$${v}`}
-                          width={46}
-                        />
-                        <Tooltip content={<ChartTooltip />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
-                        <ReferenceLine y={0} stroke="rgba(255,255,255,0.12)" strokeDasharray="3 3" />
-                        <Bar dataKey="avgPnL" radius={[4, 4, 0, 0]}>
-                          {stats.map(s => (
-                            <Cell
-                              key={s.emotion}
-                              fill={s.avgPnL >= 0
-                                ? (EMOTION_META[s.emotion]?.color ?? '#22c55e')
-                                : '#ef4444'}
-                              fillOpacity={0.85}
-                            />
-                          ))}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+              <div className="space-y-4">
+                {!hasData ? (
+                  <div className="rounded-[8px] border p-10 text-center" style={{ border: CARD_BORDER, backgroundColor: EC.d2 }}>
+                    <p className="text-[14px]" style={{ color: EC.t1 }}>No trade data yet.</p>
+                    <p className="mt-1 text-[12px]" style={{ color: EC.t2 }}>Log trades with an emotional state to see your fingerprint.</p>
                   </div>
-                </div>
-
-                {/* Per-emotion detail cards */}
-                <div>
-                  <p style={{ ...SECTION_LABEL, marginBottom: 12 }}>Breakdown by state</p>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                    {stats.map(s => <EmotionCard key={s.emotion} stat={s} />)}
-                  </div>
-                </div>
-
-                {/* Recent trade emotion timeline */}
-                <div className="rounded-xl border p-4" style={{ border: CARD_BORDER, backgroundColor: '#0d1526' }}>
-                  <p style={SECTION_LABEL}>Recent trades — emotion timeline</p>
-                  <div className="mt-3 flex flex-wrap gap-1.5">
-                    {[...filtered]
-                      .sort((a, b) => {
-                        const da = `${a.trade_date}T${a.trade_time ?? '00:00'}`;
-                        const db = `${b.trade_date}T${b.trade_time ?? '00:00'}`;
-                        return db < da ? -1 : db > da ? 1 : 0;
-                      })
-                      .slice(0, 40)
-                      .map((t, i) => {
-                        const meta = EMOTION_META[t.emotional_state ?? ''] ?? { color: '#64748b', bg: 'rgba(100,116,139,0.1)' };
-                        return (
-                          <div
-                            key={`${t.id}-${i}`}
-                            title={`${t.trade_date} · ${t.emotional_state ?? '—'} · ${t.pnl >= 0 ? '+' : ''}$${t.pnl.toFixed(0)}`}
-                            className="h-7 w-7 rounded-full flex items-center justify-center text-[9px] font-bold cursor-default"
-                            style={{
-                              backgroundColor: meta.bg,
-                              border: `1px solid ${meta.color}40`,
-                              color: meta.color,
-                            }}
-                          >
-                            {(t.emotional_state ?? '?').slice(0, 2).toUpperCase()}
+                ) : (
+                  <>
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                      {bestState && (
+                        <div className="rounded-[8px] border p-4" style={{ border: CARD_BORDER, backgroundColor: EC.d2 }}>
+                          <p style={SECTION_LABEL}>Your best state</p>
+                          <div className="mt-2 flex items-center gap-2">
+                            <span
+                              className="rounded-[4px] px-2.5 py-1 text-[12px] font-semibold"
+                              style={{ color: EMOTION_META[bestState.emotion]?.color ?? EC.t1, backgroundColor: EMOTION_META[bestState.emotion]?.bg ?? 'rgba(138,129,120,0.1)' }}
+                            >
+                              {bestState.emotion}
+                            </span>
                           </div>
-                        );
-                      })}
-                  </div>
-                  <p className="mt-2 text-[11px] text-[#475569]">Hover a dot to see date, state, and P&L. Newest left to right.</p>
-                </div>
+                          <p className="mt-2 text-[22px] font-semibold" style={{ color: EC.grn }}>{pct(bestState.winRate)} WR</p>
+                          <p className="text-[12px]" style={{ color: EC.t2 }}>{currency(bestState.avgPnL)} avg · {bestState.trades} trades</p>
+                        </div>
+                      )}
 
-              </>
-            )}
+                      {worstState && worstState.emotion !== bestState?.emotion && (
+                        <div className="rounded-[8px] border p-4" style={{ border: CARD_BORDER, backgroundColor: EC.d2 }}>
+                          <p style={SECTION_LABEL}>Biggest risk state</p>
+                          <div className="mt-2 flex items-center gap-2">
+                            <span
+                              className="rounded-[4px] px-2.5 py-1 text-[12px] font-semibold"
+                              style={{ color: EMOTION_META[worstState.emotion]?.color ?? EC.t1, backgroundColor: EMOTION_META[worstState.emotion]?.bg ?? 'rgba(138,129,120,0.1)' }}
+                            >
+                              {worstState.emotion}
+                            </span>
+                          </div>
+                          <p className="mt-2 text-[22px] font-semibold" style={{ color: EC.red }}>{pct(worstState.winRate)} WR</p>
+                          <p className="text-[12px]" style={{ color: EC.t2 }}>{currency(worstState.avgPnL)} avg · {worstState.trades} trades</p>
+                        </div>
+                      )}
+
+                      {planLeader && (
+                        <div className="rounded-[8px] border p-4" style={{ border: CARD_BORDER, backgroundColor: EC.d2 }}>
+                          <p style={SECTION_LABEL}>Most disciplined state</p>
+                          <div className="mt-2 flex items-center gap-2">
+                            <span
+                              className="rounded-[4px] px-2.5 py-1 text-[12px] font-semibold"
+                              style={{ color: EMOTION_META[planLeader.emotion]?.color ?? EC.t1, backgroundColor: EMOTION_META[planLeader.emotion]?.bg ?? 'rgba(138,129,120,0.1)' }}
+                            >
+                              {planLeader.emotion}
+                            </span>
+                          </div>
+                          <p className="mt-2 text-[22px] font-semibold" style={{ color: EC.acc }}>{pct(planLeader.planRate)} plan rate</p>
+                          <p className="text-[12px]" style={{ color: EC.t2 }}>{pct(planLeader.winRate)} WR · {planLeader.trades} trades</p>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="rounded-[8px] border p-4" style={{ border: CARD_BORDER, backgroundColor: EC.d2 }}>
+                      <p style={SECTION_LABEL}>Average P&amp;L by emotional state</p>
+                      <div className="mt-4 h-52">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={stats} barCategoryGap="30%" margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                            <XAxis
+                              dataKey="emotion"
+                              tick={{ fill: EC.t2, fontSize: 11 }}
+                              axisLine={false}
+                              tickLine={false}
+                              tickFormatter={e => e.length > 8 ? e.slice(0, 8) + '…' : e}
+                            />
+                            <YAxis
+                              tick={{ fill: EC.t2, fontSize: 11 }}
+                              axisLine={false}
+                              tickLine={false}
+                              tickFormatter={v => `$${v}`}
+                              width={46}
+                            />
+                            <Tooltip content={<ChartTooltip />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
+                            <ReferenceLine y={0} stroke={EC.b1} strokeDasharray="3 3" />
+                            <Bar dataKey="avgPnL" radius={[4, 4, 0, 0]}>
+                              {stats.map(s => (
+                                <Cell
+                                  key={s.emotion}
+                                  fill={s.avgPnL >= 0 ? (EMOTION_META[s.emotion]?.color ?? EC.grn) : EC.red}
+                                  fillOpacity={0.85}
+                                />
+                              ))}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+
+                    <div>
+                      <p style={{ ...SECTION_LABEL, marginBottom: 12 }}>Breakdown by state</p>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                        {stats.map(s => <EmotionCard key={s.emotion} stat={s} />)}
+                      </div>
+                    </div>
+
+                    <div className="rounded-[8px] border p-4" style={{ border: CARD_BORDER, backgroundColor: EC.d2 }}>
+                      <p style={SECTION_LABEL}>Recent trades — emotion timeline</p>
+                      <div className="mt-3 flex flex-wrap gap-1.5">
+                        {[...filtered]
+                          .sort((a, b) => {
+                            const da = `${a.trade_date}T${a.trade_time ?? '00:00'}`;
+                            const db = `${b.trade_date}T${b.trade_time ?? '00:00'}`;
+                            return db < da ? -1 : db > da ? 1 : 0;
+                          })
+                          .slice(0, 40)
+                          .map((t, i) => {
+                            const meta = EMOTION_META[t.emotional_state ?? ''] ?? { color: EC.t2, bg: 'rgba(92,87,81,0.1)' };
+                            return (
+                              <div
+                                key={`${t.id}-${i}`}
+                                title={`${t.trade_date} · ${t.emotional_state ?? '—'} · ${t.pnl >= 0 ? '+' : ''}$${t.pnl.toFixed(0)}`}
+                                className="h-7 w-7 rounded-full flex items-center justify-center text-[9px] font-bold cursor-default"
+                                style={{ backgroundColor: meta.bg, border: `1px solid ${meta.color}40`, color: meta.color }}
+                              >
+                                {(t.emotional_state ?? '?').slice(0, 2).toUpperCase()}
+                              </div>
+                            );
+                          })}
+                      </div>
+                      <p className="mt-2 text-[11px]" style={{ color: EC.t2 }}>Hover a dot to see date, state, and P&amp;L. Newest left to right.</p>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
           </div>
         </main>
       </div>

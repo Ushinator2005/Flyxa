@@ -29,22 +29,19 @@ export type PatternItem = {
   sessions: PatternSession[];
 };
 
-const sectionLabelStyle: CSSProperties = {
-  fontSize: 11,
-  fontWeight: 600,
-  letterSpacing: '0.08em',
-  textTransform: 'uppercase',
+const colors = {
+  d0: '#0e0d0d', d1: '#141312', d2: '#1a1917', d3: '#201f1d', d4: '#27251f',
+  b0: 'rgba(255,255,255,0.07)', b1: 'rgba(255,255,255,0.12)',
+  t0: '#e8e3dc', t1: '#8a8178', t2: '#5c5751',
+  acc: '#f59e0b', grn: '#22d68a', red: '#f05252',
 };
 
-const subSectionLabelStyle: CSSProperties = {
-  fontSize: 9,
-  fontWeight: 600,
-  letterSpacing: '0.1em',
-  textTransform: 'uppercase',
-  color: '#64748b',
+const tinyMetaLabelStyle: CSSProperties = {
+  fontSize: 9.5, fontWeight: 500, letterSpacing: '0.12em',
+  textTransform: 'uppercase', color: colors.t2,
 };
 
-const cardBorder = '1px solid rgba(255,255,255,0.07)';
+const cardBorder = `1px solid ${colors.b0}`;
 
 
 export const patternsData: PatternItem[] = [
@@ -211,8 +208,8 @@ function confidenceColor(confidence: number) {
 }
 
 function filterPillClass(active: boolean) {
-  if (active) return 'border-[#4a9eff] bg-[rgba(74,158,255,0.12)] text-[#4a9eff]';
-  return 'border-white/10 bg-[#0d1526] text-[#94a3b8] hover:text-[#cbd5e1]';
+  if (active) return 'border-[#f59e0b] bg-[rgba(245,158,11,0.10)] text-[#f59e0b]';
+  return 'border-white/[0.07] bg-[#1a1917] text-[#8a8178] hover:text-[#e8e3dc]';
 }
 
 export default function FlyxaAIPatterns() {
@@ -295,70 +292,71 @@ export default function FlyxaAIPatterns() {
     return (
       <article
         key={pattern.id}
-        className="grid cursor-pointer overflow-hidden rounded-xl"
-        style={{ gridTemplateColumns: '4px minmax(0,1fr)', backgroundColor: '#0d1526', border: cardBorder }}
+        className="grid cursor-pointer overflow-hidden rounded-[8px]"
+        style={{ gridTemplateColumns: '4px minmax(0,1fr)', backgroundColor: colors.d2, border: cardBorder }}
         onClick={() => togglePattern(pattern.id)}
       >
         <div style={{ backgroundColor: accent }} />
         <div className="px-4 py-3.5">
           <div className="flex items-start justify-between gap-3">
             <div className="flex flex-wrap items-center gap-1.5">
-              <span className="rounded-full px-2 py-1 text-[10px] font-semibold uppercase" style={{ letterSpacing: '0.08em', color: accent, backgroundColor: `${accent}1A`, border: `1px solid ${accent}40` }}>
+              <span className="rounded-[4px] px-2 py-1 text-[10px] font-semibold uppercase" style={{ letterSpacing: '0.08em', color: accent, backgroundColor: `${accent}1A`, border: `1px solid ${accent}40` }}>
                 {pattern.type}
               </span>
-              <span className="rounded-full px-2 py-1 text-[10px] font-medium" style={statusStyles(pattern.status)}>
+              <span className="rounded-[4px] px-2 py-1 text-[10px] font-medium" style={statusStyles(pattern.status)}>
                 {pattern.status}
               </span>
-              <span className="text-[11px] text-[#64748b]">First seen {new Date(pattern.firstSeen).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} · {pattern.sessionCount} sessions</span>
+              <span className="text-[11px]" style={{ color: colors.t2 }}>First seen {new Date(pattern.firstSeen).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} · {pattern.sessionCount} sessions</span>
             </div>
             <div className="text-right">
               <p className="text-[21px] font-semibold" style={{ color: totalColor }}>{pattern.totalR >= 0 ? '+' : ''}{pattern.totalR.toFixed(1)}R</p>
-              <p className="text-[11px] text-[#64748b]">{totalLabel}</p>
+              <p className="text-[11px]" style={{ color: colors.t2 }}>{totalLabel}</p>
             </div>
           </div>
 
-          <h3 className="mt-2.5 text-[14px] font-semibold text-[#e2e8f0]">{pattern.title}</h3>
-          <p className="mt-1.5 text-[12px] leading-[1.65] text-[#475569]">{pattern.description}</p>
+          <h3 className="mt-2.5 text-[14px] font-semibold" style={{ color: colors.t0 }}>{pattern.title}</h3>
+          <p className="mt-1.5 text-[12px] leading-[1.65]" style={{ color: colors.t1 }}>{pattern.description}</p>
 
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap gap-1.5">
               {pattern.tags.map(tag => (
-                <span key={tag.label} className="rounded-full px-2 py-[3px] text-[11px]" style={tagStyles(tag.sentiment)}>{tag.label}</span>
+                <span key={tag.label} className="rounded-[4px] px-2 py-[3px] text-[11px]" style={tagStyles(tag.sentiment)}>{tag.label}</span>
               ))}
             </div>
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2">
-                <span className="text-[11px] text-[#94a3b8]">Confidence</span>
-                <div className="h-[3px] w-20 rounded-full bg-white/10">
-                  <div className="h-[3px] rounded-full" style={{ width: `${pattern.confidence}%`, backgroundColor: confidenceTone }} />
+                <span className="text-[11px]" style={{ color: colors.t1 }}>Confidence</span>
+                <div className="h-[3px] w-20 rounded-[2px]" style={{ backgroundColor: colors.d4 }}>
+                  <div className="h-[3px] rounded-[2px]" style={{ width: `${pattern.confidence}%`, backgroundColor: confidenceTone }} />
                 </div>
                 <span className="text-[11px] font-medium" style={{ color: confidenceTone }}>{pattern.confidence}%</span>
               </div>
-              <span className="text-[11px] font-medium text-[#4a9eff]">View sessions -&gt;</span>
+              <span className="text-[11px] font-medium" style={{ color: colors.acc }}>View sessions &rarr;</span>
             </div>
           </div>
 
           {isExpanded && (
-            <div className="mt-3 rounded-lg border border-white/10 bg-[#0a101d] p-3" onClick={event => event.stopPropagation()}>
-              <p style={subSectionLabelStyle}>Sessions</p>
+            <div className="mt-3 rounded-[8px] border p-3" style={{ borderColor: colors.b0, backgroundColor: colors.d3 }} onClick={event => event.stopPropagation()}>
+              <p style={tinyMetaLabelStyle}>Sessions</p>
               <div className="mt-2 space-y-1.5">
                 {pattern.sessions.map(session => (
                   <div key={`${pattern.id}-${session.date}-${session.rOutcome}`} className="flex items-center justify-between text-[12px]">
-                    <span className="text-[#94a3b8]">{new Date(session.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-                    <span style={{ color: session.rOutcome >= 0 ? '#34d399' : '#f87171' }}>{session.rOutcome >= 0 ? '+' : ''}{session.rOutcome.toFixed(1)}R</span>
+                    <span style={{ color: colors.t1 }}>{new Date(session.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                    <span style={{ color: session.rOutcome >= 0 ? colors.grn : colors.red }}>{session.rOutcome >= 0 ? '+' : ''}{session.rOutcome.toFixed(1)}R</span>
                   </div>
                 ))}
               </div>
               <button
                 type="button"
                 onClick={() => markResolved(pattern.id)}
-                className="mt-3 rounded-md border border-white/10 bg-[#11192a] px-3 py-1.5 text-[12px] text-[#cbd5e1] hover:bg-[#1a253a]"
+                className="mt-3 rounded-[6px] border px-3 py-1.5 text-[12px] transition-colors"
+                style={{ borderColor: colors.b1, backgroundColor: colors.d4, color: colors.t0 }}
               >
                 Mark as resolved
               </button>
-              <div className="mt-3 rounded-md border border-[#4a9eff]/30 bg-[#4a9eff]/10 p-3">
-                <p style={{ ...subSectionLabelStyle, color: '#4a9eff' }}>AI Suggestion</p>
-                <p className="mt-1 text-[12px] leading-[1.6] text-[#94a3b8]">Add a pre-trade checkpoint for this pattern: define entry condition, invalidation, and a max re-entry rule before placing the next order.</p>
+              <div className="mt-3 rounded-[6px] border p-3" style={{ borderColor: `${colors.acc}30`, backgroundColor: `rgba(245,158,11,0.07)` }}>
+                <p style={{ ...tinyMetaLabelStyle, color: colors.acc }}>AI Suggestion</p>
+                <p className="mt-1 text-[12px] leading-[1.6]" style={{ color: colors.t1 }}>Add a pre-trade checkpoint for this pattern: define entry condition, invalidation, and a max re-entry rule before placing the next order.</p>
               </div>
             </div>
           )}
@@ -368,127 +366,138 @@ export default function FlyxaAIPatterns() {
   };
 
   return (
-    <div className="animate-fade-in -m-8 h-[calc(100vh-3.5rem)] overflow-hidden bg-[#060a12] text-[#e2e8f0]">
-      <div className="grid h-full grid-cols-[200px_minmax(0,1fr)] overflow-hidden">
+    <div className="animate-fade-in h-[calc(100vh-3.5rem)] overflow-hidden rounded-2xl" style={{ backgroundColor: colors.d0, color: colors.t0 }}>
+      <div className="grid h-full grid-cols-[178px_minmax(0,1fr)] overflow-hidden">
         <FlyxaNav />
 
-        <main className="min-h-0 overflow-y-auto px-6 py-6">
-          <div className="space-y-5">
-            <header>
-              <h1 className="text-[26px] font-semibold text-[#e2e8f0]">Pattern library</h1>
-              <p className="mt-1 text-[13px] text-[#64748b]">Track recurring behaviors, confirm edges, and close leakage loops.</p>
-            </header>
-
-            <section className="space-y-2 rounded-xl border p-3" style={{ border: cardBorder, backgroundColor: '#0d1526' }}>
-              <div className="flex flex-wrap items-center gap-2">
-                <span style={subSectionLabelStyle}>Type</span>
-                {(['All', 'Risk', 'Edge', 'Psychology', 'Behaviour'] as const).map(type => (
-                  <button key={type} type="button" onClick={() => setSelectedType(type)} className={`rounded-full border px-3 py-1 text-[12px] ${filterPillClass(selectedType === type)}`}>
-                    {type}
-                  </button>
-                ))}
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <span style={subSectionLabelStyle}>Session</span>
-                {(['All', 'RTH open', 'Overlap', 'Midday'] as const).map(session => (
-                  <button key={session} type="button" onClick={() => setSelectedSession(session)} className={`rounded-full border px-3 py-1 text-[12px] ${filterPillClass(selectedSession === session)}`}>
-                    {session}
-                  </button>
-                ))}
-                <div className="ml-auto flex items-center gap-2">
-                  <span style={subSectionLabelStyle}>Sort</span>
-                  <select value={sortBy} onChange={event => setSortBy(event.target.value as SortOption)} className="rounded-md border border-white/10 bg-[#0a101d] px-2.5 py-1.5 text-[12px] text-[#cbd5e1]">
-                    <option value="impact">Most impactful</option>
-                    <option value="recent">Most recent</option>
-                    <option value="frequency">Most frequent</option>
-                  </select>
-                </div>
-              </div>
+        <main className="min-h-0 overflow-hidden" style={{ backgroundColor: colors.d0 }}>
+          <div className="flex h-full min-h-0 flex-col">
+            <section className="border-b px-6 py-5" style={{ borderColor: colors.b0 }}>
+              <p className="text-[9.5px] uppercase tracking-[0.12em]" style={{ color: colors.t2 }}>Flyxa AI</p>
+              <h1 className="mt-2 text-[24px] font-bold tracking-[-0.02em]" style={{ color: colors.t0 }}>Pattern library</h1>
+              <p className="mt-1 text-[12px]" style={{ color: colors.t2 }}>Track recurring behaviors, confirm edges, and close leakage loops.</p>
             </section>
 
-            <section className="grid grid-cols-1 gap-3 md:grid-cols-4">
-              <div className="rounded-xl border p-3" style={{ border: cardBorder, backgroundColor: '#0d1526' }}>
-                <p style={subSectionLabelStyle}>Costing you</p>
-                <p className="mt-1 text-[22px] font-semibold text-[#f87171]">{summary.totalLost.toFixed(1)}R</p>
-                <p className="text-[12px] text-[#64748b]">{summary.riskCount} active risk patterns</p>
-              </div>
-              <div className="rounded-xl border p-3" style={{ border: cardBorder, backgroundColor: '#0d1526' }}>
-                <p style={subSectionLabelStyle}>Making you money</p>
-                <p className="mt-1 text-[22px] font-semibold text-[#34d399]">+{summary.totalGained.toFixed(1)}R</p>
-                <p className="text-[12px] text-[#64748b]">{summary.edgeCount} confirmed edges</p>
-              </div>
-              <div className="rounded-xl border p-3" style={{ border: cardBorder, backgroundColor: '#0d1526' }}>
-                <p style={subSectionLabelStyle}>Improving</p>
-                <p className="mt-1 text-[22px] font-semibold text-[#f59e0b]">{summary.improvingCount}</p>
-                <p className="text-[12px] text-[#64748b]">patterns trending better</p>
-              </div>
-              <div className="rounded-xl border p-3" style={{ border: cardBorder, backgroundColor: '#0d1526' }}>
-                <p style={subSectionLabelStyle}>Resolved</p>
-                <p className="mt-1 text-[22px] font-semibold text-[#94a3b8]">{summary.resolvedCount}</p>
-                <p className="text-[12px] text-[#64748b]">eliminated patterns</p>
-              </div>
-            </section>
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+              <div className="space-y-4">
+                <section className="space-y-2 rounded-[8px] p-3" style={{ border: cardBorder, backgroundColor: colors.d2 }}>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span style={tinyMetaLabelStyle}>Type</span>
+                    {(['All', 'Risk', 'Edge', 'Psychology', 'Behaviour'] as const).map(type => (
+                      <button key={type} type="button" onClick={() => setSelectedType(type)} className={`rounded-[4px] border px-3 py-1 text-[12px] ${filterPillClass(selectedType === type)}`}>
+                        {type}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span style={tinyMetaLabelStyle}>Session</span>
+                    {(['All', 'RTH open', 'Overlap', 'Midday'] as const).map(session => (
+                      <button key={session} type="button" onClick={() => setSelectedSession(session)} className={`rounded-[4px] border px-3 py-1 text-[12px] ${filterPillClass(selectedSession === session)}`}>
+                        {session}
+                      </button>
+                    ))}
+                    <div className="ml-auto flex items-center gap-2">
+                      <span style={tinyMetaLabelStyle}>Sort</span>
+                      <select
+                        value={sortBy}
+                        onChange={event => setSortBy(event.target.value as SortOption)}
+                        className="rounded-[4px] border px-2.5 py-1.5 text-[12px]"
+                        style={{ borderColor: colors.b0, backgroundColor: colors.d3, color: colors.t0 }}
+                      >
+                        <option value="impact">Most impactful</option>
+                        <option value="recent">Most recent</option>
+                        <option value="frequency">Most frequent</option>
+                      </select>
+                    </div>
+                  </div>
+                </section>
 
-            <section>
-              <div className="mb-2">
-                <p style={{ ...sectionLabelStyle, color: '#f87171' }}>Costing you</p>
-                <p className="text-[12px] text-[#64748b]">{costingPatterns.length} patterns</p>
-              </div>
-              <div className="space-y-3">
-                {costingPatterns.map(renderPatternCard)}
-                {costingPatterns.length === 0 && <p className="text-[12px] text-[#64748b]">No patterns match current filters.</p>}
-              </div>
-            </section>
+                <section className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                  <div className="rounded-[8px] p-3" style={{ border: cardBorder, backgroundColor: colors.d2 }}>
+                    <p style={tinyMetaLabelStyle}>Costing you</p>
+                    <p className="mt-1 text-[22px] font-semibold" style={{ color: colors.red }}>{summary.totalLost.toFixed(1)}R</p>
+                    <p className="text-[12px]" style={{ color: colors.t2 }}>{summary.riskCount} active risk patterns</p>
+                  </div>
+                  <div className="rounded-[8px] p-3" style={{ border: cardBorder, backgroundColor: colors.d2 }}>
+                    <p style={tinyMetaLabelStyle}>Making you money</p>
+                    <p className="mt-1 text-[22px] font-semibold" style={{ color: colors.grn }}>+{summary.totalGained.toFixed(1)}R</p>
+                    <p className="text-[12px]" style={{ color: colors.t2 }}>{summary.edgeCount} confirmed edges</p>
+                  </div>
+                  <div className="rounded-[8px] p-3" style={{ border: cardBorder, backgroundColor: colors.d2 }}>
+                    <p style={tinyMetaLabelStyle}>Improving</p>
+                    <p className="mt-1 text-[22px] font-semibold" style={{ color: colors.acc }}>{summary.improvingCount}</p>
+                    <p className="text-[12px]" style={{ color: colors.t2 }}>patterns trending better</p>
+                  </div>
+                  <div className="rounded-[8px] p-3" style={{ border: cardBorder, backgroundColor: colors.d2 }}>
+                    <p style={tinyMetaLabelStyle}>Resolved</p>
+                    <p className="mt-1 text-[22px] font-semibold" style={{ color: colors.t1 }}>{summary.resolvedCount}</p>
+                    <p className="text-[12px]" style={{ color: colors.t2 }}>eliminated patterns</p>
+                  </div>
+                </section>
 
-            <section>
-              <div className="mb-2">
-                <p style={{ ...sectionLabelStyle, color: '#34d399' }}>Making you money</p>
-                <p className="text-[12px] text-[#64748b]">{earningPatterns.length} patterns</p>
-              </div>
-              <div className="space-y-3">
-                {earningPatterns.map(renderPatternCard)}
-                {earningPatterns.length === 0 && <p className="text-[12px] text-[#64748b]">No patterns match current filters.</p>}
-              </div>
-            </section>
+                <section>
+                  <div className="mb-2">
+                    <p className="text-[9.5px] font-medium uppercase tracking-[0.12em]" style={{ color: colors.red }}>Costing you</p>
+                    <p className="text-[12px]" style={{ color: colors.t2 }}>{costingPatterns.length} patterns</p>
+                  </div>
+                  <div className="space-y-3">
+                    {costingPatterns.map(renderPatternCard)}
+                    {costingPatterns.length === 0 && <p className="text-[12px]" style={{ color: colors.t2 }}>No patterns match current filters.</p>}
+                  </div>
+                </section>
 
-            <section className="rounded-xl border p-3" style={{ border: cardBorder, backgroundColor: '#0d1526' }}>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p style={{ ...sectionLabelStyle, color: '#94a3b8' }}>Resolved</p>
-                  <p className="text-[12px] text-[#64748b]">{resolvedPatterns.length} eliminated patterns</p>
-                </div>
-                <button type="button" onClick={() => setShowResolved(value => !value)} className="text-[12px] font-medium text-[#94a3b8] hover:text-[#cbd5e1]">
-                  {showResolved ? 'Hide all ↑' : 'Show all ↓'}
-                </button>
-              </div>
-              {showResolved && (
-                <div className="mt-3 space-y-2">
-                  {resolvedPatterns.map(pattern => {
-                    const lastSeen = pattern.sessions.length > 0 ? pattern.sessions[0].date : pattern.firstSeen;
-                    return (
-                      <div key={pattern.id} className="rounded-md border border-white/5 bg-[#0a101d] px-3 py-2 text-[12px] text-[#64748b]">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <span className="text-[#94a3b8]">{pattern.title}</span>
-                            <p className="mt-0.5">Last seen {new Date(lastSeen).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
+                <section>
+                  <div className="mb-2">
+                    <p className="text-[9.5px] font-medium uppercase tracking-[0.12em]" style={{ color: colors.grn }}>Making you money</p>
+                    <p className="text-[12px]" style={{ color: colors.t2 }}>{earningPatterns.length} patterns</p>
+                  </div>
+                  <div className="space-y-3">
+                    {earningPatterns.map(renderPatternCard)}
+                    {earningPatterns.length === 0 && <p className="text-[12px]" style={{ color: colors.t2 }}>No patterns match current filters.</p>}
+                  </div>
+                </section>
+
+                <section className="rounded-[8px] p-3" style={{ border: cardBorder, backgroundColor: colors.d2 }}>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[9.5px] font-medium uppercase tracking-[0.12em]" style={{ color: colors.t1 }}>Resolved</p>
+                      <p className="text-[12px]" style={{ color: colors.t2 }}>{resolvedPatterns.length} eliminated patterns</p>
+                    </div>
+                    <button type="button" onClick={() => setShowResolved(value => !value)} className="text-[12px] font-medium transition-colors" style={{ color: colors.t1 }}>
+                      {showResolved ? 'Hide all ↑' : 'Show all ↓'}
+                    </button>
+                  </div>
+                  {showResolved && (
+                    <div className="mt-3 space-y-2">
+                      {resolvedPatterns.map(pattern => {
+                        const lastSeen = pattern.sessions.length > 0 ? pattern.sessions[0].date : pattern.firstSeen;
+                        return (
+                          <div key={pattern.id} className="rounded-[8px] border px-3 py-2 text-[12px]" style={{ borderColor: colors.b0, backgroundColor: colors.d3, color: colors.t2 }}>
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <span style={{ color: colors.t1 }}>{pattern.title}</span>
+                                <p className="mt-0.5">Last seen {new Date(lastSeen).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span style={{ color: colors.t1 }}>~{Math.abs(pattern.totalR).toFixed(1)}R saved</span>
+                                <button
+                                  type="button"
+                                  onClick={() => unresolvePattern(pattern.id)}
+                                  className="rounded-[4px] border px-2 py-1 text-[11px] transition-colors"
+                                  style={{ borderColor: colors.b1, backgroundColor: colors.d4, color: colors.t0 }}
+                                >
+                                  Unresolve
+                                </button>
+                              </div>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-[#94a3b8]">~{Math.abs(pattern.totalR).toFixed(1)}R saved</span>
-                            <button
-                              type="button"
-                              onClick={() => unresolvePattern(pattern.id)}
-                              className="rounded border border-white/10 bg-[#11192a] px-2 py-1 text-[11px] text-[#cbd5e1] hover:bg-[#1a253a]"
-                            >
-                              Unresolve
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
+                        );
+                      })}
+                    </div>
+                  )}
+                </section>
+              </div>
+            </div>
           </div>
         </main>
       </div>

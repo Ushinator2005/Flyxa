@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+﻿import { useMemo, useState } from 'react';
 import { useTrades } from '../hooks/useTrades.js';
 import { useAppSettings } from '../contexts/AppSettingsContext.js';
 
@@ -34,8 +34,8 @@ const weeklyInsightCards: Array<{
     body:
       "Of your 7 losses this week, 5 occurred between 9:30-10:00 ET. Your notes consistently reference 'felt choppy' or 'wasn't sure' in that window - but you traded anyway. On the days you waited until 10:15 before entering, your R was positive in 4 of 4 sessions. The data is clear on this.",
     pills: [
-      { label: '-4.1R in open 30min', tone: 'red' },
-      { label: '+7.3R after 10:15', tone: 'green' },
+      { label: '-4.1 RR in open 30min', tone: 'red' },
+      { label: '+7.3 RR after 10:15', tone: 'green' },
     ],
   },
   {
@@ -44,7 +44,7 @@ const weeklyInsightCards: Array<{
     context: 'Wednesday - Thursday',
     title: "Your tilt on Wednesday didn't end on Wednesday",
     body:
-      "After your -2.1R session you logged 'frustrated, felt like I gave it away.' Thursday's first two trades were taken within 8 minutes of open - your fastest entry times all week. Both were losers. This is the third time this year a large loss has bled into the following morning. The day-after session is your highest-risk window.",
+      "After your -2.1 RR session you logged 'frustrated, felt like I gave it away.' Thursday's first two trades were taken within 8 minutes of open - your fastest entry times all week. Both were losers. This is the third time this year a large loss has bled into the following morning. The day-after session is your highest-risk window.",
     pills: [
       { label: 'Same pattern: Mar 17', tone: 'default' },
       { label: 'Same pattern: Feb 28', tone: 'default' },
@@ -57,10 +57,10 @@ const weeklyInsightCards: Array<{
     context: 'Consistent 4 weeks',
     title: 'London-NY overlap is your most reliable edge - protect it',
     body:
-      "Trades taken 8:00-9:30 ET on NQ: 71% win rate, avg +1.6R, over 4 consecutive weeks. Your notes in these sessions use the word 'clear' significantly more than any other window. You are not replicating this process - you're just showing up earlier. Consider building a pre-session checklist specifically for this window.",
+      "Trades taken 8:00-9:30 ET on NQ: 71% win rate, avg +1.6 RR, over 4 consecutive weeks. Your notes in these sessions use the word 'clear' significantly more than any other window. You are not replicating this process - you're just showing up earlier. Consider building a pre-session checklist specifically for this window.",
     pills: [
       { label: '71% W/R', tone: 'green' },
-      { label: 'avg +1.6R', tone: 'green' },
+      { label: 'avg +1.6 RR', tone: 'green' },
       { label: '4 weeks straight', tone: 'default' },
     ],
   },
@@ -70,9 +70,9 @@ const weeklyInsightCards: Array<{
     context: 'This week',
     title: 'You sized up after losses twice - both ended in larger losses',
     body:
-      "On Tuesday and Thursday you increased position size on the trade immediately following a losing trade. Your notes don't mention this decision either time - which suggests it wasn't part of the plan. Both trades lost. Combined cost: -2.8R. This is a pattern worth making a rule around, not just noticing.",
+      "On Tuesday and Thursday you increased position size on the trade immediately following a losing trade. Your notes don't mention this decision either time - which suggests it wasn't part of the plan. Both trades lost. Combined cost: -2.8 RR. This is a pattern worth making a rule around, not just noticing.",
     pills: [
-      { label: '-2.8R combined', tone: 'red' },
+      { label: '-2.8 RR combined', tone: 'red' },
       { label: 'Unplanned both times', tone: 'default' },
     ],
   },
@@ -91,7 +91,7 @@ const patternRows: Array<{
     name: 'Revenge trading after gap days',
     firstSeen: 'Feb 3',
     occurrences: '7x',
-    impact: '-3.2R total',
+    impact: '-3.2 RR total',
     impactColor: 'text-[#E24B4A]',
     trend: 'Worsening',
     trendTone: 'worsening',
@@ -100,7 +100,7 @@ const patternRows: Array<{
     name: 'Fading the open (9:30-10:00)',
     firstSeen: 'Jan 14',
     occurrences: '12x',
-    impact: '-8.1R total',
+    impact: '-8.1 RR total',
     impactColor: 'text-[#E24B4A]',
     trend: 'Stable',
     trendTone: 'stable',
@@ -109,7 +109,7 @@ const patternRows: Array<{
     name: 'London-NY overlap edge',
     firstSeen: 'Mar 2',
     occurrences: '18x',
-    impact: '+14.3R total',
+    impact: '+14.3 RR total',
     impactColor: 'text-[#00C97A]',
     trend: 'Improving',
     trendTone: 'improving',
@@ -118,7 +118,7 @@ const patternRows: Array<{
     name: 'Oversizing after a loss',
     firstSeen: 'Mar 17',
     occurrences: '4x',
-    impact: '-4.4R total',
+    impact: '-4.4 RR total',
     impactColor: 'text-[#E24B4A]',
     trend: 'Worsening',
     trendTone: 'worsening',
@@ -127,7 +127,7 @@ const patternRows: Array<{
     name: 'Tilt bleed into next session',
     firstSeen: 'Jan 28',
     occurrences: '3x',
-    impact: '-5.1R total',
+    impact: '-5.1 RR total',
     impactColor: 'text-[#E24B4A]',
     trend: 'Stable',
     trendTone: 'stable',
@@ -136,7 +136,7 @@ const patternRows: Array<{
     name: 'Strong Mondays after rest weekend',
     firstSeen: 'Feb 10',
     occurrences: '6x',
-    impact: '+7.2R total',
+    impact: '+7.2 RR total',
     impactColor: 'text-[#00C97A]',
     trend: 'Improving',
     trendTone: 'improving',
@@ -152,12 +152,12 @@ const emotionalMatrix: Array<{
   winTone: MatrixTone;
   rTone: MatrixTone;
 }> = [
-  { state: 'Confident', winRate: '71%', avgR: '+1.8R', avgTrades: '2.1', bestWindow: 'London-NY', winTone: 'good', rTone: 'good' },
-  { state: 'Focused', winRate: '68%', avgR: '+1.6R', avgTrades: '2.4', bestWindow: 'Any', winTone: 'good', rTone: 'good' },
-  { state: 'Neutral', winRate: '54%', avgR: '+0.8R', avgTrades: '3.1', bestWindow: 'Midday', winTone: 'neutral', rTone: 'neutral' },
-  { state: 'Anxious', winRate: '38%', avgR: '-0.4R', avgTrades: '4.8', bestWindow: 'None', winTone: 'bad', rTone: 'bad' },
-  { state: 'Frustrated', winRate: '29%', avgR: '-1.1R', avgTrades: '5.9', bestWindow: 'None', winTone: 'bad', rTone: 'bad' },
-  { state: 'Need to make it back', winRate: '18%', avgR: '-2.1R', avgTrades: '7.2', bestWindow: 'None', winTone: 'bad', rTone: 'bad' },
+  { state: 'Confident', winRate: '71%', avgR: '+1.8 RR', avgTrades: '2.1', bestWindow: 'London-NY', winTone: 'good', rTone: 'good' },
+  { state: 'Focused', winRate: '68%', avgR: '+1.6 RR', avgTrades: '2.4', bestWindow: 'Any', winTone: 'good', rTone: 'good' },
+  { state: 'Neutral', winRate: '54%', avgR: '+0.8 RR', avgTrades: '3.1', bestWindow: 'Midday', winTone: 'neutral', rTone: 'neutral' },
+  { state: 'Anxious', winRate: '38%', avgR: '-0.4 RR', avgTrades: '4.8', bestWindow: 'None', winTone: 'bad', rTone: 'bad' },
+  { state: 'Frustrated', winRate: '29%', avgR: '-1.1 RR', avgTrades: '5.9', bestWindow: 'None', winTone: 'bad', rTone: 'bad' },
+  { state: 'Need to make it back', winRate: '18%', avgR: '-2.1 RR', avgTrades: '7.2', bestWindow: 'None', winTone: 'bad', rTone: 'bad' },
 ];
 
 const suggestedQuestions = [
@@ -362,8 +362,8 @@ function PreSessionBriefView({
           <div className="rounded-[10px] border border-[#E24B4A]/30 bg-[#E24B4A]/10 p-5">
             <h3 className="text-[16px] font-medium text-white">Post-loss session risk</h3>
             <p className="mt-3 text-[14px] leading-[1.7] text-[#8A8F98]">
-              You lost -2.1R yesterday. Historically you lose money in 7 of 9 sessions the day after a loss above
-              -1.5R. Consider sizing down by 50% for the first 2 trades.
+              You lost -2.1 RR yesterday. Historically you lose money in 7 of 9 sessions the day after a loss above
+              -1.5 RR. Consider sizing down by 50% for the first 2 trades.
             </p>
             <span className="mt-4 inline-flex rounded-[6px] border border-[#E24B4A]/30 bg-[#0E1117] px-2.5 py-1.5 text-[12px] text-[#E24B4A]">
               Win rate day-after loss: 22%
@@ -429,7 +429,7 @@ function EmotionalFingerprintView() {
             <tr className="border-b border-[#1C2030] bg-[#0A0D13]">
               <th className="px-4 py-3 text-left text-[12px] font-medium text-[#8A8F98]">State</th>
               <th className="px-4 py-3 text-left text-[12px] font-medium text-[#8A8F98]">Win rate</th>
-              <th className="px-4 py-3 text-left text-[12px] font-medium text-[#8A8F98]">Avg R</th>
+              <th className="px-4 py-3 text-left text-[12px] font-medium text-[#8A8F98]">Avg RR</th>
               <th className="px-4 py-3 text-left text-[12px] font-medium text-[#8A8F98]">Avg trades</th>
               <th className="px-4 py-3 text-left text-[12px] font-medium text-[#8A8F98]">Best time window</th>
             </tr>
@@ -536,10 +536,10 @@ function RightPanel({
   winRateDetail: string;
 }) {
   const rightPanelStats = [
-    { label: 'Net R', value: '+3.2R', detail: '', valueClass: 'text-[#00C97A]' },
+    { label: 'Net RR', value: '+3.2 RR', detail: '', valueClass: 'text-[#00C97A]' },
     { label: 'Win rate', value: winRateText, detail: winRateDetail, valueClass: 'text-white' },
-    { label: 'Avg winner', value: '+1.8R', detail: '', valueClass: 'text-[#00C97A]' },
-    { label: 'Avg loser', value: '-0.9R', detail: '', valueClass: 'text-[#E24B4A]' },
+    { label: 'Avg winner', value: '+1.8 RR', detail: '', valueClass: 'text-[#00C97A]' },
+    { label: 'Avg loser', value: '-0.9 RR', detail: '', valueClass: 'text-[#E24B4A]' },
   ];
 
   return (
@@ -700,7 +700,7 @@ export default function AICoach() {
                 ES / NQ
               </span>
               <span className="rounded-[6px] border border-[#00C97A]/30 bg-[#00C97A]/10 px-2.5 py-1 text-[12px] text-[#00C97A]">
-                +3.2R week
+                +3.2 RR week
               </span>
             </div>
           </div>
@@ -729,3 +729,5 @@ export default function AICoach() {
     </div>
   );
 }
+
+

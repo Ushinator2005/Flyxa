@@ -3,6 +3,8 @@ import { supabase } from '../services/api.js';
 import { useAuth } from '../contexts/AuthContext.js';
 import type { Goal } from '../types/goals.js';
 
+export type { Goal, GoalInput, GoalStep, GoalStatus } from '../types/goals.js';
+
 function rowToGoal(row: Record<string, unknown>): Goal {
   return {
     id: row.id as string,
@@ -12,6 +14,7 @@ function rowToGoal(row: Record<string, unknown>): Goal {
     color: row.color as Goal['color'],
     horizon: row.horizon ? (row.horizon as string) : '',
     steps: (row.steps as Goal['steps']) || [],
+    status: (row.status as Goal['status']) || 'Active',
     createdAt: row.created_at as string,
   };
 }
@@ -51,6 +54,7 @@ export function useGoals() {
         color: goal.color,
         horizon: goal.horizon || null,
         steps: goal.steps,
+        status: goal.status,
       })
       .select()
       .single();
@@ -69,6 +73,7 @@ export function useGoals() {
         color: goal.color,
         horizon: goal.horizon || null,
         steps: goal.steps,
+        status: goal.status,
         updated_at: new Date().toISOString(),
       })
       .eq('id', goal.id)

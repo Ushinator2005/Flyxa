@@ -8,9 +8,11 @@ import {
   MousePointer2,
   Pause,
   Play,
+  Plus,
   Search,
   Square,
   StepForward,
+  Trash2,
   TrendingUp,
 } from 'lucide-react';
 import { format } from 'date-fns';
@@ -159,8 +161,20 @@ interface ReplaySymbolSuggestion {
   description: string;
 }
 
+interface SavedSession {
+  id: string;
+  symbol: string;
+  timeframe: ReplayTimeframe;
+  range: ReplayRange;
+  startDate: string;
+  endDate: string;
+  balance: number;
+  openedAt: string;
+}
+
 const CHART_SCRIPT_SRC = 'https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js';
 const BACKTEST_PREFILL_KEY = 'tw_backtest_trade_prefill';
+const SESSIONS_KEY = 'tw_backtest_sessions';
 
 const TIMEFRAME_OPTIONS: Array<{ label: ReplayTimeframe; interval: string; minutes: number }> = [
   { label: '1m', interval: '1m', minutes: 1 },
@@ -410,6 +424,12 @@ export default function Backtest() {
   const [showSymbolSuggestions, setShowSymbolSuggestions] = useState(false);
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
 
+  // Session library state
+  const [savedSessions, setSavedSessions] = useState<SavedSession[]>([]);
+  const [showNewSessionForm, setShowNewSessionForm] = useState(false);
+  const [sessionSearch, setSessionSearch] = useState('');
+  const [startingBalance, setStartingBalance] = useState('25000');
+
   const displayedCandles = useMemo(() => session?.candles.slice(0, revealedCount) ?? [], [session, revealedCount]);
   const currentCandle = displayedCandles[displayedCandles.length - 1] ?? null;
   const simulation = useMemo(
@@ -606,6 +626,52 @@ export default function Backtest() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [revealedCount, selectedDrawingId, session]);
 
+  // Load / persist saved sessions
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(SESSIONS_KEY);
+      if (raw) setSavedSessions(JSON.parse(raw) as SavedSession[]);
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(SESSIONS_KEY, JSON.stringify(savedSessions));
+  }, [savedSessions]);
+
+  const handleDeleteSession = (id: string) => {
+    if (!window.confirm('Remove this session from the library?')) return;
+    setSavedSessions(prev => prev.filter(s => s.id !== id));
+  };
+
+  const handleOpenSession = async (sess: SavedSession) => {
+    setSymbol(sess.symbol);
+    setTimeframe(sess.timeframe);
+    setRange(sess.range);
+    setShowNewSessionForm(false);
+    // Trigger load after state flushes
+    setLoading(true);
+    setLoadError('');
+    setIsPlaying(false);
+    setResultTrade(null);
+    try {
+      const tfMeta = TIMEFRAME_OPTIONS.find(o => o.label === sess.timeframe)!;
+      const rMeta = RANGE_OPTIONS.find(o => o.label === sess.range)!;
+      const candles = await marketDataApi.getChart(sess.symbol, tfMeta.interval, rMeta.range);
+      const instrumentMeta = inferInstrumentMeta(sess.symbol, candles[0]?.close ?? 0);
+      const initialCount = Math.min(50, candles.length);
+      setSession({ symbol: sess.symbol, timeframe: sess.timeframe, range: sess.range, timeframeMinutes: tfMeta.minutes, candles, pointValue: instrumentMeta.pointValue, tickSize: instrumentMeta.tickSize });
+      setRevealedCount(initialCount);
+      setTradeDraft(createInitialDraft(candles[initialCount - 1].close, instrumentMeta.tickSize));
+      setSyncEntryToCurrentClose(true);
+      setDrawings([]); setTradeIntents([]); setDismissedResultIds([]);
+      setToolMode('cursor'); setPendingPoint(null); setTradeError(''); setSelectedDrawingId(null);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'Failed to load replay data.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleLoadReplay = async () => {
     setLoading(true);
     setLoadError('');
@@ -626,6 +692,20 @@ export default function Backtest() {
       setPendingPoint(null);
       setTradeError('');
       setSelectedDrawingId(null);
+      setShowNewSessionForm(false);
+      // Auto-save to session library
+      const toDate = (ts: number) => new Date(ts * 1000).toISOString().split('T')[0];
+      const newSaved: SavedSession = {
+        id: makeId('sess'),
+        symbol,
+        timeframe,
+        range,
+        startDate: candles[0] ? toDate(candles[0].time) : '',
+        endDate: candles[candles.length - 1] ? toDate(candles[candles.length - 1].time) : '',
+        balance: Number(startingBalance) || 25000,
+        openedAt: new Date().toISOString(),
+      };
+      setSavedSessions(prev => [newSaved, ...prev.filter(s => !(s.symbol === symbol && s.timeframe === timeframe && s.range === range)).slice(0, 49)]);
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : 'Failed to load replay data.');
     } finally {
@@ -770,137 +850,278 @@ export default function Backtest() {
     Number.isFinite(targetValue) && Number.isFinite(quantityValue) && quantityValue > 0 && !simulation.activeTrade
   );
 
-  // ── Setup screen ────────────────────────────────────────────────────────────
+  // ── Library + setup screens ──────────────────────────────────────────────────
   if (!session) {
-    return (
-      <div className="mx-auto max-w-4xl space-y-5">
+    const S: React.CSSProperties = {}; // namespace helper (unused, just for reference)
+    void S;
 
-        {/* Header */}
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-500/10 ring-1 ring-blue-500/20">
-            <TrendingUp size={16} className="text-blue-400" />
+    const totalSessions = savedSessions.length;
+    const marketsTested = new Set(savedSessions.map(s => s.symbol)).size;
+    const avgBalance = totalSessions > 0
+      ? savedSessions.reduce((n, s) => n + s.balance, 0) / totalSessions
+      : 0;
+    const mostUsedTf = (() => {
+      if (!totalSessions) return '—';
+      const freq: Record<string, number> = {};
+      savedSessions.forEach(s => { freq[s.timeframe] = (freq[s.timeframe] ?? 0) + 1; });
+      return Object.entries(freq).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '—';
+    })();
+    const filteredSessions = savedSessions.filter(s =>
+      !sessionSearch.trim() || s.symbol.toUpperCase().includes(sessionSearch.trim().toUpperCase()),
+    );
+    const fmtCurrency = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 });
+    const fmtOpened = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+
+    // ── New session config form ──
+    if (showNewSessionForm) {
+      return (
+        <div style={{ padding: 28, maxWidth: 760 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
+            <button
+              type="button"
+              onClick={() => setShowNewSessionForm(false)}
+              style={{ background: 'none', border: 'none', color: 'var(--txt-3)', cursor: 'pointer', fontSize: 13, padding: 0, display: 'flex', alignItems: 'center', gap: 5 }}
+            >
+              ← Back
+            </button>
+            <h1 style={{ fontSize: 18, fontWeight: 600, color: 'var(--txt)', margin: 0 }}>New Session</h1>
           </div>
-          <div>
-            <h1 className="text-lg font-semibold tracking-tight text-white">Backtest Replay</h1>
-            <p className="text-[12px] text-slate-500">
-              Load historical candles, replay bar by bar, place mock trades, and hand off to your journal.
-            </p>
-          </div>
-        </div>
 
-        <div className="grid gap-4 lg:grid-cols-[1fr_220px]">
-
-          {/* Config card */}
-          <div className="space-y-4 rounded-xl border border-slate-700/50 bg-slate-900 p-5">
-
-            {/* Symbol + TF + Range */}
-            <div className="grid gap-3 sm:grid-cols-[1fr_110px_110px]">
+          <div style={{ background: 'var(--surface-1)', border: '1px solid var(--border)', borderRadius: 8, padding: 20 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 110px 110px 140px', gap: 12, marginBottom: 16 }}>
+              {/* Symbol */}
               <div>
-                <p className="mb-1.5 text-[11px] text-slate-500">Symbol</p>
-                <div ref={symbolSearchRef} className="relative">
-                  <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-600" />
+                <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--txt-3)', marginBottom: 6 }}>Symbol</p>
+                <div ref={symbolSearchRef} style={{ position: 'relative' }}>
+                  <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-3)', pointerEvents: 'none' }} />
                   <input
                     type="text"
                     value={symbol}
                     onChange={e => { setSymbol(e.target.value.toUpperCase()); setShowSymbolSuggestions(true); }}
                     onFocus={() => setShowSymbolSuggestions(true)}
-                    className="h-9 w-full rounded-lg border border-slate-700/60 bg-slate-800/60 pl-9 pr-3 text-[13px] text-slate-100 outline-none placeholder:text-slate-600 focus:border-blue-500/50 transition-colors"
+                    style={{ width: '100%', height: 36, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 5, paddingLeft: 32, paddingRight: 10, fontSize: 13, color: 'var(--txt)', outline: 'none', boxSizing: 'border-box' }}
                     placeholder="NQ=F"
                   />
                   {showSymbolSuggestions && filteredSymbolSuggestions.length > 0 && (
-                    <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-30 overflow-hidden rounded-xl border border-slate-700/80 bg-slate-950 shadow-xl">
+                    <div style={{ position: 'absolute', left: 0, right: 0, top: 'calc(100% + 6px)', zIndex: 30, background: '#0a0909', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }}>
                       {filteredSymbolSuggestions.map(item => (
-                        <button
-                          key={item.symbol}
-                          type="button"
-                          onClick={() => handleSymbolSuggestionSelect(item.symbol)}
-                          className="flex w-full cursor-pointer items-center justify-between gap-4 border-b border-slate-800/60 px-3.5 py-2.5 text-left last:border-b-0 hover:bg-slate-900 transition-colors"
+                        <button key={item.symbol} type="button" onClick={() => handleSymbolSuggestionSelect(item.symbol)}
+                          style={{ width: '100%', display: 'flex', justifyContent: 'space-between', gap: 16, padding: '10px 14px', background: 'none', border: 'none', borderBottom: '1px solid var(--border-sub)', cursor: 'pointer', textAlign: 'left', color: 'var(--txt)' }}
                         >
                           <div>
-                            <p className="text-[13px] font-medium text-slate-100">{item.label}</p>
-                            <p className="text-[11px] text-slate-500">{item.description}</p>
+                            <p style={{ fontSize: 13, fontWeight: 500 }}>{item.label}</p>
+                            <p style={{ fontSize: 11, color: 'var(--txt-3)', marginTop: 2 }}>{item.description}</p>
                           </div>
-                          <span className="text-[11px] text-slate-500">{item.symbol}</span>
+                          <span style={{ fontSize: 11, color: 'var(--txt-3)' }}>{item.symbol}</span>
                         </button>
                       ))}
                     </div>
                   )}
                 </div>
               </div>
+              {/* Timeframe */}
               <div>
-                <p className="mb-1.5 text-[11px] text-slate-500">Timeframe</p>
-                <select
-                  value={timeframe}
-                  onChange={e => setTimeframe(e.target.value as ReplayTimeframe)}
-                  className="input-field h-9 text-[13px] cursor-pointer"
-                >
+                <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--txt-3)', marginBottom: 6 }}>Timeframe</p>
+                <select value={timeframe} onChange={e => setTimeframe(e.target.value as ReplayTimeframe)}
+                  style={{ width: '100%', height: 36, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 5, fontSize: 13, color: 'var(--txt)', padding: '0 8px', cursor: 'pointer' }}>
                   {TIMEFRAME_OPTIONS.map(o => <option key={o.label} value={o.label}>{o.label}</option>)}
                 </select>
               </div>
+              {/* Range */}
               <div>
-                <p className="mb-1.5 text-[11px] text-slate-500">Range</p>
-                <select
-                  value={range}
-                  onChange={e => setRange(e.target.value as ReplayRange)}
-                  className="input-field h-9 text-[13px] cursor-pointer"
-                >
+                <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--txt-3)', marginBottom: 6 }}>Range</p>
+                <select value={range} onChange={e => setRange(e.target.value as ReplayRange)}
+                  style={{ width: '100%', height: 36, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 5, fontSize: 13, color: 'var(--txt)', padding: '0 8px', cursor: 'pointer' }}>
                   {RANGE_OPTIONS.map(o => <option key={o.label} value={o.label}>{o.label}</option>)}
                 </select>
+              </div>
+              {/* Starting Balance */}
+              <div>
+                <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--txt-3)', marginBottom: 6 }}>Starting Balance</p>
+                <input type="number" value={startingBalance} onChange={e => setStartingBalance(e.target.value)}
+                  style={{ width: '100%', height: 36, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 5, fontSize: 13, color: 'var(--txt)', padding: '0 10px', boxSizing: 'border-box' }}
+                  placeholder="25000" />
               </div>
             </div>
 
             {/* Quick symbols */}
-            <div className="flex flex-wrap gap-1.5">
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
               {QUICK_SYMBOLS.map(qs => (
-                <button
-                  key={qs}
-                  type="button"
-                  onClick={() => setSymbol(qs)}
-                  className={`cursor-pointer rounded-lg border px-3 py-1.5 text-[12px] font-medium transition-colors ${
-                    symbol === qs
-                      ? 'border-blue-500/40 bg-blue-500/10 text-blue-300'
-                      : 'border-slate-700/60 bg-slate-800/40 text-slate-400 hover:border-slate-600 hover:text-slate-200'
-                  }`}
-                >
+                <button key={qs} type="button" onClick={() => setSymbol(qs)}
+                  style={{ background: symbol === qs ? 'var(--amber-dim)' : 'var(--surface-2)', border: `1px solid ${symbol === qs ? 'var(--amber-border)' : 'var(--border)'}`, borderRadius: 5, padding: '5px 12px', fontSize: 12, color: symbol === qs ? 'var(--amber-500)' : 'var(--txt-3)', cursor: 'pointer', fontFamily: 'var(--font-mono)' }}>
                   {qs}
                 </button>
               ))}
             </div>
 
             {loadError && (
-              <div className="flex items-start gap-2 rounded-lg border border-red-500/25 bg-red-500/[0.08] px-3 py-2.5 text-[12px] text-red-300">
-                <AlertCircle size={13} className="mt-0.5 shrink-0" />
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 5, padding: '10px 12px', fontSize: 12, color: '#f87171', marginBottom: 14 }}>
+                <AlertCircle size={13} style={{ marginTop: 1, flexShrink: 0 }} />
                 <span>{loadError}</span>
               </div>
             )}
 
-            <button
-              type="button"
-              onClick={handleLoadReplay}
-              disabled={loading || !symbol.trim()}
-              className="h-10 w-full cursor-pointer rounded-lg bg-blue-600 text-[13px] font-medium text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {loading ? 'Loading...' : 'Load Replay'}
+            <button type="button" onClick={handleLoadReplay} disabled={loading || !symbol.trim()}
+              style={{ width: '100%', height: 40, background: 'var(--amber-500)', border: 'none', borderRadius: 5, fontSize: 13, fontWeight: 600, color: '#000', cursor: 'pointer', opacity: loading || !symbol.trim() ? 0.5 : 1 }}>
+              {loading ? 'Loading…' : 'Load Replay'}
             </button>
           </div>
+        </div>
+      );
+    }
 
-          {/* Feature list */}
-          <div className="rounded-xl border border-slate-700/50 bg-slate-900 p-5">
-            <p className="mb-3.5 text-[11px] font-medium uppercase tracking-[0.12em] text-slate-600">Includes</p>
-            <div className="space-y-3">
-              {[
-                'Candle-by-candle replay at 1x to 50x speed',
-                'Horizontal levels, trendlines, and zones',
-                'Mock trades with live P&L and auto TP/SL exit',
-                'One-click journal handoff per trade',
-              ].map(f => (
-                <div key={f} className="flex items-start gap-2.5">
-                  <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-blue-500" />
-                  <p className="text-[12px] leading-relaxed text-slate-400">{f}</p>
-                </div>
+    // ── Library view ──
+    return (
+      <div style={{ padding: 28, overflowY: 'auto' }}>
+
+        {/* Top bar */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+          <div>
+            <h1 style={{ fontSize: 18, fontWeight: 600, color: 'var(--txt)', margin: 0, lineHeight: 1.2 }}>Backtest</h1>
+            <p style={{ fontSize: 12, color: 'var(--txt-3)', margin: '4px 0 0' }}>
+              TradingView replay shell ·{' '}
+              <span style={{ color: 'var(--amber-500)', fontWeight: 500 }}>{totalSessions}</span> saved session{totalSessions !== 1 ? 's' : ''}
+            </p>
+          </div>
+          <button type="button" onClick={() => setShowNewSessionForm(true)}
+            style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--amber-500)', color: '#000', border: 'none', borderRadius: 5, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            <Plus size={13} /> New Session
+          </button>
+        </div>
+
+        {/* Stat cards row */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+          {[
+            { label: 'Total Sessions', value: String(totalSessions), sub: 'all time' },
+            { label: 'Markets Tested', value: String(marketsTested), sub: 'unique symbols' },
+            { label: 'Avg Starting Balance', value: totalSessions ? fmtCurrency(avgBalance) : '—', sub: 'across sessions' },
+            { label: 'Most Used Timeframe', value: mostUsedTf, sub: 'by frequency' },
+          ].map(card => (
+            <div key={card.label} style={{ background: 'var(--surface-1)', border: '1px solid var(--border)', borderRadius: 8, padding: 16 }}>
+              <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--txt-3)', marginBottom: 8 }}>{card.label}</p>
+              <p style={{ fontFamily: 'var(--font-mono)', fontSize: 24, fontWeight: 500, color: 'var(--txt)', marginBottom: 5, tabularNums: true } as React.CSSProperties}>{card.value}</p>
+              <p style={{ fontSize: 11, color: 'var(--txt-3)' }}>{card.sub}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Current Focus card */}
+        <div style={{ background: 'var(--surface-1)', border: '1px solid var(--border)', borderRadius: 8, padding: '20px 24px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 24 }}>
+          {/* Icon badge */}
+          <div style={{ width: 44, height: 44, borderRadius: 8, background: 'var(--amber-dim)', border: '1px solid var(--amber-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Play size={18} style={{ color: 'var(--amber-500)' }} />
+          </div>
+          {/* Content */}
+          <div style={{ flex: 1 }}>
+            <p style={{ fontSize: 14, fontWeight: 500, color: 'var(--txt)', marginBottom: 4 }}>Current Focus</p>
+            {savedSessions.length === 0 ? (
+              <p style={{ fontSize: 12, color: 'var(--txt-3)', fontStyle: 'italic' }}>No active session — set up your first replay workspace.</p>
+            ) : (
+              <p style={{ fontSize: 12, color: 'var(--txt-2)' }}>
+                {savedSessions[0].symbol} · {savedSessions[0].timeframe} · {savedSessions[0].startDate} → {savedSessions[0].endDate}
+              </p>
+            )}
+            <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+              {['TradingView replay shell', 'Saved setup history', 'One-click session resume'].map(chip => (
+                <span key={chip} style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 3, padding: '3px 8px', fontSize: 11, color: 'var(--txt-3)' }}>{chip}</span>
               ))}
             </div>
           </div>
+          {/* CTA */}
+          <button type="button" onClick={() => setShowNewSessionForm(true)}
+            style={{ flexShrink: 0, background: 'var(--amber-500)', color: '#000', border: 'none', borderRadius: 5, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            Start New Session
+          </button>
+        </div>
+
+        {/* Session Library table card */}
+        <div style={{ background: 'var(--surface-1)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+          {/* Card header */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid var(--border)' }}>
+            <div>
+              <p style={{ fontSize: 13, fontWeight: 500, color: 'var(--txt)', margin: 0 }}>Session Library</p>
+              <p style={{ fontSize: 11, color: 'var(--txt-3)', margin: '3px 0 0' }}>{totalSessions} saved replay configuration{totalSessions !== 1 ? 's' : ''}</p>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ position: 'relative' }}>
+                <Search size={12} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-3)', pointerEvents: 'none' }} />
+                <input
+                  type="text"
+                  value={sessionSearch}
+                  onChange={e => setSessionSearch(e.target.value)}
+                  placeholder="Search sessions…"
+                  style={{ height: 32, paddingLeft: 28, paddingRight: 10, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 5, fontSize: 12, color: 'var(--txt)', outline: 'none', width: 180 }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Table */}
+          {filteredSessions.length === 0 ? (
+            <div style={{ padding: '32px 18px', textAlign: 'center' }}>
+              <p style={{ fontSize: 13, color: 'var(--txt-3)' }}>
+                {totalSessions === 0 ? 'No sessions yet. Start your first replay to build your library.' : 'No sessions match your search.'}
+              </p>
+              {totalSessions === 0 && (
+                <button type="button" onClick={() => setShowNewSessionForm(true)}
+                  style={{ marginTop: 12, background: 'var(--amber-500)', border: 'none', borderRadius: 5, padding: '8px 14px', fontSize: 13, fontWeight: 600, color: '#000', cursor: 'pointer' }}>
+                  New Session
+                </button>
+              )}
+            </div>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  {['Market', 'Timeframe', 'Date Range', 'Balance', 'Opened', ''].map((col, i) => (
+                    <th key={col + i} style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--txt-3)', padding: '10px 18px', borderBottom: '1px solid var(--border)', textAlign: i === 5 ? 'right' : 'left', fontWeight: 600 }}>
+                      {col}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filteredSessions.map((sess, rowIdx) => (
+                  <tr key={sess.id}
+                    style={{ borderBottom: rowIdx < filteredSessions.length - 1 ? '1px solid var(--border-sub)' : 'none' }}
+                    onMouseEnter={e => { Array.from((e.currentTarget as HTMLTableRowElement).cells).forEach(td => { (td as HTMLTableCellElement).style.background = 'rgba(255,255,255,0.015)'; }); }}
+                    onMouseLeave={e => { Array.from((e.currentTarget as HTMLTableRowElement).cells).forEach(td => { (td as HTMLTableCellElement).style.background = 'transparent'; }); }}
+                  >
+                    <td style={{ padding: '12px 18px', transition: 'background 150ms' }}>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 500, color: 'var(--txt)' }}>{sess.symbol}</span>
+                    </td>
+                    <td style={{ padding: '12px 18px', transition: 'background 150ms' }}>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 500, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 3, padding: '2px 7px', color: 'var(--txt-2)' }}>{sess.timeframe}</span>
+                    </td>
+                    <td style={{ padding: '12px 18px', fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--txt)', tabularNums: true, transition: 'background 150ms' } as React.CSSProperties}>
+                      {sess.startDate} → {sess.endDate}
+                    </td>
+                    <td style={{ padding: '12px 18px', fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--txt)', tabularNums: true, transition: 'background 150ms' } as React.CSSProperties}>
+                      {fmtCurrency(sess.balance)}
+                    </td>
+                    <td style={{ padding: '12px 18px', fontSize: 11, color: 'var(--txt-3)', transition: 'background 150ms' }}>
+                      {fmtOpened(sess.openedAt)}
+                    </td>
+                    <td style={{ padding: '12px 18px', textAlign: 'right', transition: 'background 150ms' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
+                        <button type="button" onClick={() => handleDeleteSession(sess.id)}
+                          title="Delete session"
+                          style={{ background: 'none', border: 'none', padding: 4, cursor: 'pointer', color: 'var(--txt-3)', display: 'flex', alignItems: 'center', transition: 'color 150ms' }}
+                          onMouseEnter={e => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--red)')}
+                          onMouseLeave={e => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--txt-3)')}>
+                          <Trash2 size={13} />
+                        </button>
+                        <button type="button" onClick={() => handleOpenSession(sess)}
+                          style={{ background: 'var(--amber-500)', color: '#000', border: 'none', borderRadius: 4, padding: '5px 12px', fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+                          <Play size={11} /> Open
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
     );

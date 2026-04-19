@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Image, X } from 'lucide-react';
-import type { Goal, GoalInput } from '../../hooks/useGoals.js';
+import { X } from 'lucide-react';
+import type { Goal, GoalCategory, GoalColor, GoalInput } from '../../types/goals.js';
 
 interface Props {
   isOpen: boolean;
@@ -11,52 +11,59 @@ interface Props {
 
 type FormState = {
   title: string;
-  category: Goal['category'];
-  target_date: string;
+  category: GoalCategory;
+  color: GoalColor;
+  horizon: string;
   description: string;
-  cover_image: string;
   status: 'Active' | 'Paused';
 };
 
 const EMPTY: FormState = {
   title: '',
-  category: 'Financial',
-  target_date: '',
+  category: 'Profitability',
+  color: 'cobalt',
+  horizon: '',
   description: '',
-  cover_image: '',
   status: 'Active',
 };
 
-const CATEGORY_ACTIVE: Record<Goal['category'], string> = {
-  Financial:  'border-amber-400/60 bg-amber-500/15 text-amber-200',
-  Discipline: 'border-blue-400/60 bg-blue-500/15 text-blue-200',
-  Lifestyle:  'border-emerald-400/60 bg-emerald-500/15 text-emerald-200',
-  Skill:      'border-purple-400/60 bg-purple-500/15 text-purple-200',
+const CATEGORY_ACTIVE: Record<GoalCategory, string> = {
+  Profitability: 'border-amber-400/60 bg-amber-500/15 text-amber-200',
+  Risk:          'border-red-400/60 bg-red-500/15 text-red-200',
+  Mindset:       'border-purple-400/60 bg-purple-500/15 text-purple-200',
+  Consistency:   'border-teal-400/60 bg-teal-500/15 text-teal-200',
+  Discipline:    'border-blue-400/60 bg-blue-500/15 text-blue-200',
+};
+
+const COLOR_MAP: Record<GoalColor, { dot: string; label: string; active: string }> = {
+  cobalt:  { dot: 'bg-[#1d6ef5]',  label: 'Cobalt',  active: 'border-[#1d6ef5]/50 bg-[#1d6ef5]/10 text-blue-200' },
+  amber:   { dot: 'bg-[#f59e0b]',  label: 'Amber',   active: 'border-amber-400/50 bg-amber-500/10 text-amber-200' },
+  teal:    { dot: 'bg-[#0d9488]',  label: 'Teal',    active: 'border-teal-400/50 bg-teal-500/10 text-teal-200' },
+  purple:  { dot: 'bg-[#7c3aed]',  label: 'Purple',  active: 'border-purple-400/50 bg-purple-500/10 text-purple-200' },
+  rose:    { dot: 'bg-[#e11d48]',  label: 'Rose',    active: 'border-rose-400/50 bg-rose-500/10 text-rose-200' },
 };
 
 export default function AddGoalPanel({ isOpen, onClose, editGoal, onSave }: Props) {
   const [form, setForm] = useState<FormState>(EMPTY);
-  const [dragOver, setDragOver] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const titleRef = useRef<HTMLInputElement>(null);
 
-  // Populate form when editing or reset when adding
   useEffect(() => {
     if (!isOpen) return;
     if (editGoal) {
       setForm({
-        title:        editGoal.title,
-        category:     editGoal.category,
-        target_date:  editGoal.target_date ?? '',
-        description:  editGoal.description ?? '',
-        cover_image:  editGoal.cover_image ?? '',
-        status:       editGoal.status === 'Achieved' ? 'Active' : editGoal.status,
+        title:       editGoal.title,
+        category:    editGoal.category,
+        color:       editGoal.color,
+        horizon:     editGoal.horizon ?? '',
+        description: editGoal.description ?? '',
+        status:      editGoal.status === 'Achieved' ? 'Active' : (editGoal.status as 'Active' | 'Paused'),
       });
     } else {
       setForm(EMPTY);
     }
+    setTimeout(() => titleRef.current?.focus(), 50);
   }, [editGoal, isOpen]);
 
-  // Close on Escape
   useEffect(() => {
     if (!isOpen) return;
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -69,20 +76,13 @@ export default function AddGoalPanel({ isOpen, onClose, editGoal, onSave }: Prop
     onSave({
       title:       form.title.trim(),
       category:    form.category,
-      target_date: form.target_date || undefined,
-      description: form.description.trim() || undefined,
-      cover_image: form.cover_image || undefined,
+      color:       form.color,
+      horizon:     form.horizon,
+      description: form.description.trim(),
+      steps:       editGoal?.steps ?? [],
       status:      form.status,
     });
     onClose();
-  };
-
-  const readImage = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = e => {
-      setForm(p => ({ ...p, cover_image: (e.target?.result as string) ?? '' }));
-    };
-    reader.readAsDataURL(file);
   };
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
@@ -90,7 +90,6 @@ export default function AddGoalPanel({ isOpen, onClose, editGoal, onSave }: Prop
 
   return (
     <>
-      {/* Backdrop */}
       <div
         className={`fixed inset-0 z-40 bg-slate-950/70 backdrop-blur-sm transition-opacity duration-300 ${
           isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
@@ -98,7 +97,6 @@ export default function AddGoalPanel({ isOpen, onClose, editGoal, onSave }: Prop
         onClick={onClose}
       />
 
-      {/* Slide-in panel */}
       <div
         className={`fixed right-0 top-0 z-50 flex h-full w-full max-w-md flex-col bg-slate-900 border-l border-slate-800 shadow-2xl transition-transform duration-300 ease-out ${
           isOpen ? 'translate-x-0' : 'translate-x-full'
@@ -126,18 +124,18 @@ export default function AddGoalPanel({ isOpen, onClose, editGoal, onSave }: Prop
           </button>
         </div>
 
-        {/* Scrollable form */}
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5 bg-slate-900">
+        {/* Form */}
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
           {/* Title */}
           <div>
             <label className="label">Goal title <span className="text-red-400/80">*</span></label>
             <input
+              ref={titleRef}
               className="input-field"
               value={form.title}
               onChange={e => set('title', e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleSave()}
               placeholder="e.g. Hit $10k profit month"
-              autoFocus
             />
           </div>
 
@@ -145,18 +143,40 @@ export default function AddGoalPanel({ isOpen, onClose, editGoal, onSave }: Prop
           <div>
             <label className="label">Category</label>
             <div className="grid grid-cols-2 gap-2">
-              {(['Financial', 'Discipline', 'Lifestyle', 'Skill'] as const).map(cat => {
-                const active = form.category === cat;
+              {(['Profitability', 'Risk', 'Mindset', 'Consistency', 'Discipline'] as GoalCategory[]).map(cat => (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => set('category', cat)}
+                  className={`rounded-xl border px-3 py-2 text-sm font-semibold transition hover:border-slate-500 hover:text-slate-200 ${
+                    form.category === cat ? CATEGORY_ACTIVE[cat] : 'border-slate-700 text-slate-400'
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Color */}
+          <div>
+            <label className="label">Color</label>
+            <div className="flex gap-2">
+              {(Object.keys(COLOR_MAP) as GoalColor[]).map(c => {
+                const tok = COLOR_MAP[c];
+                const active = form.color === c;
                 return (
                   <button
-                    key={cat}
+                    key={c}
                     type="button"
-                    onClick={() => set('category', cat)}
-                    className={`rounded-xl border px-3 py-2 text-sm font-semibold transition hover:border-slate-500 hover:text-slate-200 ${
-                      active ? CATEGORY_ACTIVE[cat] : 'border-slate-700 text-slate-400'
+                    onClick={() => set('color', c)}
+                    title={tok.label}
+                    className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
+                      active ? tok.active : 'border-slate-700 text-slate-500 hover:border-slate-500 hover:text-slate-300'
                     }`}
                   >
-                    {cat}
+                    <span className={`w-2.5 h-2.5 rounded-full ${tok.dot}`} />
+                    {tok.label}
                   </button>
                 );
               })}
@@ -165,12 +185,12 @@ export default function AddGoalPanel({ isOpen, onClose, editGoal, onSave }: Prop
 
           {/* Target date */}
           <div>
-            <label className="label">Target date</label>
+            <label className="label">Horizon date</label>
             <input
               type="date"
               className="input-field"
-              value={form.target_date}
-              onChange={e => set('target_date', e.target.value)}
+              value={form.horizon}
+              onChange={e => set('horizon', e.target.value)}
             />
           </div>
 
@@ -187,63 +207,6 @@ export default function AddGoalPanel({ isOpen, onClose, editGoal, onSave }: Prop
               onChange={e => set('description', e.target.value)}
               placeholder="What does achieving this look like?"
             />
-          </div>
-
-          {/* Cover image */}
-          <div>
-            <label className="label">
-              Cover image{' '}
-              <span className="text-slate-600 font-normal">(optional)</span>
-            </label>
-            <div
-              className={`relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-6 cursor-pointer transition-colors ${
-                dragOver
-                  ? 'border-[#1d6ef5]/60 bg-[#1d6ef5]/10'
-                  : 'border-slate-700 hover:border-slate-600'
-              }`}
-              onDragOver={e => { e.preventDefault(); setDragOver(true); }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={e => {
-                e.preventDefault();
-                setDragOver(false);
-                const file = e.dataTransfer.files[0];
-                if (file?.type.startsWith('image/')) readImage(file);
-              }}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              {form.cover_image ? (
-                <>
-                  <img
-                    src={form.cover_image}
-                    alt="cover preview"
-                    className="h-28 w-full rounded-lg object-cover"
-                  />
-                  <button
-                    type="button"
-                    onClick={e => { e.stopPropagation(); set('cover_image', ''); }}
-                    className="mt-2 text-xs text-red-400 hover:text-red-300 transition-colors"
-                  >
-                    Remove image
-                  </button>
-                </>
-              ) : (
-                <>
-                  <Image size={22} className="text-slate-600" />
-                  <p className="mt-2 text-sm text-slate-500">Drag &amp; drop or click to upload</p>
-                  <p className="text-xs text-slate-600">JPG, PNG, WEBP</p>
-                </>
-              )}
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={e => {
-                  const file = e.target.files?.[0];
-                  if (file) readImage(file);
-                }}
-              />
-            </div>
           </div>
 
           {/* Status */}
@@ -273,7 +236,7 @@ export default function AddGoalPanel({ isOpen, onClose, editGoal, onSave }: Prop
           </div>
         </div>
 
-        {/* Footer CTA */}
+        {/* Footer */}
         <div className="border-t border-slate-800 px-6 py-4 space-y-2">
           <button
             type="button"

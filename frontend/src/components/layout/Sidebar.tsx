@@ -1,9 +1,9 @@
-import { useState } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Scan, Brain, BarChart2, Target,
   Heart, FileText, Crosshair, Swords, Trophy,
-  Settings, LogOut, Menu, X,
+  Settings, LogOut, ChevronLeft, ChevronRight, Plus,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext.js';
 import { useAppSettings } from '../../contexts/AppSettingsContext.js';
@@ -34,9 +34,9 @@ const navItems = [
 ];
 
 function NavItem({
-  path, icon: Icon, label, exact = false, onClick,
+  path, icon: Icon, label, exact = false, onClick, collapsed = false,
 }: {
-  path: string; icon: typeof LayoutDashboard; label: string; exact?: boolean; onClick?: () => void;
+  path: string; icon: typeof LayoutDashboard; label: string; exact?: boolean; onClick?: () => void; collapsed?: boolean;
 }) {
   const location = useLocation();
   const isActive = exact
@@ -49,11 +49,12 @@ function NavItem({
     <NavLink
       to={path}
       onClick={onClick}
+      title={collapsed ? label : undefined}
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
       style={{
-        display: 'flex', alignItems: 'center', gap: 10,
-        padding: '8px 12px', borderRadius: 6,
+        display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'flex-start', gap: collapsed ? 0 : 10,
+        padding: collapsed ? '8px 0' : '8px 12px', borderRadius: 6,
         fontSize: 13, fontWeight: isActive ? 600 : 400,
         textDecoration: 'none', fontFamily: SANS,
         color: isActive ? AMBER : hov ? T1 : T2,
@@ -63,26 +64,33 @@ function NavItem({
       }}
     >
       <Icon size={15} />
-      <span>{label}</span>
+      {!collapsed && <span>{label}</span>}
     </NavLink>
   );
 }
 
-function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
+function SidebarContent({ onNavClick, collapsed }: { onNavClick?: () => void; collapsed: boolean }) {
+  const navigate = useNavigate();
   const { user, signOut } = useAuth();
   const { accounts, selectedAccountId, setSelectedAccountId } = useAppSettings();
   const selectedAcct = accounts.find(a => a.id === selectedAccountId);
+  const handleAddAccountClick = () => {
+    navigate('/settings#add-account');
+    onNavClick?.();
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
 
       {/* Logo */}
       <div style={{
-        minHeight: 62,
+        minHeight: collapsed ? 54 : 62,
         borderBottom: `1px solid ${BSUB}`,
         background: S1,
-        position: 'relative',
-        overflow: 'hidden',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: collapsed ? 'center' : 'flex-start',
+        paddingLeft: collapsed ? 0 : 12,
       }}>
         <svg
           viewBox="0 0 160 38"
@@ -90,12 +98,8 @@ function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
           preserveAspectRatio="xMinYMid meet"
           aria-hidden="true"
           style={{
-            position: 'absolute',
-            left: 12,
-            top: '50%',
-            transform: 'translateY(-50%)',
-            width: 112,
-            height: 24,
+            width: collapsed ? 52 : 112,
+            height: collapsed ? 12 : 24,
             pointerEvents: 'none',
           }}
         >
@@ -107,14 +111,16 @@ function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
       </div>
 
       {/* Nav + Accounts */}
-      <nav style={{ flex: 1, overflowY: 'auto', padding: '12px 8px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <nav style={{ flex: 1, overflowY: 'auto', padding: collapsed ? '12px 6px' : '12px 8px', display: 'flex', flexDirection: 'column', gap: 20 }}>
 
         {/* Main nav */}
         <div>
-          <p style={{
-            fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase',
-            color: T3, padding: '0 12px', marginBottom: 5,
-          }}>Main</p>
+          {!collapsed && (
+            <p style={{
+              fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase',
+              color: T3, padding: '0 12px', marginBottom: 5,
+            }}>Main</p>
+          )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             {navItems.map(item => (
               <NavItem
@@ -124,6 +130,7 @@ function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
                 label={item.label}
                 exact={item.path === '/'}
                 onClick={onNavClick}
+                collapsed={collapsed}
               />
             ))}
           </div>
@@ -132,146 +139,210 @@ function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
         {/* Accounts */}
         {accounts.length > 0 && (
           <div>
-            <p style={{
-              fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase',
-              color: T3, padding: '0 12px', marginBottom: 5,
-            }}>Accounts</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-              {accounts.map(acct => {
-                const sel = selectedAccountId === acct.id;
-                return (
-                  <button
-                    key={acct.id}
-                    onClick={() => setSelectedAccountId(acct.id)}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 9,
-                      width: '100%', padding: '7px 12px', borderRadius: 6,
-                      border: 'none', cursor: 'pointer', textAlign: 'left',
-                      background: sel ? 'rgba(255,255,255,0.04)' : 'transparent',
-                      fontSize: 12, fontFamily: SANS,
-                      color: sel ? T1 : T2,
-                      transition: 'background 0.13s',
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = sel ? 'rgba(255,255,255,0.04)' : 'transparent'; }}
-                  >
-                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: acct.color || AMBER, flexShrink: 0 }} />
-                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {acct.name}
-                    </span>
-                    <span style={{ fontSize: 9, color: T3, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                      {acct.status}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
+            {!collapsed && (
+              <p style={{
+                fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase',
+                color: T3, padding: '0 12px', marginBottom: 5,
+              }}>Accounts</p>
+            )}
+            {collapsed ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'center' }}>
+                {accounts.map(acct => {
+                  const sel = selectedAccountId === acct.id;
+                  return (
+                    <button
+                      key={acct.id}
+                      title={`${acct.name} (${acct.status})`}
+                      onClick={() => setSelectedAccountId(acct.id)}
+                      style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        width: 30, height: 30, borderRadius: '50%',
+                        border: sel ? `1px solid ${AMBER_BORD}` : `1px solid ${BSUB}`,
+                        cursor: 'pointer', background: sel ? AMBER_DIM : 'transparent',
+                      }}
+                    >
+                      <span style={{ width: 9, height: 9, borderRadius: '50%', background: acct.color || AMBER, flexShrink: 0 }} />
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  title="Add account"
+                  onClick={handleAddAccountClick}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    width: 30, height: 30, borderRadius: '50%',
+                    border: `1px solid ${AMBER_BORD}`,
+                    cursor: 'pointer', background: AMBER_DIM, color: AMBER,
+                  }}
+                >
+                  <Plus size={14} />
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                {accounts.map(acct => {
+                  const sel = selectedAccountId === acct.id;
+                  return (
+                    <button
+                      key={acct.id}
+                      onClick={() => setSelectedAccountId(acct.id)}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 9,
+                        width: '100%', padding: '7px 12px', borderRadius: 6,
+                        border: 'none', cursor: 'pointer', textAlign: 'left',
+                        background: sel ? 'rgba(255,255,255,0.04)' : 'transparent',
+                        fontSize: 12, fontFamily: SANS,
+                        color: sel ? T1 : T2,
+                        transition: 'background 0.13s',
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = sel ? 'rgba(255,255,255,0.04)' : 'transparent'; }}
+                    >
+                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: acct.color || AMBER, flexShrink: 0 }} />
+                      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {acct.name}
+                      </span>
+                      <span style={{ fontSize: 9, color: T3, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        {acct.status}
+                      </span>
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  onClick={handleAddAccountClick}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    width: '100%', padding: '8px 12px', borderRadius: 6,
+                    border: `1px dashed ${AMBER_BORD}`, cursor: 'pointer',
+                    textAlign: 'left', background: AMBER_DIM,
+                    fontSize: 12, fontWeight: 500, fontFamily: SANS, color: AMBER,
+                    marginTop: 6,
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.opacity = '0.9'; }}
+                  onMouseLeave={e => { e.currentTarget.style.opacity = '1'; }}
+                >
+                  <Plus size={13} />
+                  Add account
+                </button>
+              </div>
+            )}
           </div>
         )}
       </nav>
 
       {/* Settings */}
-      <div style={{ padding: '8px 8px 0', borderTop: `1px solid ${BSUB}` }}>
-        <NavItem path="/settings" icon={Settings} label="Settings" onClick={onNavClick} />
+      <div style={{ padding: collapsed ? '8px 6px 0' : '8px 8px 0', borderTop: `1px solid ${BSUB}` }}>
+        <NavItem path="/settings" icon={Settings} label="Settings" onClick={onNavClick} collapsed={collapsed} />
       </div>
 
       {/* User card */}
-      <div style={{ padding: '10px 12px 14px', display: 'flex', alignItems: 'center', gap: 9 }}>
-        <div style={{
-          width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
-          background: AMBER_DIM, border: `1px solid ${AMBER_BORD}`,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 11, fontWeight: 700, color: AMBER, fontFamily: MONO,
-        }}>
-          {(user?.email ?? 'FX').slice(0, 2).toUpperCase()}
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 12, fontWeight: 500, color: T1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {user?.email?.split('@')[0] ?? 'Trader'}
+      {collapsed ? (
+        <div style={{ padding: '10px 0 14px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+          <div
+            title={user?.email ?? 'Trader'}
+            style={{
+              width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
+              background: AMBER_DIM, border: `1px solid ${AMBER_BORD}`,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 11, fontWeight: 700, color: AMBER, fontFamily: MONO,
+            }}
+          >
+            {(user?.email ?? 'FX').slice(0, 2).toUpperCase()}
           </div>
-          <div style={{ fontSize: 10, color: T3, textTransform: 'capitalize' }}>
-            {selectedAcct?.status?.toLowerCase() ?? 'free plan'}
-          </div>
+          <button
+            onClick={signOut}
+            title="Sign out"
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: T3, padding: 4, lineHeight: 0 }}
+            onMouseEnter={e => { e.currentTarget.style.color = '#f87171'; }}
+            onMouseLeave={e => { e.currentTarget.style.color = T3; }}
+          >
+            <LogOut size={13} />
+          </button>
         </div>
-        <button
-          onClick={signOut}
-          title="Sign out"
-          style={{ background: 'none', border: 'none', cursor: 'pointer', color: T3, padding: 4, lineHeight: 0 }}
-          onMouseEnter={e => { e.currentTarget.style.color = '#f87171'; }}
-          onMouseLeave={e => { e.currentTarget.style.color = T3; }}
-        >
-          <LogOut size={13} />
-        </button>
-      </div>
+      ) : (
+        <div style={{ padding: '10px 12px 14px', display: 'flex', alignItems: 'center', gap: 9 }}>
+          <div style={{
+            width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
+            background: AMBER_DIM, border: `1px solid ${AMBER_BORD}`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 11, fontWeight: 700, color: AMBER, fontFamily: MONO,
+          }}>
+            {(user?.email ?? 'FX').slice(0, 2).toUpperCase()}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 12, fontWeight: 500, color: T1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {user?.email?.split('@')[0] ?? 'Trader'}
+            </div>
+            <div style={{ fontSize: 10, color: T3, textTransform: 'capitalize' }}>
+              {selectedAcct?.status?.toLowerCase() ?? 'free plan'}
+            </div>
+          </div>
+          <button
+            onClick={signOut}
+            title="Sign out"
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: T3, padding: 4, lineHeight: 0 }}
+            onMouseEnter={e => { e.currentTarget.style.color = '#f87171'; }}
+            onMouseLeave={e => { e.currentTarget.style.color = T3; }}
+          >
+            <LogOut size={13} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
 export default function Sidebar() {
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem('tradewise.sidebar.collapsed') === '1';
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem('tradewise.sidebar.collapsed', collapsed ? '1' : '0');
+  }, [collapsed]);
 
   return (
-    <>
-      {/* Mobile toggle button */}
-      {!mobileOpen && (
-        <button
-          onClick={() => setMobileOpen(true)}
-          className="md:hidden"
-          style={{
-            position: 'fixed', top: 14, left: 14, zIndex: 50,
-            width: 24, height: 24,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: 'transparent', border: 'none',
-            color: T2, cursor: 'pointer',
-          }}
-          aria-label="Open navigation"
-        >
-          <Menu size={17} />
-        </button>
-      )}
-
-      {/* Mobile overlay */}
-      {mobileOpen && (
-        <div
-          className="md:hidden"
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 40 }}
-          onClick={() => setMobileOpen(false)}
-        />
-      )}
-
-      {/* Mobile sidebar drawer */}
-      <aside
-        className="md:hidden"
+    <aside
+      className="hidden md:flex flex-col flex-shrink-0"
+      style={{
+        width: collapsed ? 72 : 220,
+        height: '100vh',
+        position: 'sticky',
+        top: 0,
+        background: S1,
+        borderRight: `1px solid ${BORDER}`,
+        transition: 'width 0.2s cubic-bezier(.4,0,.2,1)',
+      }}
+    >
+      <button
+        onClick={() => setCollapsed(current => !current)}
+        title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         style={{
-          position: 'fixed', top: 0, left: 0, height: '100%', width: 240, zIndex: 50,
-          background: S1, borderRight: `1px solid ${BORDER}`,
-          transform: mobileOpen ? 'translateX(0)' : 'translateX(-100%)',
-          transition: 'transform 0.25s cubic-bezier(.4,0,.2,1)',
+          position: 'absolute',
+          top: 16,
+          right: -9,
+          width: 18,
+          height: 34,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: S1,
+          border: `1px solid ${BORDER}`,
+          borderLeft: 'none',
+          borderRadius: '0 8px 8px 0',
+          color: T3,
+          cursor: 'pointer',
+          zIndex: 5,
         }}
       >
-        <button
-          onClick={() => setMobileOpen(false)}
-          style={{
-            position: 'absolute', top: 14, right: 14,
-            background: 'none', border: 'none', cursor: 'pointer', color: T3, lineHeight: 0,
-          }}
-          aria-label="Close navigation"
-        >
-          <X size={17} />
-        </button>
-        <SidebarContent onNavClick={() => setMobileOpen(false)} />
-      </aside>
-
-      {/* Desktop sidebar */}
-      <aside
-        className="hidden md:flex flex-col flex-shrink-0"
-        style={{
-          width: 220, height: '100vh', position: 'sticky', top: 0,
-          background: S1, borderRight: `1px solid ${BORDER}`,
-        }}
-      >
-        <SidebarContent />
-      </aside>
-    </>
+        {collapsed ? <ChevronRight size={13} /> : <ChevronLeft size={13} />}
+      </button>
+      <SidebarContent collapsed={collapsed} />
+    </aside>
   );
 }

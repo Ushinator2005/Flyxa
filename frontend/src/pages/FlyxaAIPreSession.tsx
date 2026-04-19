@@ -27,14 +27,19 @@ type SessionPlanRow = {
 
 const MARKET_OPEN_MINUTES = 9 * 60 + 30;
 const MARKET_CLOSE_MINUTES = 16 * 60;
-const SECTION_LABEL_STYLE: CSSProperties = {
-  fontSize: 9,
-  fontWeight: 600,
-  letterSpacing: '0.1em',
-  textTransform: 'uppercase',
-  color: '#64748b',
+
+const C = {
+  d0: '#0e0d0d', d1: '#141312', d2: '#1a1917', d3: '#201f1d', d4: '#27251f',
+  b0: 'rgba(255,255,255,0.07)', b1: 'rgba(255,255,255,0.12)',
+  t0: '#e8e3dc', t1: '#8a8178', t2: '#5c5751',
+  acc: '#f59e0b', grn: '#22d68a', red: '#f05252',
 };
-const CARD_BORDER = '1px solid rgba(255,255,255,0.07)';
+
+const SECTION_LABEL_STYLE: CSSProperties = {
+  fontSize: 9.5, fontWeight: 500, letterSpacing: '0.12em',
+  textTransform: 'uppercase', color: C.t2,
+};
+const CARD_BORDER = `1px solid ${C.b0}`;
 
 
 const emotions = ['Frustrated', 'Anxious', 'Neutral', 'Focused', 'Confident'] as const;
@@ -427,246 +432,253 @@ export default function FlyxaAIPreSession() {
 
   if (loading) {
     return (
-      <div className="animate-fade-in -m-8 flex h-[calc(100vh-3.5rem)] items-center justify-center bg-[#060a12]">
+      <div className="animate-fade-in flex h-[calc(100vh-3.5rem)] items-center justify-center rounded-2xl" style={{ backgroundColor: C.d0 }}>
         <LoadingSpinner size="lg" label="Preparing your pre-session brief..." />
       </div>
     );
   }
 
   return (
-    <div className="animate-fade-in -m-8 h-[calc(100vh-3.5rem)] overflow-hidden bg-[#060a12] text-[#e2e8f0]">
-      <div className="grid h-full grid-cols-[200px_minmax(0,1fr)] overflow-hidden">
+    <div className="animate-fade-in h-[calc(100vh-3.5rem)] overflow-hidden rounded-2xl" style={{ backgroundColor: C.d0, color: C.t0 }}>
+      <div className="grid h-full grid-cols-[178px_minmax(0,1fr)] overflow-hidden">
         <FlyxaNav />
 
-        <main className="min-h-0 overflow-y-auto px-5 py-5">
-          <header className="mb-4 flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <p style={SECTION_LABEL_STYLE}>Pre-session Brief</p>
-              <h1 className="mt-1 text-[24px] font-semibold text-[#e2e8f0]">{greeting}</h1>
-              <p className="mt-1 text-[12px] text-[#64748b]">{subtitle}</p>
-            </div>
-            <div className="rounded-xl px-3 py-2 text-right" style={{ backgroundColor: '#0d1526', border: CARD_BORDER }}>
-              <p className="flex items-center justify-end gap-2 text-[11px]">
-                <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: rthTiming.marketOpenToday ? '#22c55e' : '#64748b' }} />
-                <span style={{ color: rthTiming.marketOpenToday ? '#22c55e' : '#94a3b8' }}>
-                  {rthTiming.marketOpenToday ? 'Market open today' : 'Market closed'}
-                </span>
-              </p>
-              <p className="mt-1 text-[12px] text-[#94a3b8]">
-                {lastSession
-                  ? `Last session ${formatSignedR(lastSession.netR)} (${lastSession.tradeCount} trades)`
-                  : 'Last session result unavailable'}
-              </p>
-            </div>
-          </header>
-
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-            <section className="rounded-xl p-4" style={{ backgroundColor: '#0d1526', border: CARD_BORDER }}>
-              <p style={SECTION_LABEL_STYLE}>How are you feeling?</p>
-              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-5">
-                {emotions.map(item => {
-                  const selected = emotion === item;
-                  return (
-                    <button
-                      key={item}
-                      type="button"
-                      onClick={() => setEmotionAndPersist(item)}
-                      className="rounded-lg border px-2 py-2 text-center text-[12px] font-medium"
-                      style={{
-                        borderColor: selected ? '#4a9eff' : 'rgba(255,255,255,0.1)',
-                        backgroundColor: selected ? 'rgba(74,158,255,0.12)' : '#0a101d',
-                        color: selected ? '#4a9eff' : '#cbd5e1',
-                      }}
-                    >
-                      {item}
-                    </button>
-                  );
-                })}
-              </div>
-              <label className="mt-3 block text-[11px] text-[#64748b]" htmlFor="presession-note">Anything on your mind before the open?</label>
-              <textarea
-                id="presession-note"
-                value={note}
-                onChange={event => setNoteAndPersist(event.target.value)}
-                className="mt-2 h-24 w-full resize-none rounded-lg border bg-[#0a101d] px-3 py-2 text-[12px] text-[#cbd5e1] outline-none"
-                style={{ borderColor: 'rgba(255,255,255,0.1)' }}
-                placeholder="Quick pre-open note..."
-              />
-            </section>
-
-            <section className="rounded-xl p-4" style={{ backgroundColor: '#0d1526', border: CARD_BORDER }}>
-              <p style={SECTION_LABEL_STYLE}>Today&apos;s risk limits</p>
-              <div className="mt-3 grid grid-cols-2 gap-3">
-                <div className="rounded-lg border px-3 py-2" style={{ borderColor: 'rgba(255,255,255,0.08)', backgroundColor: '#0a101d' }}>
-                  <p className="text-[12px] font-semibold text-[#f87171]">{formatCurrency(-riskLimits.maxDailyLoss)}</p>
-                  <p className="mt-1 text-[11px] text-[#64748b]">Max daily loss</p>
-                </div>
-                <div className="rounded-lg border px-3 py-2" style={{ borderColor: 'rgba(255,255,255,0.08)', backgroundColor: '#0a101d' }}>
-                  <p className="text-[12px] font-semibold text-[#e2e8f0]">{riskLimits.maxTrades}</p>
-                  <p className="mt-1 text-[11px] text-[#64748b]">Max trades</p>
-                </div>
-                <div className="rounded-lg border px-3 py-2" style={{ borderColor: 'rgba(255,255,255,0.08)', backgroundColor: '#0a101d' }}>
-                  <p className="text-[12px] font-semibold text-[#e2e8f0]">{formatCurrency(riskLimits.riskPerTrade)} ({riskLimits.riskPct.toFixed(1)}%)</p>
-                  <p className="mt-1 text-[11px] text-[#64748b]">Risk per trade</p>
-                </div>
-                <div className="rounded-lg border px-3 py-2" style={{ borderColor: 'rgba(255,255,255,0.08)', backgroundColor: '#0a101d' }}>
-                  <p className="text-[12px] font-semibold text-[#22c55e]">{formatCurrency(riskLimits.target)}</p>
-                  <p className="mt-1 text-[11px] text-[#64748b]">Session target</p>
-                </div>
-              </div>
-            </section>
-
-            <section className="rounded-xl p-4" style={{ backgroundColor: '#0d1526', border: CARD_BORDER }}>
-              <p style={SECTION_LABEL_STYLE}>Flyxa pattern watch</p>
-              <div className="mt-3 space-y-2">
-                {activeRiskPatterns.map(pattern => (
-                  <article key={`watch-${pattern.id}`} className="grid overflow-hidden rounded-lg" style={{ gridTemplateColumns: '4px minmax(0,1fr)', border: '1px solid rgba(239,68,68,0.2)' }}>
-                    <div style={{ backgroundColor: '#ef4444' }} />
-                    <div className="bg-[#0a101d] px-3 py-2">
-                      <p className="text-[12px] font-semibold text-[#f87171]">Watch: {pattern.title}</p>
-                      <p className="mt-1 text-[11px] leading-[1.6] text-[#94a3b8]">{buildPatternInstruction(pattern, 'watch')}</p>
-                    </div>
-                  </article>
-                ))}
-                {confirmedEdgePatterns.map(pattern => (
-                  <article key={`protect-${pattern.id}`} className="grid overflow-hidden rounded-lg" style={{ gridTemplateColumns: '4px minmax(0,1fr)', border: '1px solid rgba(34,197,94,0.2)' }}>
-                    <div style={{ backgroundColor: '#22c55e' }} />
-                    <div className="bg-[#0a101d] px-3 py-2">
-                      <p className="text-[12px] font-semibold text-[#22c55e]">Protect: {pattern.title}</p>
-                      <p className="mt-1 text-[11px] leading-[1.6] text-[#94a3b8]">{buildPatternInstruction(pattern, 'protect')}</p>
-                    </div>
-                  </article>
-                ))}
-                {activeRiskPatterns.length === 0 && (
-                  <div className="rounded-lg border px-3 py-2" style={{ borderColor: 'rgba(34,197,94,0.2)', backgroundColor: 'rgba(34,197,94,0.1)' }}>
-                    <p className="text-[12px] font-semibold text-[#22c55e]">No active risk flags today</p>
-                    <p className="mt-1 text-[11px] text-[#94a3b8]">Keep your process tight and continue executing your highest-confidence setups.</p>
-                  </div>
-                )}
-              </div>
-            </section>
-
-            <section className="rounded-xl p-4" style={{ backgroundColor: '#0d1526', border: CARD_BORDER }}>
-              <p style={SECTION_LABEL_STYLE}>Market context</p>
-              <div className="mt-3 space-y-3">
-                {(['ES', 'NQ'] as const).map(instrument => (
-                  <div key={instrument}>
-                    <p className="text-[11px] text-[#64748b]">{instrument} bias</p>
-                    <div className="mt-1 flex gap-2">
-                      {biasOptions.map(option => {
-                        const selected = bias[instrument] === option;
-                        return (
-                          <button
-                            key={`${instrument}-${option}`}
-                            type="button"
-                            onClick={() => setBiasAndPersist(instrument, option)}
-                            className="rounded-full border px-3 py-1 text-[11px]"
-                            style={{
-                              borderColor: selected ? '#4a9eff' : 'rgba(255,255,255,0.1)',
-                              backgroundColor: selected ? 'rgba(74,158,255,0.12)' : '#0a101d',
-                              color: selected ? '#4a9eff' : '#94a3b8',
-                            }}
-                          >
-                            {option}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
-                <div className="rounded-lg border px-3 py-2" style={{ borderColor: 'rgba(255,255,255,0.08)', backgroundColor: '#0a101d' }}>
-                  <p className="text-[11px] text-[#64748b]">News today</p>
-                  <p className="mt-1 text-[12px] text-[#cbd5e1]">No major news</p>
-                </div>
-              </div>
-            </section>
-
-            <section className="rounded-xl p-4 xl:col-span-2" style={{ backgroundColor: '#0d1526', border: CARD_BORDER }}>
-              <p style={SECTION_LABEL_STYLE}>Pre-session checklist</p>
-              <div className="mt-3 grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <main className="min-h-0 overflow-hidden" style={{ backgroundColor: C.d0 }}>
+          <div className="flex h-full min-h-0 flex-col">
+            <section className="border-b px-6 py-5" style={{ borderColor: C.b0 }}>
+              <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#94a3b8]">Mental checks</p>
-                  <div className="mt-2 space-y-2">
-                    {mentalChecklistItems.map(item => {
-                      const checked = item.autoFromEmotion ? emotionLogged : Boolean(checklistState[item.id]);
-                      return (
-                        <button
-                          key={item.id}
-                          type="button"
-                          onClick={() => toggleChecklist(item)}
-                          className="flex w-full items-start gap-2 rounded-md border px-2.5 py-2 text-left"
-                          style={{ borderColor: 'rgba(255,255,255,0.08)', backgroundColor: '#0a101d' }}
-                        >
-                          {customCheckbox(checked)}
-                          <div>
-                            <p className="text-[12px] text-[#cbd5e1]">{item.label}</p>
-                            {item.autoFromEmotion && <p className="text-[10px] text-[#64748b]">Auto-linked to emotion log</p>}
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
+                  <p className="text-[9.5px] uppercase tracking-[0.12em]" style={{ color: C.t2 }}>Flyxa AI</p>
+                  <h1 className="mt-2 text-[24px] font-bold tracking-[-0.02em]" style={{ color: C.t0 }}>{greeting}</h1>
+                  <p className="mt-1 text-[12px]" style={{ color: C.t2 }}>{subtitle}</p>
                 </div>
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#94a3b8]">Technical checks</p>
-                  <div className="mt-2 space-y-2">
-                    {technicalChecklistItems.map(item => {
-                      const checked = Boolean(checklistState[item.id]);
-                      return (
-                        <button
-                          key={item.id}
-                          type="button"
-                          onClick={() => toggleChecklist(item)}
-                          className="flex w-full items-start gap-2 rounded-md border px-2.5 py-2 text-left"
-                          style={{ borderColor: 'rgba(255,255,255,0.08)', backgroundColor: '#0a101d' }}
-                        >
-                          {customCheckbox(checked)}
-                          <div>
-                            <p className="text-[12px] text-[#cbd5e1]">{item.label}</p>
-                            {item.source && <p className="text-[10px] text-[#64748b]">From pattern: {item.source}</p>}
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            <section className="rounded-xl p-4 xl:col-span-2" style={{ backgroundColor: '#0d1526', border: CARD_BORDER }}>
-              <p style={SECTION_LABEL_STYLE}>Today&apos;s session plan</p>
-              <div className="mt-3 space-y-2">
-                {sessionPlan.map((row, index) => (
-                  <div key={row.id} className="flex items-start gap-3 rounded-md border px-3 py-2" style={{ borderColor: 'rgba(255,255,255,0.08)', backgroundColor: '#0a101d' }}>
-                    <span className="mt-0.5 text-[11px] text-[#64748b]">{index + 1}.</span>
-                    <p className="flex-1 text-[12px] leading-[1.6] text-[#cbd5e1]">{row.rule}</p>
-                    <span className="shrink-0 rounded-full px-2 py-[3px] text-[10px] font-semibold uppercase" style={{ ...sourceBadgeStyle(row.source), letterSpacing: '0.08em' }}>
-                      {row.source}
+                <div className="rounded-[8px] px-3 py-2 text-right" style={{ backgroundColor: C.d2, border: CARD_BORDER }}>
+                  <p className="flex items-center justify-end gap-2 text-[11px]">
+                    <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: rthTiming.marketOpenToday ? C.grn : C.t2 }} />
+                    <span style={{ color: rthTiming.marketOpenToday ? C.grn : C.t1 }}>
+                      {rthTiming.marketOpenToday ? 'Market open today' : 'Market closed'}
                     </span>
-                  </div>
-                ))}
+                  </p>
+                  <p className="mt-1 text-[12px]" style={{ color: C.t1 }}>
+                    {lastSession
+                      ? `Last session ${formatSignedR(lastSession.netR)} (${lastSession.tradeCount} trades)`
+                      : 'Last session result unavailable'}
+                  </p>
+                </div>
               </div>
             </section>
 
-            <section className="rounded-xl p-4 xl:col-span-2" style={{ backgroundColor: '#0d1526', border: CARD_BORDER }}>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={startSession}
-                  className="rounded-lg border border-[#4a9eff] bg-[#4a9eff] px-4 py-2 text-[12px] font-semibold text-white"
-                >
-                  Start session - I&apos;m ready to trade
-                </button>
-                <button
-                  type="button"
-                  onClick={() => navigate('/journal')}
-                  className="rounded-lg border px-4 py-2 text-[12px] font-semibold text-[#cbd5e1]"
-                  style={{ borderColor: 'rgba(255,255,255,0.18)', backgroundColor: 'transparent' }}
-                >
-                  Skip brief and go to journal
-                </button>
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                <section className="rounded-[8px] p-4" style={{ backgroundColor: C.d2, border: CARD_BORDER }}>
+                  <p style={SECTION_LABEL_STYLE}>How are you feeling?</p>
+                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-5">
+                    {emotions.map(item => {
+                      const selected = emotion === item;
+                      return (
+                        <button
+                          key={item}
+                          type="button"
+                          onClick={() => setEmotionAndPersist(item)}
+                          className="rounded-[6px] border px-2 py-2 text-center text-[12px] font-medium"
+                          style={{
+                            borderColor: selected ? C.acc : C.b0,
+                            backgroundColor: selected ? 'rgba(245,158,11,0.10)' : C.d3,
+                            color: selected ? C.acc : C.t0,
+                          }}
+                        >
+                          {item}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <label className="mt-3 block text-[11px]" style={{ color: C.t2 }} htmlFor="presession-note">Anything on your mind before the open?</label>
+                  <textarea
+                    id="presession-note"
+                    value={note}
+                    onChange={event => setNoteAndPersist(event.target.value)}
+                    className="mt-2 h-24 w-full resize-none rounded-[6px] border px-3 py-2 text-[12px] outline-none"
+                    style={{ borderColor: C.b0, backgroundColor: C.d3, color: C.t0 }}
+                    placeholder="Quick pre-open note..."
+                  />
+                </section>
+
+                <section className="rounded-[8px] p-4" style={{ backgroundColor: C.d2, border: CARD_BORDER }}>
+                  <p style={SECTION_LABEL_STYLE}>Today&apos;s risk limits</p>
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    <div className="rounded-[6px] border px-3 py-2" style={{ borderColor: C.b0, backgroundColor: C.d3 }}>
+                      <p className="text-[12px] font-semibold" style={{ color: C.red }}>{formatCurrency(-riskLimits.maxDailyLoss)}</p>
+                      <p className="mt-1 text-[11px]" style={{ color: C.t2 }}>Max daily loss</p>
+                    </div>
+                    <div className="rounded-[6px] border px-3 py-2" style={{ borderColor: C.b0, backgroundColor: C.d3 }}>
+                      <p className="text-[12px] font-semibold" style={{ color: C.t0 }}>{riskLimits.maxTrades}</p>
+                      <p className="mt-1 text-[11px]" style={{ color: C.t2 }}>Max trades</p>
+                    </div>
+                    <div className="rounded-[6px] border px-3 py-2" style={{ borderColor: C.b0, backgroundColor: C.d3 }}>
+                      <p className="text-[12px] font-semibold" style={{ color: C.t0 }}>{formatCurrency(riskLimits.riskPerTrade)} ({riskLimits.riskPct.toFixed(1)}%)</p>
+                      <p className="mt-1 text-[11px]" style={{ color: C.t2 }}>Risk per trade</p>
+                    </div>
+                    <div className="rounded-[6px] border px-3 py-2" style={{ borderColor: C.b0, backgroundColor: C.d3 }}>
+                      <p className="text-[12px] font-semibold" style={{ color: C.grn }}>{formatCurrency(riskLimits.target)}</p>
+                      <p className="mt-1 text-[11px]" style={{ color: C.t2 }}>Session target</p>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="rounded-[8px] p-4" style={{ backgroundColor: C.d2, border: CARD_BORDER }}>
+                  <p style={SECTION_LABEL_STYLE}>Flyxa pattern watch</p>
+                  <div className="mt-3 space-y-2">
+                    {activeRiskPatterns.map(pattern => (
+                      <article key={`watch-${pattern.id}`} className="grid overflow-hidden rounded-[8px]" style={{ gridTemplateColumns: '4px minmax(0,1fr)', border: `1px solid ${C.red}30` }}>
+                        <div style={{ backgroundColor: C.red }} />
+                        <div className="px-3 py-2" style={{ backgroundColor: C.d3 }}>
+                          <p className="text-[12px] font-semibold" style={{ color: C.red }}>Watch: {pattern.title}</p>
+                          <p className="mt-1 text-[11px] leading-[1.6]" style={{ color: C.t1 }}>{buildPatternInstruction(pattern, 'watch')}</p>
+                        </div>
+                      </article>
+                    ))}
+                    {confirmedEdgePatterns.map(pattern => (
+                      <article key={`protect-${pattern.id}`} className="grid overflow-hidden rounded-[8px]" style={{ gridTemplateColumns: '4px minmax(0,1fr)', border: `1px solid ${C.grn}30` }}>
+                        <div style={{ backgroundColor: C.grn }} />
+                        <div className="px-3 py-2" style={{ backgroundColor: C.d3 }}>
+                          <p className="text-[12px] font-semibold" style={{ color: C.grn }}>Protect: {pattern.title}</p>
+                          <p className="mt-1 text-[11px] leading-[1.6]" style={{ color: C.t1 }}>{buildPatternInstruction(pattern, 'protect')}</p>
+                        </div>
+                      </article>
+                    ))}
+                    {activeRiskPatterns.length === 0 && (
+                      <div className="rounded-[8px] border px-3 py-2" style={{ borderColor: `${C.grn}30`, backgroundColor: `rgba(34,214,138,0.07)` }}>
+                        <p className="text-[12px] font-semibold" style={{ color: C.grn }}>No active risk flags today</p>
+                        <p className="mt-1 text-[11px]" style={{ color: C.t1 }}>Keep your process tight and continue executing your highest-confidence setups.</p>
+                      </div>
+                    )}
+                  </div>
+                </section>
+
+                <section className="rounded-[8px] p-4" style={{ backgroundColor: C.d2, border: CARD_BORDER }}>
+                  <p style={SECTION_LABEL_STYLE}>Market context</p>
+                  <div className="mt-3 space-y-3">
+                    {(['ES', 'NQ'] as const).map(instrument => (
+                      <div key={instrument}>
+                        <p className="text-[11px]" style={{ color: C.t2 }}>{instrument} bias</p>
+                        <div className="mt-1 flex gap-2">
+                          {biasOptions.map(option => {
+                            const selected = bias[instrument] === option;
+                            return (
+                              <button
+                                key={`${instrument}-${option}`}
+                                type="button"
+                                onClick={() => setBiasAndPersist(instrument, option)}
+                                className="rounded-[4px] border px-3 py-1 text-[11px]"
+                                style={{
+                                  borderColor: selected ? C.acc : C.b0,
+                                  backgroundColor: selected ? 'rgba(245,158,11,0.10)' : C.d3,
+                                  color: selected ? C.acc : C.t1,
+                                }}
+                              >
+                                {option}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                    <div className="rounded-[6px] border px-3 py-2" style={{ borderColor: C.b0, backgroundColor: C.d3 }}>
+                      <p className="text-[11px]" style={{ color: C.t2 }}>News today</p>
+                      <p className="mt-1 text-[12px]" style={{ color: C.t0 }}>No major news</p>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="rounded-[8px] p-4 xl:col-span-2" style={{ backgroundColor: C.d2, border: CARD_BORDER }}>
+                  <p style={SECTION_LABEL_STYLE}>Pre-session checklist</p>
+                  <div className="mt-3 grid grid-cols-1 gap-4 xl:grid-cols-2">
+                    <div>
+                      <p className="text-[11px] font-medium uppercase tracking-[0.08em]" style={{ color: C.t1 }}>Mental checks</p>
+                      <div className="mt-2 space-y-2">
+                        {mentalChecklistItems.map(item => {
+                          const checked = item.autoFromEmotion ? emotionLogged : Boolean(checklistState[item.id]);
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => toggleChecklist(item)}
+                              className="flex w-full items-start gap-2 rounded-[6px] border px-2.5 py-2 text-left"
+                              style={{ borderColor: C.b0, backgroundColor: C.d3 }}
+                            >
+                              {customCheckbox(checked)}
+                              <div>
+                                <p className="text-[12px]" style={{ color: C.t0 }}>{item.label}</p>
+                                {item.autoFromEmotion && <p className="text-[10px]" style={{ color: C.t2 }}>Auto-linked to emotion log</p>}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-medium uppercase tracking-[0.08em]" style={{ color: C.t1 }}>Technical checks</p>
+                      <div className="mt-2 space-y-2">
+                        {technicalChecklistItems.map(item => {
+                          const checked = Boolean(checklistState[item.id]);
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => toggleChecklist(item)}
+                              className="flex w-full items-start gap-2 rounded-[6px] border px-2.5 py-2 text-left"
+                              style={{ borderColor: C.b0, backgroundColor: C.d3 }}
+                            >
+                              {customCheckbox(checked)}
+                              <div>
+                                <p className="text-[12px]" style={{ color: C.t0 }}>{item.label}</p>
+                                {item.source && <p className="text-[10px]" style={{ color: C.t2 }}>From pattern: {item.source}</p>}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="rounded-[8px] p-4 xl:col-span-2" style={{ backgroundColor: C.d2, border: CARD_BORDER }}>
+                  <p style={SECTION_LABEL_STYLE}>Today&apos;s session plan</p>
+                  <div className="mt-3 space-y-2">
+                    {sessionPlan.map((row, index) => (
+                      <div key={row.id} className="flex items-start gap-3 rounded-[6px] border px-3 py-2" style={{ borderColor: C.b0, backgroundColor: C.d3 }}>
+                        <span className="mt-0.5 text-[11px]" style={{ color: C.t2 }}>{index + 1}.</span>
+                        <p className="flex-1 text-[12px] leading-[1.6]" style={{ color: C.t0 }}>{row.rule}</p>
+                        <span className="shrink-0 rounded-[4px] px-2 py-[3px] text-[10px] font-semibold uppercase" style={{ ...sourceBadgeStyle(row.source), letterSpacing: '0.08em' }}>
+                          {row.source}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="rounded-[8px] p-4 xl:col-span-2" style={{ backgroundColor: C.d2, border: CARD_BORDER }}>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={startSession}
+                      className="rounded-[6px] border px-4 py-2 text-[12px] font-semibold"
+                      style={{ borderColor: C.acc, backgroundColor: C.acc, color: '#0e0d0d' }}
+                    >
+                      Start session — I&apos;m ready to trade
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => navigate('/journal')}
+                      className="rounded-[6px] border px-4 py-2 text-[12px] font-semibold"
+                      style={{ borderColor: C.b1, backgroundColor: 'transparent', color: C.t1 }}
+                    >
+                      Skip brief and go to journal
+                    </button>
+                  </div>
+                </section>
               </div>
-            </section>
+            </div>
           </div>
         </main>
       </div>

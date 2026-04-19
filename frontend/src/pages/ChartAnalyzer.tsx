@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { lookupContract } from '../constants/futuresContracts.js';
 import { aiApi } from '../services/api.js';
+import { formatRiskRewardRatio, parseRiskRewardValue } from '../utils/riskReward.js';
 
 interface TradeResult {
   symbol?: string;
@@ -262,6 +263,7 @@ function ResultCard({
   })();
   const adjustedPnl = calculatedPnl;
   const pointValueNote = contract ? `${contract.symbol} · $${contract.point_value}/pt` : null;
+  const rrValue = formatRiskRewardRatio(parseRiskRewardValue(result.rr_ratio), { placeholder: 'N/A' });
 
   return (
     <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl overflow-hidden">
@@ -310,7 +312,7 @@ function ResultCard({
         />
         <Field label="Stop Loss" value={fmtPrice(result.stop_loss)} color="text-red-400" />
         <Field label="Take Profit" value={fmtPrice(result.take_profit)} color="text-emerald-400" />
-        <Field label="R:R Ratio" value={result.rr_ratio} color="text-blue-400" />
+        <Field label="R:R Ratio" value={rrValue} color="text-blue-400" />
         <Field label="Trade Duration" value={result.trade_duration} />
         <Field
           label={contractSize > 1 ? `Net P&L (×${contractSize})` : 'Net P&L'}

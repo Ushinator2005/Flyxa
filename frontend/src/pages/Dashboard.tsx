@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   TrendingUp, Clock, LineChart, BarChart2,
-  ArrowUpRight, ArrowDownRight, Filter, ChevronLeft, ChevronRight,
+  ArrowUpRight, ArrowDownRight, Eye, Filter, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import {
   PieChart, Pie, Cell,
@@ -15,6 +15,7 @@ import {
   buildRecentTrades,
   getTradeRiskReward,
 } from '../utils/tradeAnalytics.js';
+import { formatRiskRewardRatio } from '../utils/riskReward.js';
 import MonthlyHeatmap from '../components/dashboard/MonthlyHeatmap.js';
 import LoadingSpinner from '../components/common/LoadingSpinner.js';
 import { Trade } from '../types/index.js';
@@ -42,7 +43,7 @@ const SANS        = 'var(--font-sans)';
 const fmtUSD = (v: number) =>
   v.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 const fmtPct = (v: number) => v.toFixed(1) + '%';
-const fmtRR  = (v: number) => v.toFixed(2) + 'R';
+const fmtRR  = (v: number) => formatRiskRewardRatio(v, { placeholder: '0 RR' });
 
 // ── Sub-components ───────────────────────────────────────────────
 
@@ -151,8 +152,9 @@ function StatCard({ icon, color, dim, label, value, delta, neutral }: {
             {label}
           </p>
           <p style={{
-            fontSize: 20, fontWeight: 600, fontFamily: MONO,
+            fontSize: 20, fontWeight: 500, fontFamily: MONO,
             fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em',
+            fontFeatureSettings: "'zero' 1",
             lineHeight: 1, marginBottom: 6, color: T1,
           }}>
             {value}
@@ -272,7 +274,7 @@ export default function Dashboard() {
               <span style={{ pointerEvents: 'none', position: 'absolute', right: 9, top: '50%', transform: 'translateY(-50%)', fontSize: 9, color: T3 }}>▼</span>
             </div>
             <button
-              onClick={() => navigate('/scanner')}
+              onClick={() => navigate('/scanner?import=1')}
               style={{
                 height: 34, padding: '0 14px',
                 background: AMBER, border: 'none', borderRadius: 5,
@@ -401,7 +403,45 @@ export default function Dashboard() {
                               {fmtUSD(trade.pnl)}
                             </td>
                             <td style={{ padding: '9px 14px', textAlign: 'right' }}>
-                              <ResultBadge trade={trade} />
+                              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                                <ResultBadge trade={trade} />
+                                <button
+                                  type="button"
+                                  onClick={() => navigate(`/scanner?date=${encodeURIComponent(trade.trade_date)}&tradeId=${encodeURIComponent(trade.id)}`)}
+                                  onMouseEnter={e => {
+                                    const icon = e.currentTarget.querySelector('svg');
+                                    icon?.animate(
+                                      [
+                                        { transform: 'scaleY(1)', opacity: 1 },
+                                        { transform: 'scaleY(0.2)', opacity: 0.65, offset: 0.45 },
+                                        { transform: 'scaleY(1)', opacity: 1 },
+                                      ],
+                                      { duration: 260, easing: 'ease-in-out', iterations: 1 },
+                                    );
+                                  }}
+                                  style={{
+                                    width: 26,
+                                    height: 26,
+                                    borderRadius: 4,
+                                    border: `1px solid ${BORDER}`,
+                                    background: S2,
+                                    color: T2,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    cursor: 'pointer',
+                                    transition: 'border-color 0.14s, color 0.14s',
+                                  }}
+                                  onFocus={e => { e.currentTarget.style.borderColor = 'rgba(245,158,11,0.35)'; e.currentTarget.style.color = T1; }}
+                                  onBlur={e => { e.currentTarget.style.borderColor = BORDER; e.currentTarget.style.color = T2; }}
+                                  onMouseOver={e => { e.currentTarget.style.borderColor = 'rgba(245,158,11,0.35)'; e.currentTarget.style.color = T1; }}
+                                  onMouseOut={e => { e.currentTarget.style.borderColor = BORDER; e.currentTarget.style.color = T2; }}
+                                  title="View trade"
+                                  aria-label="View trade"
+                                >
+                                  <Eye size={13} />
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         );
@@ -420,11 +460,11 @@ export default function Dashboard() {
             <Card style={{ padding: 16, flexShrink: 0 }}>
               <p style={{ fontSize: 12, fontWeight: 600, color: T1, marginBottom: 14 }}>Win Rate</p>
               <div style={{ position: 'relative', display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
-                <PieChart width={110} height={110}>
+                <PieChart width={132} height={132}>
                   <Pie
                     data={winRingData} dataKey="v"
                     cx="50%" cy="50%"
-                    innerRadius={40} outerRadius={52}
+                    innerRadius={48} outerRadius={62}
                     stroke="none" isAnimationActive={false}
                     startAngle={90} endAngle={-270}
                   >
@@ -567,10 +607,10 @@ export default function Dashboard() {
                           <Icon size={13} />
                         </div>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 12, fontWeight: 500, color: T1, fontFamily: MONO }}>{trade.symbol}</div>
+                          <div style={{ fontSize: 12, fontWeight: 450, color: T1, fontFamily: MONO }}>{trade.symbol}</div>
                           <div style={{ fontSize: 10, color: T3 }}>{trade.direction} · {trade.session}</div>
                         </div>
-                        <span style={{ fontSize: 12, fontFamily: MONO, fontVariantNumeric: 'tabular-nums', fontWeight: 600, flexShrink: 0, color: open ? AMBER : isWin ? GREEN : RED }}>
+                        <span style={{ fontSize: 12, fontFamily: MONO, fontVariantNumeric: 'tabular-nums', fontFeatureSettings: "'zero' 1", fontWeight: 500, flexShrink: 0, color: open ? AMBER : isWin ? GREEN : RED }}>
                           {fmtUSD(trade.pnl)}
                         </span>
                       </div>

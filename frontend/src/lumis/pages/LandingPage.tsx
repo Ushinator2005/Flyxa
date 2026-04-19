@@ -1,4 +1,4 @@
-import {
+﻿import {
   ArrowRight,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -237,10 +237,10 @@ export default function LandingPage() {
 
                       <div className="mt-6 flex flex-wrap gap-2">
                         <span className="inline-flex items-center gap-2 rounded-[12px] border border-[#22c55e]/30 bg-[#22c55e]/10 px-4 py-2 text-[24px] text-[#4ade80]">
-                          Trend mornings +2.3R avg
+                          Trend mornings +2.3 RR avg
                         </span>
                         <span className="rounded-[12px] border border-[#ef4444]/30 bg-[#ef4444]/10 px-4 py-2 text-[24px] text-[#f87171]">
-                          Range re-entries -1.4R avg
+                          Range re-entries -1.4 RR avg
                         </span>
                       </div>
                     </div>
@@ -315,7 +315,7 @@ export default function LandingPage() {
                           <p className="mt-1 text-[11px] uppercase tracking-[0.2em] text-[#8A8F98]">Journal entry</p>
                         </div>
                         <span className="rounded-full bg-[#3BC8FF]/12 px-3 py-1 text-xs font-semibold text-[#3BC8FF]">
-                          +2.4R
+                          +2.4 RR
                         </span>
                       </div>
 
@@ -365,7 +365,7 @@ export default function LandingPage() {
                       ))}
                     </div>
 
-                    <p className="mt-4 text-sm text-[#8A8F98]">Win Rate 64% · Avg R 1.8 · Sessions 42</p>
+                    <p className="mt-4 text-sm text-[#8A8F98]">Win Rate 64% Â· Avg RR 1.8 Â· Sessions 42</p>
                   </article>
                 </Reveal>
 
@@ -570,3 +570,5 @@ export default function LandingPage() {
     </BackgroundCanvas>
   );
 }
+
+

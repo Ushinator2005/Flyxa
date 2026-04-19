@@ -152,7 +152,7 @@ function EntryItem({
         borderRadius: '8px',
         border: `1px solid ${selected ? ACCENT : BORDER}`,
         background: selected ? ACCENT_DIM : S1,
-        marginBottom: '8px',
+        marginBottom: '6px',
         cursor: 'pointer',
         textAlign: 'left',
         overflow: 'hidden',
@@ -168,97 +168,42 @@ function EntryItem({
       {/* Date badge */}
       <div
         style={{
-          width: '52px',
+          width: '46px',
           flexShrink: 0,
           borderRight: `1px solid ${selected ? 'rgba(245,158,11,0.3)' : BORDER}`,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          padding: '12px 0',
+          padding: '10px 0',
           gap: '2px',
         }}
       >
-        <span
-          style={{
-            fontSize: '9px',
-            fontWeight: 700,
-            color: selected ? AMBER : T3,
-            textTransform: 'uppercase',
-            letterSpacing: '0.06em',
-          }}
-        >
+        <span style={{ fontSize: '9px', fontWeight: 700, color: selected ? AMBER : T3, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
           {formatEntryDate(entry.date, 'MMM')}
         </span>
-        <span
-          style={{
-            fontSize: '20px',
-            fontWeight: 600,
-            color: selected ? AMBER : T1,
-            lineHeight: 1,
-            fontFamily: 'var(--font-mono)',
-            fontVariantNumeric: 'tabular-nums',
-          }}
-        >
+        <span style={{ fontSize: '18px', fontWeight: 600, color: selected ? AMBER : T1, lineHeight: 1, fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums' }}>
           {formatEntryDate(entry.date, 'd')}
         </span>
       </div>
 
       {/* Body */}
-      <div style={{ flex: 1, padding: '14px 16px', minWidth: 0 }}>
-        <p
-          style={{
-            fontSize: '13px',
-            fontWeight: 600,
-            color: T1,
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            marginBottom: '5px',
-          }}
-        >
+      <div style={{ flex: 1, padding: '10px 12px', minWidth: 0 }}>
+        <p style={{ fontSize: '12px', fontWeight: 600, color: T1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: '4px' }}>
           {title}
         </p>
-        <p
-          style={{
-            fontSize: '11px',
-            color: T2,
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-          }}
-        >
+        <p style={{ fontSize: '11px', color: T2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {hasContent ? preview : "A clean page waiting for today's note."}
         </p>
       </div>
 
       {/* Meta */}
-      <div
-        style={{
-          padding: '14px 14px',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'flex-end',
-          justifyContent: 'center',
-          gap: '8px',
-          flexShrink: 0,
-        }}
-      >
+      <div style={{ padding: '10px 10px', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'center', gap: '6px', flexShrink: 0 }}>
         {hasContent && (
           <span style={{ fontSize: '10px', color: T3, fontFamily: 'var(--font-mono)' }}>{wc}w</span>
         )}
         {mood && moodStyle && (
-          <span
-            style={{
-              borderRadius: '20px',
-              fontSize: '10px',
-              fontWeight: 600,
-              padding: '3px 8px',
-              background: moodStyle.bg,
-              color: moodStyle.color,
-              whiteSpace: 'nowrap',
-            }}
-          >
+          <span style={{ borderRadius: '20px', fontSize: '10px', fontWeight: 600, padding: '2px 7px', background: moodStyle.bg, color: moodStyle.color, whiteSpace: 'nowrap' }}>
             {mood}
           </span>
         )}
@@ -479,49 +424,46 @@ export default function Journal() {
 
   return (
     <div
-      className="animate-fade-in flex flex-col"
-      style={{
-        fontFamily: 'var(--font-sans)',
-        height: '100%',
-        overflowY: 'auto',
-        padding: '24px',
-        gap: '16px',
-      }}
+      className="animate-fade-in"
+      style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', fontFamily: 'var(--font-sans)' }}
     >
+      <style>{`input[type="text"]::placeholder { color: var(--app-text-subtle); } textarea::placeholder { color: var(--app-text-subtle); }`}</style>
 
-      {/* Timeline section */}
-      <section
+      {/* Top header bar */}
+      <div
         style={{
-          padding: '16px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '12px',
+          padding: '14px 20px',
+          borderBottom: `1px solid ${BORDER}`,
           flexShrink: 0,
-          borderRadius: '8px',
-          border: `1px solid ${BORDER}`,
           background: S1,
         }}
       >
-
-        {/* Header row */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', gap: '12px' }}>
-          <div>
-            <h1 style={{ fontSize: '18px', fontWeight: 600, color: T1, margin: 0, lineHeight: 1.2 }}>
-              Daily Journal
-            </h1>
-            <p style={{ fontSize: '12px', color: T3, marginTop: '4px' }}>
-              Your private trading log - pick up where you left off.
-            </p>
-          </div>
+        <div>
+          <h1 style={{ fontSize: '17px', fontWeight: 600, color: T1, margin: 0, lineHeight: 1.2 }}>Daily Journal</h1>
+          <p style={{ fontSize: '11px', color: T3, marginTop: '3px' }}>Your private trading log — pick up where you left off.</p>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {selected && (
+            <span style={{ fontSize: '11px', color: T3, fontFamily: 'var(--font-mono)' }}>
+              {totalWords} words total
+            </span>
+          )}
           <button
             type="button"
             onClick={createEntry}
             style={{
-              height: '34px',
+              height: '32px',
               display: 'inline-flex',
               alignItems: 'center',
               gap: '6px',
               background: AMBER,
               border: 'none',
               borderRadius: '5px',
-              padding: '0 14px',
+              padding: '0 12px',
               color: '#000',
               fontSize: '12px',
               fontWeight: 600,
@@ -536,358 +478,270 @@ export default function Journal() {
             New entry
           </button>
         </div>
+      </div>
 
-        {/* Search bar */}
-        <div style={{ position: 'relative', marginBottom: '10px' }}>
-          <Search
-            size={14}
-            style={{
-              position: 'absolute',
-              left: '12px',
-              top: '50%',
-              transform: 'translateY(-50%)',
-              color: T3,
-              pointerEvents: 'none',
-            }}
-          />
-          <input
-            type="text"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search entries..."
-            style={{
-              width: '100%',
-              background: S2,
-              border: `1px solid ${BORDER}`,
-              borderRadius: '6px',
-              padding: '8px 12px 8px 34px',
-              fontSize: '12px',
-              color: T2,
-              outline: 'none',
-              boxSizing: 'border-box',
-              transition: 'border-color 0.15s',
-            }}
-            onFocus={e => { e.target.style.borderColor = ACCENT; }}
-            onBlur={e => { e.target.style.borderColor = BORDER; }}
-          />
-        </div>
+      {/* Two-column body */}
+      <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '300px 1fr', minHeight: 0, overflow: 'hidden' }}>
 
-        {/* Entry list */}
-        <div style={{ maxHeight: 'min(24vh, 280px)', overflowY: 'auto', paddingRight: '2px' }}>
-        {grouped.length === 0 ? (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px 0', gap: '10px' }}>
-            <PenLine size={20} style={{ color: T3 }} />
-            <p style={{ fontSize: '13px', color: T2, margin: 0 }}>
-              {search ? 'No matching entries' : 'No entries yet'}
-            </p>
-            <p style={{ fontSize: '11px', color: T3, margin: 0 }}>
-              {search ? 'Try a different keyword.' : 'Hit "New entry" to begin your first session note.'}
-            </p>
-          </div>
-        ) : (
-          grouped.map(([month, monthEntries]) => (
-            <div key={month} style={{ marginBottom: '14px' }}>
-              {/* Month separator */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                <span
-                  style={{
-                    fontSize: '10px',
-                    fontWeight: 700,
-                    color: T3,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.1em',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {month}
-                </span>
-                <div style={{ flex: 1, height: '1px', background: BSUB }} />
-                <span style={{ fontSize: '10px', color: T3, whiteSpace: 'nowrap' }}>
-                  {monthEntries.length} {monthEntries.length === 1 ? 'entry' : 'entries'}
-                </span>
-              </div>
-
-              {monthEntries.map(entry => (
-                <EntryItem
-                  key={entry.id}
-                  entry={entry}
-                  mood={moodByEntryId[entry.id]}
-                  titleByEntryId={titleByEntryId}
-                  selected={selected?.id === entry.id}
-                  onClick={() => setSelected(entry)}
-                />
-              ))}
-            </div>
-          ))
-        )}
-        </div>
-      </section>
-
-      {/* Divider */}
-      {selected && <div style={{ height: '1px', background: BSUB }} />}
-
-      {/* Detail panel */}
-      {selected && (
-        <section
-          style={{
-            padding: '16px',
-            display: 'flex',
-            flex: 1,
-            flexDirection: 'column',
-            minHeight: 0,
-            borderRadius: '8px',
-            border: `1px solid ${BORDER}`,
-            background: S1,
-          }}
-        >
-
-          {/* Section label */}
-          <p
-            style={{
-              fontSize: '10px',
-              fontWeight: 700,
-              color: T3,
-              textTransform: 'uppercase',
-              letterSpacing: '0.1em',
-              marginBottom: '10px',
-            }}
-          >
-            Entry
-          </p>
-
-          {/* Header row */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'flex-start',
-              justifyContent: 'space-between',
-              gap: '18px',
-              marginBottom: '12px',
-              flexWrap: 'wrap',
-            }}
-          >
-            {/* Left: date + stats */}
-            <div>
-              <h2
-                style={{
-                  fontSize: '20px',
-                  fontWeight: 600,
-                  color: T1,
-                  letterSpacing: '-0.03em',
-                  margin: 0,
-                  lineHeight: 1.1,
-                }}
-              >
-                {formatEntryDate(selected.date, 'EEEE, MMMM d')}
-              </h2>
-              <p style={{ fontSize: '11px', color: T3, marginTop: '7px' }}>
-                {formatEntryDate(selected.date, 'yyyy')}
-                <span style={{ margin: '0 5px' }}>|</span>
-                {selectedWordCount}w
-                <span style={{ margin: '0 5px' }}>|</span>
-                {totalWords} overall
-              </p>
-            </div>
-
-            {/* Right: actions */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-              {/* Date picker */}
+        {/* Left: entry list */}
+        <div style={{ borderRight: `1px solid ${BORDER}`, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
+          {/* Search */}
+          <div style={{ padding: '10px 12px', borderBottom: `1px solid ${BORDER}`, flexShrink: 0 }}>
+            <div style={{ position: 'relative' }}>
+              <Search size={13} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: T3, pointerEvents: 'none' }} />
               <input
-                type="date"
-                value={selected.date}
-                onChange={e => void handleDateChange(e.target.value)}
+                type="text"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search entries..."
                 style={{
+                  width: '100%',
                   background: S2,
                   border: `1px solid ${BORDER}`,
                   borderRadius: '6px',
-                  padding: '6px 10px',
+                  padding: '7px 10px 7px 30px',
                   fontSize: '12px',
                   color: T2,
-                  colorScheme: 'dark',
                   outline: 'none',
-                  cursor: 'pointer',
+                  boxSizing: 'border-box',
+                  transition: 'border-color 0.15s',
                 }}
+                onFocus={e => { e.target.style.borderColor = ACCENT; }}
+                onBlur={e => { e.target.style.borderColor = BORDER; }}
               />
+            </div>
+          </div>
 
-              {/* Auto-save status */}
-              <span
+          {/* Entry list */}
+          <div style={{ flex: 1, overflowY: 'auto', padding: '10px 12px' }}>
+            {grouped.length === 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '40px 0', gap: '10px' }}>
+                <PenLine size={20} style={{ color: T3 }} />
+                <p style={{ fontSize: '13px', color: T2, margin: 0 }}>{search ? 'No matching entries' : 'No entries yet'}</p>
+                <p style={{ fontSize: '11px', color: T3, margin: 0, textAlign: 'center' }}>
+                  {search ? 'Try a different keyword.' : 'Hit "New entry" to begin your first session note.'}
+                </p>
+              </div>
+            ) : (
+              grouped.map(([month, monthEntries]) => (
+                <div key={month} style={{ marginBottom: '16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '10px', fontWeight: 700, color: T3, textTransform: 'uppercase', letterSpacing: '0.1em', whiteSpace: 'nowrap' }}>
+                      {month}
+                    </span>
+                    <div style={{ flex: 1, height: '1px', background: BSUB }} />
+                    <span style={{ fontSize: '10px', color: T3, whiteSpace: 'nowrap' }}>
+                      {monthEntries.length} {monthEntries.length === 1 ? 'entry' : 'entries'}
+                    </span>
+                  </div>
+                  {monthEntries.map(entry => (
+                    <EntryItem
+                      key={entry.id}
+                      entry={entry}
+                      mood={moodByEntryId[entry.id]}
+                      titleByEntryId={titleByEntryId}
+                      selected={selected?.id === entry.id}
+                      onClick={() => setSelected(entry)}
+                    />
+                  ))}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Right: editor or empty state */}
+        <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
+          {!selected ? (
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px', color: T3 }}>
+              <PenLine size={28} style={{ opacity: 0.4 }} />
+              <p style={{ fontSize: '14px', color: T2, margin: 0 }}>Select an entry to read or write</p>
+              <p style={{ fontSize: '12px', color: T3, margin: 0 }}>Or create a new one for today</p>
+            </div>
+          ) : (
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
+
+              {/* Entry header */}
+              <div
                 style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '6px 10px',
-                  border: `1px solid ${BORDER}`,
-                  borderRadius: '6px',
-                  fontSize: '11px',
-                  color: saving ? AMBER : T2,
-                  cursor: 'default',
-                  userSelect: 'none',
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  justifyContent: 'space-between',
+                  gap: '16px',
+                  padding: '16px 20px 12px',
+                  borderBottom: `1px solid ${BORDER}`,
+                  flexShrink: 0,
+                  flexWrap: 'wrap',
                 }}
               >
-                <span
+                <div>
+                  <h2 style={{ fontSize: '19px', fontWeight: 600, color: T1, letterSpacing: '-0.03em', margin: 0, lineHeight: 1.1 }}>
+                    {formatEntryDate(selected.date, 'EEEE, MMMM d')}
+                  </h2>
+                  <p style={{ fontSize: '11px', color: T3, marginTop: '5px' }}>
+                    {formatEntryDate(selected.date, 'yyyy')}
+                    <span style={{ margin: '0 5px' }}>|</span>
+                    {selectedWordCount}w written
+                  </p>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <input
+                    type="date"
+                    value={selected.date}
+                    onChange={e => void handleDateChange(e.target.value)}
+                    style={{
+                      background: S2,
+                      border: `1px solid ${BORDER}`,
+                      borderRadius: '6px',
+                      padding: '5px 10px',
+                      fontSize: '12px',
+                      color: T2,
+                      colorScheme: 'dark',
+                      outline: 'none',
+                      cursor: 'pointer',
+                    }}
+                  />
+
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      padding: '5px 10px',
+                      border: `1px solid ${BORDER}`,
+                      borderRadius: '6px',
+                      fontSize: '11px',
+                      color: saving ? AMBER : T2,
+                      cursor: 'default',
+                      userSelect: 'none',
+                    }}
+                  >
+                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0, background: saving ? AMBER : GREEN, opacity: saving ? 1 : saved ? 1 : 0.4 }} />
+                    {saving ? 'Saving...' : saved ? 'Saved' : 'Auto-save on'}
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() => setDeleteTarget(selected)}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      padding: '5px 10px',
+                      border: `1px solid ${BORDER}`,
+                      borderRadius: '6px',
+                      background: 'transparent',
+                      fontSize: '11px',
+                      color: T2,
+                      cursor: 'pointer',
+                      transition: 'border-color 0.15s, color 0.15s',
+                    }}
+                    onMouseEnter={e => { const el = e.currentTarget as HTMLButtonElement; el.style.borderColor = '#7f1d1d'; el.style.color = '#f87171'; }}
+                    onMouseLeave={e => { const el = e.currentTarget as HTMLButtonElement; el.style.borderColor = BORDER; el.style.color = T2; }}
+                  >
+                    <Trash2 size={12} />
+                    Delete
+                  </button>
+                </div>
+              </div>
+
+              {/* Mood toggles */}
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', padding: '10px 20px', borderBottom: `1px solid ${BORDER}`, flexShrink: 0 }}>
+                {JOURNAL_MOODS.map(mood => {
+                  const isActive = moodByEntryId[selected.id] === mood;
+                  const ms = MOOD_STYLES[mood];
+                  const MoodIcon = MOOD_ICONS[mood];
+                  return (
+                    <button
+                      key={mood}
+                      type="button"
+                      onClick={() => updateEntryMood(selected.id, mood)}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        padding: '4px 11px',
+                        borderRadius: '20px',
+                        border: `1px solid ${isActive ? ms.border : BORDER}`,
+                        background: isActive ? ms.bg : S2,
+                        fontSize: '11px',
+                        color: isActive ? ms.color : T2,
+                        cursor: 'pointer',
+                        transition: 'background 0.15s, border-color 0.15s, color 0.15s',
+                      }}
+                    >
+                      {isActive && (
+                        <svg width="7" height="7" viewBox="0 0 8 8" style={{ flexShrink: 0 }}>
+                          <circle cx="4" cy="4" r="4" fill={ms.color} />
+                        </svg>
+                      )}
+                      <MoodIcon size={11} />
+                      {mood}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Writing area — fills remaining height */}
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
+                {/* Title input */}
+                <input
+                  type="text"
+                  value={titleDraft}
+                  onChange={e => handleTitleChange(e.target.value)}
+                  onBlur={handleTitleBlur}
+                  placeholder="Entry title..."
                   style={{
-                    width: '6px',
-                    height: '6px',
-                    borderRadius: '50%',
+                    display: 'block',
+                    width: '100%',
+                    padding: '14px 20px 10px',
+                    background: 'transparent',
+                    border: 'none',
+                    outline: 'none',
+                    fontSize: '14px',
+                    fontWeight: 600,
+                    color: T1,
+                    boxSizing: 'border-box',
+                    fontFamily: 'inherit',
                     flexShrink: 0,
-                    background: saving ? AMBER : GREEN,
-                    opacity: saving ? 1 : saved ? 1 : 0.4,
                   }}
                 />
-                {saving ? 'Saving...' : saved ? 'Auto-saved' : 'Auto-save on'}
-              </span>
 
-              {/* Delete */}
-              <button
-                type="button"
-                onClick={() => setDeleteTarget(selected)}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '5px',
-                  padding: '6px 10px',
-                  border: `1px solid ${BORDER}`,
-                  borderRadius: '6px',
-                  background: 'transparent',
-                  fontSize: '11px',
-                  color: T2,
-                  cursor: 'pointer',
-                  transition: 'border-color 0.15s, color 0.15s',
-                }}
-                onMouseEnter={e => {
-                  const el = e.currentTarget as HTMLButtonElement;
-                  el.style.borderColor = '#7f1d1d';
-                  el.style.color = '#f87171';
-                }}
-                onMouseLeave={e => {
-                  const el = e.currentTarget as HTMLButtonElement;
-                  el.style.borderColor = BORDER;
-                  el.style.color = T2;
-                }}
-              >
-                <Trash2 size={12} />
-                Delete
-              </button>
-            </div>
-          </div>
+                {/* Hint bar */}
+                <div style={{ borderTop: `1px solid ${BSUB}`, borderBottom: `1px solid ${BSUB}`, padding: '6px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+                  <span style={{ fontSize: '11px', color: T3 }}>What happened · What you felt · What to carry forward</span>
+                  <span style={{ fontSize: '11px', color: T3 }}>Autosaves after 1.5s</span>
+                </div>
 
-          {/* Mood toggles */}
-          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '12px' }}>
-            {JOURNAL_MOODS.map(mood => {
-              const isActive = moodByEntryId[selected.id] === mood;
-              const ms = MOOD_STYLES[mood];
-              const MoodIcon = MOOD_ICONS[mood];
-
-              return (
-                <button
-                  key={mood}
-                  type="button"
-                  onClick={() => updateEntryMood(selected.id, mood)}
+                {/* Body textarea */}
+                <textarea
+                  ref={textareaRef}
+                  value={getEntryContent(selected)}
+                  onChange={e => handleContentChange(e.target.value)}
+                  placeholder={`Write your reflection for ${formatEntryDate(selected.date, 'MMMM d, yyyy')}...`}
                   style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '5px',
-                    padding: '5px 12px',
-                    borderRadius: '20px',
-                    border: `1px solid ${isActive ? ms.border : BORDER}`,
-                    background: isActive ? ms.bg : S2,
-                    fontSize: '11px',
-                    color: isActive ? ms.color : T2,
-                    cursor: 'pointer',
-                    transition: 'background 0.15s, border-color 0.15s, color 0.15s',
+                    display: 'block',
+                    width: '100%',
+                    flex: 1,
+                    minHeight: 0,
+                    padding: '16px 20px',
+                    background: 'transparent',
+                    border: 'none',
+                    outline: 'none',
+                    resize: 'none',
+                    fontSize: '13px',
+                    color: T2,
+                    lineHeight: 1.75,
+                    fontFamily: 'inherit',
+                    boxSizing: 'border-box',
                   }}
-                >
-                  {isActive && (
-                    <svg width="8" height="8" viewBox="0 0 8 8" style={{ flexShrink: 0 }}>
-                      <circle cx="4" cy="4" r="4" fill={ms.color} />
-                    </svg>
-                  )}
-                  <MoodIcon size={11} />
-                  {mood}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Writing area */}
-          <div
-            style={{
-              background: S2,
-              border: `1px solid ${BORDER}`,
-              borderRadius: '8px',
-              overflow: 'hidden',
-              display: 'flex',
-              flex: 1,
-              flexDirection: 'column',
-              minHeight: '420px',
-            }}
-          >
-            {/* Title input */}
-            <input
-              type="text"
-              value={titleDraft}
-              onChange={e => handleTitleChange(e.target.value)}
-              onBlur={handleTitleBlur}
-              placeholder="Entry title..."
-              style={{
-                display: 'block',
-                width: '100%',
-                padding: '14px 18px 12px',
-                background: 'transparent',
-                border: 'none',
-                outline: 'none',
-                fontSize: '14px',
-                fontWeight: 600,
-                color: T1,
-                boxSizing: 'border-box',
-                fontFamily: 'inherit',
-              }}
-            />
-            <style>{`input[type="text"]::placeholder { color: var(--app-text-subtle); } textarea::placeholder { color: var(--app-text-subtle); }`}</style>
-
-            {/* Hint bar */}
-            <div
-              style={{
-                borderTop: `1px solid ${BSUB}`,
-                borderBottom: `1px solid ${BSUB}`,
-                padding: '8px 18px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-              }}
-            >
-              <span style={{ fontSize: '11px', color: T3 }}>
-                What happened | What you felt | What to carry forward
-              </span>
-              <span style={{ fontSize: '11px', color: T3 }}>Autosaves after 1.5s</span>
+                />
+              </div>
             </div>
-
-            {/* Body textarea */}
-            <textarea
-              ref={textareaRef}
-              value={getEntryContent(selected)}
-              onChange={e => handleContentChange(e.target.value)}
-              placeholder={`Write your reflection for ${formatEntryDate(selected.date, 'MMMM d, yyyy')}...`}
-              style={{
-                display: 'block',
-                width: '100%',
-                flex: 1,
-                minHeight: 0,
-                padding: '18px',
-                background: 'transparent',
-                border: 'none',
-                outline: 'none',
-                resize: 'none',
-                fontSize: '13px',
-                color: T2,
-                lineHeight: 1.75,
-                fontFamily: 'inherit',
-                boxSizing: 'border-box',
-              }}
-            />
-          </div>
-        </section>
-      )}
+          )}
+        </div>
+      </div>
 
       {/* Delete modal */}
       <Modal isOpen={!!deleteTarget} onClose={() => setDeleteTarget(null)} title="Delete Journal Entry">
@@ -899,10 +753,7 @@ export default function Journal() {
           ? This cannot be undone.
         </p>
         <div className="flex gap-2">
-          <button
-            onClick={() => deleteTarget && deleteEntry(deleteTarget)}
-            className="btn-danger flex items-center gap-2 text-sm"
-          >
+          <button onClick={() => deleteTarget && deleteEntry(deleteTarget)} className="btn-danger flex items-center gap-2 text-sm">
             <Trash2 size={13} />
             Delete Entry
           </button>

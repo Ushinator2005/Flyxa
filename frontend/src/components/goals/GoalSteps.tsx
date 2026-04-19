@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { Check, Plus, Trash2 } from 'lucide-react';
-import type { GoalStep } from '../../hooks/useGoals.js';
+import type { GoalStep } from '../../types/goals.js';
 
 interface Props {
   goalId: string;
@@ -11,11 +11,6 @@ interface Props {
   onDeleteStep: (goalId: string, stepId: string) => void;
 }
 
-function formatDate(value: string) {
-  const parsed = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-}
 
 export default function GoalSteps({ goalId, steps, progress, onToggleStep, onAddStep, onDeleteStep }: Props) {
   const [newTitle, setNewTitle] = useState('');
@@ -53,22 +48,17 @@ export default function GoalSteps({ goalId, steps, progress, onToggleStep, onAdd
                 type="button"
                 onClick={() => onToggleStep(goalId, step.id)}
                 className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded transition-all duration-150 active:scale-110 ${
-                  step.completed
+                  step.done
                     ? 'bg-[#1d6ef5] border border-[#1d6ef5]'
                     : 'border border-slate-600 hover:border-[#1d6ef5]/60'
                 }`}
               >
-                {step.completed && <Check size={9} className="text-white" strokeWidth={3} />}
+                {step.done && <Check size={9} className="text-white" strokeWidth={3} />}
               </button>
               <div className="flex-1 min-w-0">
-                <p className={`text-sm leading-5 transition-colors ${step.completed ? 'line-through text-slate-600' : 'text-slate-300'}`}>
-                  {step.title}
+                <p className={`text-sm leading-5 transition-colors ${step.done ? 'line-through text-slate-600' : 'text-slate-300'}`}>
+                  {step.text}
                 </p>
-                {step.due_date && (
-                  <p className={`text-[11px] ${step.completed ? 'text-slate-700' : 'text-slate-500'}`}>
-                    Due {formatDate(step.due_date)}
-                  </p>
-                )}
               </div>
               <button
                 type="button"

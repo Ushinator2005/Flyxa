@@ -8,6 +8,10 @@ export interface GoalStep {
   done: boolean;
 }
 
+export type GoalStatus = 'Active' | 'Paused' | 'Achieved';
+
+export type GoalInput = Omit<Goal, 'id' | 'createdAt'>;
+
 export interface Goal {
   id: string;
   title: string;
@@ -16,5 +20,6 @@ export interface Goal {
   horizon: string;
   description: string;
   steps: GoalStep[];
+  status?: GoalStatus;
   createdAt: string;
 }

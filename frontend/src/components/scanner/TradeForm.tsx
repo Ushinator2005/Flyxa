@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { BrainCircuit, FileText, Plus, ShieldCheck, Sparkles, Target, TrendingDown, TrendingUp, X } from 'lucide-react';
+import { Plus, Sparkles, TrendingDown, TrendingUp, X } from 'lucide-react';
 import { Trade } from '../../types/index.js';
 import { formatCurrency } from '../../utils/calculations.js';
+import { formatRiskRewardRatio } from '../../utils/riskReward.js';
 import { lookupContract, FuturesContract } from '../../constants/futuresContracts.js';
 import { useAppSettings } from '../../contexts/AppSettingsContext.js';
 
@@ -354,435 +355,370 @@ export default function TradeForm({
     </span>
   ) : null;
 
-  const panelClass = 'rounded-2xl border border-slate-700/60 bg-[linear-gradient(180deg,rgba(2,6,23,0.34),rgba(15,23,42,0.32))] p-4 shadow-[inset_0_1px_0_rgba(148,163,184,0.05)] md:p-5';
-  const numericFieldClass = 'input-field h-11';
-  const SectionLabel = ({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) => (
-    <div className="mb-4 flex items-center gap-2">
-      <span className="rounded-xl border border-slate-700/70 bg-slate-950/70 p-2 text-slate-300">{icon}</span>
-      <div>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">{children}</p>
-      </div>
-    </div>
+  const P = 'var(--app-panel)';
+  const P2 = 'var(--app-panel-strong)';
+  const BD = 'var(--app-border)';
+  const T1 = 'var(--app-text)';
+  const T2 = 'var(--app-text-muted)';
+  const T3 = 'var(--app-text-subtle)';
+  const AMBER = 'var(--accent)';
+  const AMBER_DIM = 'var(--accent-dim)';
+  const AMBER_BD = 'var(--accent-border)';
+
+  const panel: React.CSSProperties = { background: P, border: `1px solid ${BD}`, borderRadius: 8, padding: '16px 18px', marginBottom: 0 };
+  const sub: React.CSSProperties = { background: P2, border: `1px solid ${BD}`, borderRadius: 6, padding: '12px 14px' };
+
+  const SectionLabel = ({ children }: { children: React.ReactNode }) => (
+    <p style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.22em', color: T3, marginBottom: 12 }}>
+      {children}
+    </p>
   );
 
+  const toggleBtn = (active: boolean, color: 'green' | 'red' | 'amber'): React.CSSProperties => {
+    const colors = {
+      green: { bg: 'rgba(16,185,129,0.12)', border: 'rgba(16,185,129,0.35)', text: '#34d399' },
+      red:   { bg: 'rgba(239,68,68,0.12)',  border: 'rgba(239,68,68,0.35)',  text: '#f87171' },
+      amber: { bg: AMBER_DIM,               border: AMBER_BD,                text: AMBER },
+    }[color];
+    return active
+      ? { flex: 1, height: 36, borderRadius: 6, border: `1px solid ${colors.border}`, background: colors.bg, color: colors.text, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }
+      : { flex: 1, height: 36, borderRadius: 6, border: `1px solid ${BD}`, background: 'transparent', color: T2, fontSize: 12, fontWeight: 500, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 };
+  };
+
+  const durationInput: React.CSSProperties = { width: '100%', background: 'transparent', border: 'none', textAlign: 'center', fontSize: 13, color: T1, outline: 'none' };
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
 
-      {/* Symbol + Direction */}
-      <div className={panelClass}>
-        <SectionLabel icon={<Target size={16} />}>Instrument</SectionLabel>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <div>
-            <label className="label">Symbol <AIBadge field="symbol" /></label>
-            <input
-              type="text"
-              className={numericFieldClass}
-              value={form.symbol || ''}
-              onChange={e => handleSymbolChange(e.target.value)}
-              placeholder="e.g. MNQM26"
-              required
-            />
-            {matchedContract && (
-              <p className="text-xs text-emerald-400 mt-1">{matchedContract.name} · ${matchedContract.point_value}/pt</p>
-            )}
-          </div>
-          <div>
-            <label className="label">Direction <AIBadge field="direction" /></label>
-            <div className="flex gap-2 h-10">
-              {(['Long', 'Short'] as const).map(d => (
-                <button
-                  key={d}
-                  type="button"
-                  onClick={() => set('direction', d)}
-                  className={`flex-1 rounded-lg text-sm font-semibold transition-all border flex items-center justify-center gap-1.5 ${
-                    form.direction === d
-                      ? d === 'Long'
-                        ? 'bg-emerald-600/30 border-emerald-500/50 text-emerald-400'
-                        : 'bg-red-600/30 border-red-500/50 text-red-400'
-                      : 'bg-slate-700/50 border-slate-600 text-slate-400 hover:border-slate-500'
-                  }`}
-                >
-                  {d === 'Long' ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
-                  {d}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
+      {/* ── Row 1: Instrument  +  Price Levels ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
 
-      {/* Entry Details */}
-      {showContractsField && (
-        <div className={panelClass}>
-          <SectionLabel icon={<ShieldCheck size={16} />}>Entry Details</SectionLabel>
-          <div className="grid grid-cols-1 gap-3">
+        {/* Instrument */}
+        <div style={panel}>
+          <SectionLabel>Instrument</SectionLabel>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div>
-              <label className="label">Contracts</label>
+              <label className="label">Symbol <AIBadge field="symbol" /></label>
               <input
-                type="number"
-                className={numericFieldClass}
-                value={form.contract_size || 1}
-                onChange={e => set('contract_size', parseInt(e.target.value))}
-                min={1}
+                type="text"
+                className="input-field h-9"
+                value={form.symbol || ''}
+                onChange={e => handleSymbolChange(e.target.value)}
+                placeholder="e.g. MNQM26"
                 required
               />
+              {matchedContract && (
+                <p style={{ fontSize: 10, color: '#34d399', marginTop: 3 }}>{matchedContract.name} · ${matchedContract.point_value}/pt</p>
+              )}
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Price levels */}
-      <div className={panelClass}>
-        <SectionLabel icon={<Target size={16} />}>Price Levels</SectionLabel>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <div>
-            <label className="label">Entry <AIBadge field="entry_price" /></label>
-            <input type="number" className={numericFieldClass} value={form.entry_price || ''} onChange={e => set('entry_price', parseFloat(e.target.value))} step={0.25} required />
-          </div>
-          <div>
-            <label className="label">Exit</label>
-            <input type="number" className={numericFieldClass} value={form.exit_price || ''} onChange={e => set('exit_price', parseFloat(e.target.value))} step={0.25} />
-          </div>
-          <div>
-            <label className="label">Stop Loss <AIBadge field="sl_price" /></label>
-            <input type="number" className={numericFieldClass} value={form.sl_price || ''} onChange={e => set('sl_price', parseFloat(e.target.value))} step={0.25} required />
-          </div>
-          <div>
-            <label className="label">Take Profit <AIBadge field="tp_price" /></label>
-            <input type="number" className={numericFieldClass} value={form.tp_price || ''} onChange={e => set('tp_price', parseFloat(e.target.value))} step={0.25} required />
-          </div>
-        </div>
-      </div>
-
-      {/* Exit + Duration */}
-      <div className={panelClass}>
-        <SectionLabel icon={<TrendingUp size={16} />}>Outcome</SectionLabel>
-        <div className="grid grid-cols-1 gap-3 mb-4 md:grid-cols-2">
-          <div>
-            <label className="label">Exit Reason <AIBadge field="exit_reason" /></label>
-            <div className="flex gap-2 h-10">
-              {(['TP', 'SL', 'BE'] as const).map(r => (
-                <button
-                  key={r}
-                  type="button"
-                  onClick={() => {
-                    set('exit_reason', r);
-                    if (r === 'TP' && form.tp_price) set('exit_price', form.tp_price);
-                    if (r === 'SL' && form.sl_price) set('exit_price', form.sl_price);
-                    if (r === 'BE' && form.entry_price) set('exit_price', form.entry_price);
-                  }}
-                  className={`flex-1 rounded-lg text-sm font-semibold transition-all border ${
-                    form.exit_reason === r
-                      ? r === 'TP'
-                        ? 'bg-emerald-600/30 border-emerald-500/50 text-emerald-400'
-                        : r === 'SL'
-                          ? 'bg-red-600/30 border-red-500/50 text-red-400'
-                          : 'bg-amber-600/30 border-amber-500/50 text-amber-400'
-                      : 'bg-slate-700/50 border-slate-600 text-slate-400 hover:border-slate-500'
-                  }`}
-                >
-                  {r === 'TP' ? 'Take Profit' : r === 'SL' ? 'Stop Loss' : 'Breakeven'}
+            <div>
+              <label className="label">Direction <AIBadge field="direction" /></label>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button type="button" onClick={() => set('direction', 'Long')} style={toggleBtn(form.direction === 'Long', 'green')}>
+                  <TrendingUp size={12} /> Long
                 </button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <label className="label">Duration <AIBadge field="trade_length_seconds" /></label>
-            <div className="flex rounded-lg border border-slate-700 bg-slate-900/60 overflow-hidden h-11">
-              <div className="flex-1 flex items-center">
-                <input
-                  type="number"
-                  min={0}
-                  max={23}
-                  value={Math.floor((form.trade_length_seconds || 0) / 3600)}
-                  onChange={e => {
-                    const h = Math.max(0, parseInt(e.target.value) || 0);
-                    const m = Math.floor(((form.trade_length_seconds || 0) % 3600) / 60);
-                    set('trade_length_seconds', h * 3600 + m * 60);
-                  }}
-                  className="w-full bg-transparent text-center text-sm text-slate-200 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                  placeholder="0"
-                />
-                <span className="pr-2 text-xs font-medium text-slate-500">h</span>
-              </div>
-              <div className="w-px bg-slate-700/80" />
-              <div className="flex-1 flex items-center">
-                <input
-                  type="number"
-                  min={0}
-                  max={59}
-                  value={Math.floor(((form.trade_length_seconds || 0) % 3600) / 60)}
-                  onChange={e => {
-                    const m = Math.max(0, parseInt(e.target.value) || 0);
-                    const h = Math.floor((form.trade_length_seconds || 0) / 3600);
-                    set('trade_length_seconds', h * 3600 + m * 60);
-                  }}
-                  className="w-full bg-transparent text-center text-sm text-slate-200 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                  placeholder="0"
-                />
-                <span className="pr-2 text-xs font-medium text-slate-500">m</span>
+                <button type="button" onClick={() => set('direction', 'Short')} style={toggleBtn(form.direction === 'Short', 'red')}>
+                  <TrendingDown size={12} /> Short
+                </button>
               </div>
             </div>
+            {showContractsField && (
+              <div>
+                <label className="label">Contracts</label>
+                <input
+                  type="number"
+                  className="input-field h-9"
+                  value={form.contract_size || 1}
+                  onChange={e => set('contract_size', parseInt(e.target.value))}
+                  min={1}
+                  required
+                />
+              </div>
+            )}
           </div>
         </div>
 
-        {/* P&L + R:R */}
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <div className={`rounded-2xl border p-4 ${pnl === 0 ? 'border-amber-500/20 bg-[linear-gradient(180deg,rgba(245,158,11,0.12),rgba(15,23,42,0.2))]' : pnl > 0 ? 'border-emerald-500/20 bg-[linear-gradient(180deg,rgba(16,185,129,0.12),rgba(15,23,42,0.2))]' : 'border-red-500/20 bg-[linear-gradient(180deg,rgba(239,68,68,0.12),rgba(15,23,42,0.2))]'}`}>
-            <p className="mb-1 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Calculated P&L</p>
-            <p className={`text-2xl font-bold tracking-tight ${pnl === 0 ? 'text-amber-300' : pnl > 0 ? 'text-emerald-300' : 'text-red-300'}`}>{formatCurrency(pnl)}</p>
-          </div>
-          <div className="rounded-2xl border border-slate-700/60 bg-slate-950/65 p-4">
-            <p className="mb-1 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Risk : Reward</p>
-            <p className="text-2xl font-bold tracking-tight text-blue-300">{rr === 'N/A' ? 'N/A' : `1:${rr}`}</p>
+        {/* Price Levels */}
+        <div style={panel}>
+          <SectionLabel>Price Levels</SectionLabel>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div>
+              <label className="label">Entry <AIBadge field="entry_price" /></label>
+              <input type="number" className="input-field h-9" value={form.entry_price || ''} onChange={e => set('entry_price', parseFloat(e.target.value))} step={0.25} required />
+            </div>
+            <div>
+              <label className="label">Exit</label>
+              <input type="number" className="input-field h-9" value={form.exit_price || ''} onChange={e => set('exit_price', parseFloat(e.target.value))} step={0.25} />
+            </div>
+            <div>
+              <label className="label">Stop Loss <AIBadge field="sl_price" /></label>
+              <input type="number" className="input-field h-9" value={form.sl_price || ''} onChange={e => set('sl_price', parseFloat(e.target.value))} step={0.25} required />
+            </div>
+            <div>
+              <label className="label">Take Profit <AIBadge field="tp_price" /></label>
+              <input type="number" className="input-field h-9" value={form.tp_price || ''} onChange={e => set('tp_price', parseFloat(e.target.value))} step={0.25} required />
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Psychology */}
-      <div className={panelClass}>
-        <SectionLabel icon={<BrainCircuit size={16} />}>Psychology</SectionLabel>
-        <div className="grid grid-cols-1 gap-3 mb-4 md:grid-cols-2">
-          <div>
-            <label className="label">Emotional State</label>
-            <select className={numericFieldClass} value={form.emotional_state || 'Calm'} onChange={e => set('emotional_state', e.target.value)}>
-              {emotionalStates.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="label">Confidence ({form.confidence_level}/10)</label>
-            <input
-              type="range" min={1} max={10}
-              value={form.confidence_level || 7}
-              onChange={e => set('confidence_level', parseInt(e.target.value))}
-              className="w-full mt-2 accent-blue-500"
-            />
-            <div className="flex justify-between text-xs text-slate-600 mt-1"><span>Low</span><span>High</span></div>
+      {/* ── Row 2: Outcome  +  Psychology ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+
+        {/* Outcome */}
+        <div style={panel}>
+          <SectionLabel>Outcome</SectionLabel>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div>
+              <label className="label">Exit Reason <AIBadge field="exit_reason" /></label>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {(['TP', 'SL', 'BE'] as const).map(r => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => {
+                      set('exit_reason', r);
+                      if (r === 'TP' && form.tp_price) set('exit_price', form.tp_price);
+                      if (r === 'SL' && form.sl_price) set('exit_price', form.sl_price);
+                      if (r === 'BE' && form.entry_price) set('exit_price', form.entry_price);
+                    }}
+                    style={toggleBtn(form.exit_reason === r, r === 'TP' ? 'green' : r === 'SL' ? 'red' : 'amber')}
+                  >
+                    {r === 'TP' ? 'Take Profit' : r === 'SL' ? 'Stop Loss' : 'Breakeven'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="label">Duration <AIBadge field="trade_length_seconds" /></label>
+              <div style={{ display: 'flex', border: `1px solid ${BD}`, borderRadius: 6, background: P2, overflow: 'hidden', height: 36 }}>
+                <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
+                  <input
+                    type="number" min={0} max={23}
+                    value={Math.floor((form.trade_length_seconds || 0) / 3600)}
+                    onChange={e => { const h = Math.max(0, parseInt(e.target.value) || 0); const m = Math.floor(((form.trade_length_seconds || 0) % 3600) / 60); set('trade_length_seconds', h * 3600 + m * 60); }}
+                    style={durationInput}
+                    placeholder="0"
+                  />
+                  <span style={{ paddingRight: 6, fontSize: 11, color: T3 }}>h</span>
+                </div>
+                <div style={{ width: 1, background: BD }} />
+                <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
+                  <input
+                    type="number" min={0} max={59}
+                    value={Math.floor(((form.trade_length_seconds || 0) % 3600) / 60)}
+                    onChange={e => { const m = Math.max(0, parseInt(e.target.value) || 0); const h = Math.floor((form.trade_length_seconds || 0) / 3600); set('trade_length_seconds', h * 3600 + m * 60); }}
+                    style={durationInput}
+                    placeholder="0"
+                  />
+                  <span style={{ paddingRight: 6, fontSize: 11, color: T3 }}>m</span>
+                </div>
+              </div>
+            </div>
+            {/* P&L + R:R inline */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <div style={{ ...sub, borderColor: pnl === 0 ? AMBER_BD : pnl > 0 ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)' }}>
+                <p style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.14em', color: T3, marginBottom: 3 }}>P&L</p>
+                <p style={{ fontFamily: 'var(--font-mono)', fontSize: 16, fontWeight: 600, color: pnl === 0 ? AMBER : pnl > 0 ? '#34d399' : '#f87171' }}>{formatCurrency(pnl)}</p>
+              </div>
+              <div style={sub}>
+                <p style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.14em', color: T3, marginBottom: 3 }}>R:R</p>
+                <p style={{ fontFamily: 'var(--font-mono)', fontSize: 16, fontWeight: 600, color: T1 }}>
+                  {rr === 'N/A' ? 'N/A' : formatRiskRewardRatio(Number(rr))}
+                </p>
+              </div>
+            </div>
           </div>
         </div>
 
-        <div>
-          <label className="label">Followed Trading Plan?</label>
-          <div className="flex gap-2 h-9">
-            {[true, false].map(v => (
-              <button
-                key={String(v)}
-                type="button"
-                onClick={() => set('followed_plan', v)}
-                className={`flex-1 rounded-lg text-sm font-medium transition-all border ${
-                  form.followed_plan === v
-                    ? v ? 'bg-emerald-600/30 border-emerald-500/50 text-emerald-400' : 'bg-red-600/30 border-red-500/50 text-red-400'
-                    : 'bg-slate-700/50 border-slate-600 text-slate-400'
-                }`}
-              >
-                {v ? 'Yes' : 'No'}
-              </button>
+        {/* Psychology */}
+        <div style={panel}>
+          <SectionLabel>Psychology</SectionLabel>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div>
+              <label className="label">Emotional State</label>
+              <select className="input-field h-9" value={form.emotional_state || 'Calm'} onChange={e => set('emotional_state', e.target.value)}>
+                {emotionalStates.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Confidence ({form.confidence_level}/10)</label>
+              <input
+                type="range" min={1} max={10}
+                value={form.confidence_level || 7}
+                onChange={e => set('confidence_level', parseInt(e.target.value))}
+                style={{ width: '100%', marginTop: 6, accentColor: AMBER }}
+              />
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: T3, marginTop: 2 }}>
+                <span>Low</span><span>High</span>
+              </div>
+            </div>
+            <div>
+              <label className="label">Followed Trading Plan?</label>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {[true, false].map(v => (
+                  <button key={String(v)} type="button" onClick={() => set('followed_plan', v)} style={toggleBtn(form.followed_plan === v, v ? 'green' : 'red')}>
+                    {v ? 'Yes' : 'No'}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Row 3: Confluences (full width) ── */}
+      <div style={panel}>
+        <SectionLabel>Confluences</SectionLabel>
+        <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+          <select
+            className="input-field h-9"
+            style={{ flex: 1 }}
+            value={selectedConfluence}
+            onChange={e => setSelectedConfluence(e.target.value)}
+          >
+            <option value="">Select confluence</option>
+            {availableConfluenceOptions.map(option => (
+              <option key={option} value={option}>{option}</option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={addConfluence}
+            disabled={!selectedConfluence}
+            style={{ height: 36, paddingLeft: 12, paddingRight: 12, borderRadius: 6, border: `1px solid ${!selectedConfluence ? BD : AMBER_BD}`, background: !selectedConfluence ? 'transparent' : AMBER_DIM, color: !selectedConfluence ? T3 : AMBER, fontSize: 12, fontWeight: 600, cursor: !selectedConfluence ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}
+          >
+            <Plus size={13} /> Add
+          </button>
+        </div>
+        {confluences.length > 0 ? (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {confluences.map((c, i) => (
+              <span key={`${c}-${i}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px', borderRadius: 20, border: `1px solid ${AMBER_BD}`, background: AMBER_DIM, fontSize: 11, color: AMBER }}>
+                {c}
+                <button type="button" onClick={() => removeConfluence(i)} aria-label={`Remove ${c}`} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: AMBER, display: 'flex', alignItems: 'center' }}>
+                  <X size={10} />
+                </button>
+              </span>
             ))}
           </div>
-        </div>
+        ) : (
+          <p style={{ fontSize: 11, color: T3 }}>Pick confirmations that were present when you entered this trade.</p>
+        )}
       </div>
 
-      {/* Confluences */}
-      <div className={panelClass}>
-        <SectionLabel icon={<Sparkles size={16} />}>Confluences</SectionLabel>
-        <div className="space-y-3">
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <select
-              className={`${numericFieldClass} flex-1`}
-              value={selectedConfluence}
-              onChange={e => setSelectedConfluence(e.target.value)}
-            >
-              <option value="">Select confluence</option>
-              {availableConfluenceOptions.map(option => (
-                <option key={option} value={option}>{option}</option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={addConfluence}
-              disabled={!selectedConfluence}
-              className="inline-flex h-11 items-center justify-center gap-1.5 rounded-lg border border-blue-500/40 bg-blue-500/15 px-4 text-sm font-medium text-blue-200 transition hover:border-blue-400/60 hover:bg-blue-500/25 disabled:cursor-not-allowed disabled:border-slate-600 disabled:bg-slate-700/40 disabled:text-slate-400"
-            >
-              <Plus size={14} />
-              Add
-            </button>
-          </div>
-          {confluences.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
-              {confluences.map((confluence, index) => (
-                <span
-                  key={`${confluence}-${index}`}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-blue-400/25 bg-blue-500/10 px-3 py-1 text-xs text-blue-200"
-                >
-                  {confluence}
-                  <button
-                    type="button"
-                    onClick={() => removeConfluence(index)}
-                    className="inline-flex h-4 w-4 items-center justify-center rounded-full text-blue-200/80 transition hover:bg-blue-500/20 hover:text-white"
-                    aria-label={`Remove ${confluence}`}
-                  >
-                    <X size={10} />
-                  </button>
-                </span>
-              ))}
+      {/* ── Row 4: Notes (full width, 3-col internal) ── */}
+      <div style={panel}>
+        <SectionLabel>Notes</SectionLabel>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+
+          {/* Pre-trade Thesis — 3 col */}
+          <div style={sub}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
+              <p style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.18em', color: '#34d399' }}>Pre-trade Thesis</p>
+              <p style={{ fontSize: 11, color: T3 }}>Capture setup logic before outcome bias creeps in.</p>
             </div>
-          ) : (
-            <p className="text-xs text-slate-500">Pick confirmations that were present when you entered this trade.</p>
-          )}
-          {availableConfluenceOptions.length === 0 && (
-            <p className="text-xs text-slate-500">No additional options available. Manage this list in Settings.</p>
-          )}
-        </div>
-      </div>
-
-      {/* Notes */}
-      <div className={panelClass}>
-        <SectionLabel icon={<FileText size={16} />}>Notes</SectionLabel>
-        <div className="space-y-4">
-          <div className="rounded-xl border border-slate-700/60 bg-slate-950/35 p-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-emerald-400">1. Pre-trade Thesis</p>
-            <p className="mt-1 text-xs text-slate-500">Capture the setup logic before outcome bias creeps in.</p>
-            <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
               <div>
                 <label className="label">Setup Thesis</label>
-                <textarea
-                  className="input-field resize-none"
-                  rows={2}
-                  value={thesisSetup}
-                  onChange={e => setThesisSetup(e.target.value)}
-                  placeholder="What edge did you see?"
-                />
+                <textarea className="input-field resize-none" rows={2} value={thesisSetup} onChange={e => setThesisSetup(e.target.value)} placeholder="What edge did you see?" />
               </div>
               <div>
                 <label className="label">Invalidation</label>
-                <textarea
-                  className="input-field resize-none"
-                  rows={2}
-                  value={thesisInvalidation}
-                  onChange={e => setThesisInvalidation(e.target.value)}
-                  placeholder="What would prove this wrong?"
-                />
+                <textarea className="input-field resize-none" rows={2} value={thesisInvalidation} onChange={e => setThesisInvalidation(e.target.value)} placeholder="What would prove this wrong?" />
               </div>
               <div>
                 <label className="label">Execution Trigger</label>
-                <textarea
-                  className="input-field resize-none"
-                  rows={2}
-                  value={thesisTrigger}
-                  onChange={e => setThesisTrigger(e.target.value)}
-                  placeholder="What had to happen before entry?"
-                />
+                <textarea className="input-field resize-none" rows={2} value={thesisTrigger} onChange={e => setThesisTrigger(e.target.value)} placeholder="What had to happen before entry?" />
               </div>
             </div>
           </div>
 
-          <div className="rounded-xl border border-slate-700/60 bg-slate-950/35 p-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-blue-400">3. Outcome-Independent Grade</p>
-            <p className="mt-1 text-xs text-slate-500">Grade the quality of process, not P&amp;L.</p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {[1, 2, 3, 4, 5].map(score => (
-                <button
-                  key={score}
-                  type="button"
-                  onClick={() => setProcessScore(score)}
-                  className={`min-w-9 rounded-lg border px-3 py-1.5 text-sm font-semibold transition ${
-                    processScore === score
-                      ? 'border-blue-400/60 bg-blue-500/20 text-blue-200'
-                      : 'border-slate-700 bg-slate-900/70 text-slate-400 hover:border-slate-500'
-                  }`}
-                >
-                  {score}
-                </button>
-              ))}
+          {/* Process Grade + Reflection side by side */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div style={sub}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
+                <p style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.18em', color: T2 }}>Process Grade</p>
+                <p style={{ fontSize: 11, color: T3 }}>Rate quality, not P&amp;L.</p>
+              </div>
+              <div style={{ display: 'flex', gap: 5, marginBottom: 8 }}>
+                {[1, 2, 3, 4, 5].map(score => (
+                  <button
+                    key={score}
+                    type="button"
+                    onClick={() => setProcessScore(score)}
+                    style={processScore === score
+                      ? { flex: 1, height: 30, borderRadius: 5, border: `1px solid ${AMBER_BD}`, background: AMBER_DIM, color: AMBER, fontSize: 13, fontWeight: 600, cursor: 'pointer' }
+                      : { flex: 1, height: 30, borderRadius: 5, border: `1px solid ${BD}`, background: 'transparent', color: T2, fontSize: 13, fontWeight: 500, cursor: 'pointer' }}
+                  >
+                    {score}
+                  </button>
+                ))}
+              </div>
+              <textarea className="input-field resize-none" rows={2} value={processReason} onChange={e => setProcessReason(e.target.value)} placeholder="Why this score?" />
             </div>
-            <div className="mt-3">
-              <label className="label">Why this score?</label>
-              <textarea
-                className="input-field resize-none"
-                rows={2}
-                value={processReason}
-                onChange={e => setProcessReason(e.target.value)}
-                placeholder="Example: Executed plan well, but rushed final scale-out."
-              />
+
+            <div style={sub}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
+                <p style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.18em', color: AMBER }}>Additional Notes</p>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <textarea className="input-field resize-none" rows={2} value={form.pre_trade_notes || ''} onChange={e => set('pre_trade_notes', e.target.value)} placeholder="Additional pre-trade observations." />
+                <textarea className="input-field resize-none" rows={2} value={form.post_trade_notes || ''} onChange={e => set('post_trade_notes', e.target.value)} placeholder="Additional post-trade notes." />
+              </div>
             </div>
           </div>
 
-          <div className="rounded-xl border border-slate-700/60 bg-slate-950/35 p-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-amber-300">5. Reflection Prompts</p>
-            <p className="mt-1 text-xs text-slate-500">Use prompts to force specific learning after the trade.</p>
-            <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+          {/* Reflection — 3 col */}
+          <div style={sub}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
+              <p style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.18em', color: AMBER }}>Reflection</p>
+              <p style={{ fontSize: 11, color: T3 }}>Force specific learning after the trade.</p>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
               <div>
                 <label className="label">Market vs Thesis</label>
-                <textarea
-                  className="input-field resize-none"
-                  rows={2}
-                  value={reflectionMarket}
-                  onChange={e => setReflectionMarket(e.target.value)}
-                  placeholder="Did price confirm or reject your thesis?"
-                />
+                <textarea className="input-field resize-none" rows={2} value={reflectionMarket} onChange={e => setReflectionMarket(e.target.value)} placeholder="Did price confirm or reject your thesis?" />
               </div>
               <div>
                 <label className="label">Execution Quality</label>
-                <textarea
-                  className="input-field resize-none"
-                  rows={2}
-                  value={reflectionExecution}
-                  onChange={e => setReflectionExecution(e.target.value)}
-                  placeholder="What did you do well or poorly?"
-                />
+                <textarea className="input-field resize-none" rows={2} value={reflectionExecution} onChange={e => setReflectionExecution(e.target.value)} placeholder="What did you do well or poorly?" />
               </div>
               <div>
                 <label className="label">One Next Adjustment</label>
-                <textarea
-                  className="input-field resize-none"
-                  rows={2}
-                  value={reflectionAdjustment}
-                  onChange={e => setReflectionAdjustment(e.target.value)}
-                  placeholder="What single change will you test next?"
-                />
+                <textarea className="input-field resize-none" rows={2} value={reflectionAdjustment} onChange={e => setReflectionAdjustment(e.target.value)} placeholder="What single change will you test next?" />
               </div>
             </div>
-          </div>
-
-          <div>
-            <label className="label">Additional Pre-Trade Notes</label>
-            <textarea
-              className="input-field resize-none"
-              rows={2}
-              value={form.pre_trade_notes || ''}
-              onChange={e => set('pre_trade_notes', e.target.value)}
-              placeholder="Anything else you noticed before entry."
-            />
-          </div>
-          <div>
-            <label className="label">Additional Post-Trade Notes</label>
-            <textarea
-              className="input-field resize-none"
-              rows={2}
-              value={form.post_trade_notes || ''}
-              onChange={e => set('post_trade_notes', e.target.value)}
-              placeholder="Anything else you want to capture after exit."
-            />
           </div>
         </div>
       </div>
 
-      {/* Actions */}
+      {/* ── Actions ── */}
       {(submitError || requiredFieldsMessage) && (
-        <p className={`text-sm ${requiredFieldsMessage ? 'text-amber-400' : 'text-red-400'}`}>
+        <p style={{ fontSize: 12, color: requiredFieldsMessage && !submitError ? AMBER : '#f87171' }}>
           {submitError || requiredFieldsMessage}
         </p>
       )}
-      <div className="flex gap-3 border-t border-slate-800/80 pt-2">
+      <div style={{ display: 'flex', gap: 8, borderTop: `1px solid ${BD}`, paddingTop: 10 }}>
         <button
           type="submit"
           disabled={!canSubmit}
           title={requiredFieldsMessage || undefined}
-          className="btn-primary h-12 flex-1 rounded-xl shadow-[0_14px_30px_rgba(37,99,235,0.18)] disabled:opacity-100 disabled:bg-slate-700 disabled:border disabled:border-slate-600 disabled:text-slate-400 disabled:cursor-not-allowed disabled:shadow-none"
+          style={{
+            flex: 1, height: 38, borderRadius: 6,
+            border: `1px solid ${canSubmit ? 'transparent' : BD}`,
+            background: canSubmit ? AMBER : P2,
+            color: canSubmit ? '#000' : T3,
+            fontSize: 13, fontWeight: 600, cursor: canSubmit ? 'pointer' : 'not-allowed',
+          }}
         >
           {isLoading ? 'Saving...' : 'Save Trade'}
         </button>
-        <button type="button" onClick={onCancel} className="btn-secondary h-12 rounded-xl px-5">
+        <button
+          type="button"
+          onClick={onCancel}
+          style={{ height: 38, paddingLeft: 16, paddingRight: 16, borderRadius: 6, border: `1px solid ${BD}`, background: 'transparent', color: T2, fontSize: 13, fontWeight: 500, cursor: 'pointer' }}
+        >
           Cancel
         </button>
       </div>

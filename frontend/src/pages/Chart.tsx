@@ -571,236 +571,151 @@ export default function Chart() {
 
   if (!config) {
     return (
-      <div className="min-h-[calc(100vh-56px)] bg-[radial-gradient(circle_at_top_left,_rgba(245,158,11,0.08),_transparent_28%),linear-gradient(180deg,_#141312_0%,_#111009_34%,_#0e0d0d_100%)] px-6 py-8 text-slate-100">
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
-          <div className="relative overflow-hidden rounded-[32px] border border-[rgba(255,255,255,0.07)] bg-[linear-gradient(135deg,rgba(26,25,23,0.96),rgba(20,19,18,0.94))] px-8 py-8 shadow-[0_30px_100px_rgba(0,0,0,0.48)]">
-            <div className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-[rgba(245,158,11,0.08)] blur-3xl" />
-            <div className="pointer-events-none absolute bottom-0 right-0 h-36 w-full bg-[linear-gradient(90deg,transparent,rgba(245,158,11,0.04),transparent)]" />
-            <div className="relative grid gap-8 lg:grid-cols-[1.25fr_0.75fr] lg:items-end">
-              <div className="space-y-5">
-                <div className="inline-flex items-center rounded-full border border-[rgba(245,158,11,0.25)] bg-[#d97706]/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.26em] text-[#f59e0b]">
-                  Backtest Dashboard
-                </div>
-                <div className="space-y-3">
-                  <h1 className="max-w-3xl text-4xl font-semibold leading-tight tracking-tight text-white">
-                    Build, revisit, and relaunch your backtesting sessions from one clean workspace.
-                  </h1>
-                  <p className="max-w-2xl text-[15px] leading-7 text-slate-300">
-                    Use this dashboard to review prior session setups, keep track of the markets you test most, and jump straight into a new replay with the right symbol, window, and balance.
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-3 text-sm text-slate-400">
-                  <div className="rounded-full border border-[rgba(255,255,255,0.07)] bg-[#1a1917] px-3 py-2">TradingView replay shell</div>
-                  <div className="rounded-full border border-[rgba(255,255,255,0.07)] bg-[#1a1917] px-3 py-2">Saved setup history</div>
-                  <div className="rounded-full border border-[rgba(255,255,255,0.07)] bg-[#1a1917] px-3 py-2">One-click session resume</div>
-                </div>
-              </div>
+      <div style={{ padding: 28, overflowY: 'auto', minHeight: 'calc(100vh - 56px)' }}>
 
-              <div className="grid gap-3 rounded-[28px] border border-[rgba(255,255,255,0.07)] bg-[linear-gradient(180deg,rgba(26,25,23,0.82),rgba(20,19,18,0.88))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] backdrop-blur-sm">
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-2xl border border-[rgba(255,255,255,0.07)] bg-[#1a1917] px-4 py-4 shadow-[0_14px_34px_rgba(0,0,0,0.24)]">
-                    <p className="text-[11px] uppercase tracking-[0.22em] text-slate-500">Current Focus</p>
-                    <p className="mt-3 text-lg font-semibold text-white">
-                      {savedConfig ? savedConfig.symbolDisplay : 'No active session'}
-                    </p>
-                    <p className="mt-1 text-sm text-slate-400">
-                      {savedConfig ? `${getTimeframeLabel(savedConfig.timeframe)} replay ready` : 'Set up your first replay workspace'}
-                    </p>
-                  </div>
-                  <div className="rounded-2xl border border-[rgba(255,255,255,0.07)] bg-[#1a1917] px-4 py-4 shadow-[0_14px_34px_rgba(0,0,0,0.24)]">
-                    <p className="text-[11px] uppercase tracking-[0.22em] text-slate-500">Library Size</p>
-                    <p className="mt-3 text-lg font-semibold text-white">{dashboardStats.totalSessions} sessions</p>
-                    <p className="mt-1 text-sm text-slate-400">{dashboardStats.uniqueMarkets} markets tracked</p>
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap gap-3">
-                  {savedConfig && (
-                    <button
-                      type="button"
-                      onClick={() => resumeSession(savedConfig)}
-                      className="inline-flex h-12 items-center justify-center rounded-2xl border border-[rgba(245,158,11,0.35)] bg-[rgba(245,158,11,0.12)] px-5 text-sm font-semibold text-[#f59e0b] transition-colors hover:bg-[rgba(245,158,11,0.20)]"
-                    >
-                      Resume Current Session
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={openSetupModal}
-                    className="inline-flex h-12 items-center justify-center rounded-2xl bg-[#d97706] px-6 text-sm font-semibold text-white shadow-[0_12px_30px_rgba(245,158,11,0.20)] transition-colors hover:bg-[#b45309]"
-                  >
-                    Start New Backtest Session
-                  </button>
-                </div>
-              </div>
-            </div>
+        {/* Top bar */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+          <div>
+            <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.3em', fontWeight: 700, color: 'var(--txt-3)', marginBottom: 6 }}>
+              TradingView replay shell
+            </p>
+            <h1 style={{ fontSize: 26, fontWeight: 600, color: 'var(--txt)', margin: 0, lineHeight: 1.2, fontFamily: "'Instrument Serif', Georgia, serif" }}>
+              Backtest
+            </h1>
+            <p style={{ fontSize: 12, color: 'var(--txt-3)', margin: '4px 0 0' }}>
+              <span style={{ color: 'var(--amber-500)', fontWeight: 500 }}>{dashboardStats.totalSessions}</span> saved session{dashboardStats.totalSessions !== 1 ? 's' : ''}
+            </p>
           </div>
+          <button
+            type="button"
+            onClick={openSetupModal}
+            style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--amber-500)', color: '#000', border: 'none', borderRadius: 5, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+          >
+            New Session
+          </button>
+        </div>
 
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {[
-              ['Total Sessions', String(dashboardStats.totalSessions), 'Saved replay setups in your library'],
-              ['Markets Tested', String(dashboardStats.uniqueMarkets), 'Unique symbols explored so far'],
-              ['Avg Starting Balance', formatCurrency(dashboardStats.averageBalance), 'Typical capital used to rehearse'],
-              ['Most Used Timeframe', dashboardStats.favoriteTimeframe, 'Your most repeated replay rhythm'],
-            ].map(([label, value, helper], index) => (
-              <div
-                key={label}
-                className={`group rounded-[26px] border px-5 py-5 shadow-[0_22px_60px_rgba(0,0,0,0.28)] transition-transform duration-200 hover:-translate-y-0.5 ${
-                  index === 0
-                    ? 'border-[rgba(245,158,11,0.25)] bg-[linear-gradient(180deg,rgba(32,31,29,0.96),rgba(20,19,18,0.96))]'
-                    : 'border-[rgba(255,255,255,0.07)] bg-[linear-gradient(180deg,rgba(17,20,28,0.98),rgba(12,14,20,0.98))]'
-                }`}
-              >
-                <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">{label}</p>
-                <p className="mt-5 text-3xl font-semibold tracking-tight text-white">{value}</p>
-                <p className="mt-2 text-sm leading-6 text-slate-400">{helper}</p>
-              </div>
-            ))}
-          </div>
-
-          {savedConfig && (
-            <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-              <div className="rounded-[28px] border border-[rgba(255,255,255,0.07)] bg-[linear-gradient(180deg,rgba(26,25,23,0.98),rgba(20,19,18,0.98))] p-6 shadow-[0_24px_70px_rgba(0,0,0,0.3)]">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Current Session Ready</p>
-                    <h2 className="mt-2 text-2xl font-semibold tracking-tight text-white">{savedConfig.symbolDisplay} replay workspace</h2>
-                    <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
-                      Your most recent setup is parked and ready. Jump straight back into the chart or use it as the template for your next rehearsal.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => resumeSession(savedConfig)}
-                    className="inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(245,158,11,0.35)] bg-[rgba(245,158,11,0.12)] px-4 text-sm font-semibold text-[#f59e0b] transition-colors hover:bg-[rgba(245,158,11,0.20)]"
-                  >
-                    Open Session
-                  </button>
-                </div>
-
-                <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                  {[
-                    ['Symbol', savedConfig.symbolDisplay],
-                    ['Timeframe', getTimeframeLabel(savedConfig.timeframe)],
-                    ['Date Window', `${savedConfig.startDate} -> ${savedConfig.endDate}`],
-                    ['Balance', formatCurrency(savedConfig.accountBalance)],
-                  ].map(([label, value]) => (
-                    <div key={label} className="rounded-2xl border border-[rgba(255,255,255,0.07)] bg-[#1a1917] px-4 py-4">
-                      <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</p>
-                      <p className="mt-3 text-sm font-medium leading-6 text-slate-100">{value}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="rounded-[28px] border border-[rgba(255,255,255,0.07)] bg-[linear-gradient(180deg,rgba(26,25,23,0.98),rgba(20,19,18,0.98))] p-6 shadow-[0_24px_70px_rgba(0,0,0,0.3)]">
-                <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Latest Session</p>
-                {dashboardStats.latestSession ? (
-                  <div className="mt-5">
-                    <div className="rounded-[24px] border border-[rgba(245,158,11,0.20)] bg-[linear-gradient(180deg,rgba(32,31,29,0.70),rgba(20,19,18,0.90))] p-5">
-                      <p className="text-2xl font-semibold tracking-tight text-white">{dashboardStats.latestSession.symbolDisplay}</p>
-                      <p className="mt-2 text-sm text-slate-300">
-                        Last opened {formatSessionDate(dashboardStats.latestSession.lastOpenedAt)}
-                      </p>
-                      <div className="mt-5 flex flex-wrap gap-2 text-xs uppercase tracking-[0.16em] text-slate-300">
-                        <span className="rounded-full border border-[rgba(255,255,255,0.07)] bg-[#141312] px-3 py-2">
-                          {getTimeframeLabel(dashboardStats.latestSession.timeframe)}
-                        </span>
-                        <span className="rounded-full border border-[rgba(255,255,255,0.07)] bg-[#141312] px-3 py-2">
-                          {dashboardStats.latestSession.startDate} to {dashboardStats.latestSession.endDate}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="mt-4 text-sm text-slate-500">
-                    No backtest sessions yet. Start your first one and it will appear here.
-                  </p>
-                )}
-              </div>
+        {/* Stat cards */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+          {([
+            { label: 'Total Sessions',      value: String(dashboardStats.totalSessions), sub: 'saved replay setups' },
+            { label: 'Markets Tested',       value: String(dashboardStats.uniqueMarkets), sub: 'unique symbols' },
+            { label: 'Avg Starting Balance', value: dashboardStats.totalSessions ? formatCurrency(dashboardStats.averageBalance) : '—', sub: 'across sessions' },
+            { label: 'Most Used Timeframe',  value: dashboardStats.favoriteTimeframe, sub: 'by frequency' },
+          ] as const).map(card => (
+            <div key={card.label} style={{ background: 'var(--surface-1)', border: '1px solid var(--border)', borderRadius: 8, padding: 16 }}>
+              <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--txt-3)', marginBottom: 8 }}>{card.label}</p>
+              <p style={{ fontFamily: 'var(--font-mono)', fontSize: 24, fontWeight: 500, color: 'var(--txt)', marginBottom: 5 }}>{card.value}</p>
+              <p style={{ fontSize: 11, color: 'var(--txt-3)' }}>{card.sub}</p>
             </div>
-          )}
+          ))}
+        </div>
 
-          <div className="rounded-[30px] border border-[rgba(255,255,255,0.07)] bg-[linear-gradient(180deg,rgba(26,25,23,0.98),rgba(20,19,18,0.98))] p-6 shadow-[0_28px_80px_rgba(0,0,0,0.34)]">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Session Library</p>
-                <h2 className="mt-2 text-2xl font-semibold tracking-tight text-white">Other Backtesting Sessions</h2>
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
-                  Keep each rehearsal configuration in one place so you can revisit old markets, time windows, and balances without rebuilding the setup from scratch.
+        {/* Current Focus card */}
+        <div style={{ background: 'var(--surface-1)', border: '1px solid var(--border)', borderRadius: 8, padding: '18px 22px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 20 }}>
+          <div style={{ width: 42, height: 42, borderRadius: 8, background: 'var(--amber-dim)', border: '1px solid var(--amber-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Play size={16} style={{ color: 'var(--amber-500)' }} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-3)', marginBottom: 4 }}>Current Focus</p>
+            {savedConfig ? (
+              <>
+                <p style={{ fontFamily: 'var(--font-mono)', fontSize: 15, fontWeight: 500, color: 'var(--txt)', marginBottom: 3 }}>
+                  {savedConfig.symbolDisplay} · {getTimeframeLabel(savedConfig.timeframe)} · {savedConfig.startDate} → {savedConfig.endDate}
                 </p>
-              </div>
+                <p style={{ fontSize: 11, color: 'var(--txt-3)' }}>{formatCurrency(savedConfig.accountBalance)} starting balance</p>
+              </>
+            ) : (
+              <p style={{ fontSize: 13, color: 'var(--txt-3)', fontStyle: 'italic' }}>No active session — start your first replay workspace.</p>
+            )}
+          </div>
+          {savedConfig && (
+            <button
+              type="button"
+              onClick={() => resumeSession(savedConfig)}
+              style={{ flexShrink: 0, background: 'var(--amber-dim)', color: 'var(--amber-500)', border: '1px solid var(--amber-border)', borderRadius: 5, padding: '7px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+            >
+              Resume
+            </button>
+          )}
+        </div>
+
+        {/* Session Library */}
+        <div style={{ background: 'var(--surface-1)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid var(--border)' }}>
+            <div>
+              <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-3)', marginBottom: 2 }}>Session Library</p>
+              <p style={{ fontSize: 14, fontWeight: 500, color: 'var(--txt)', margin: 0 }}>{dashboardStats.totalSessions} saved configuration{dashboardStats.totalSessions !== 1 ? 's' : ''}</p>
+            </div>
+            <button
+              type="button"
+              onClick={openSetupModal}
+              style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 5, padding: '6px 12px', fontSize: 12, fontWeight: 500, color: 'var(--txt-2)', cursor: 'pointer' }}
+            >
+              New Session
+            </button>
+          </div>
+
+          {sessionHistory.length > 0 ? (
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  {(['Market', 'Timeframe', 'Date Range', 'Balance', 'Opened', ''] as const).map((col, i) => (
+                    <th key={col + i} style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--txt-3)', padding: '10px 18px', borderBottom: '1px solid var(--border)', textAlign: i === 5 ? 'right' : 'left', fontWeight: 600 }}>
+                      {col}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {sessionHistory.slice(0, 12).map((item, rowIdx) => (
+                  <tr
+                    key={item.sessionId}
+                    style={{ borderBottom: rowIdx < Math.min(sessionHistory.length, 12) - 1 ? '1px solid var(--border-sub)' : 'none', transition: 'background 120ms' }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLTableRowElement).style.background = 'rgba(255,255,255,0.015)'; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLTableRowElement).style.background = 'transparent'; }}
+                  >
+                    <td style={{ padding: '12px 18px' }}>
+                      <p style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 500, color: 'var(--txt)' }}>{item.symbolDisplay}</p>
+                      <p style={{ fontSize: 10, color: 'var(--txt-3)', marginTop: 2 }}>Opened {formatSessionDate(item.lastOpenedAt)}</p>
+                    </td>
+                    <td style={{ padding: '12px 18px' }}>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 3, padding: '2px 7px', color: 'var(--txt-2)' }}>{getTimeframeLabel(item.timeframe)}</span>
+                    </td>
+                    <td style={{ padding: '12px 18px', fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--txt)' }}>
+                      {item.startDate} → {item.endDate}
+                    </td>
+                    <td style={{ padding: '12px 18px', fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--txt)' }}>
+                      {formatCurrency(item.accountBalance)}
+                    </td>
+                    <td style={{ padding: '12px 18px', fontSize: 11, color: 'var(--txt-3)' }}>
+                      {formatSessionDate(item.lastOpenedAt)}
+                    </td>
+                    <td style={{ padding: '12px 18px', textAlign: 'right' }}>
+                      <button
+                        type="button"
+                        onClick={() => resumeSession(item)}
+                        style={{ background: 'var(--amber-500)', color: '#000', border: 'none', borderRadius: 4, padding: '5px 12px', fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                      >
+                        <Play size={10} /> Open
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <div style={{ padding: '32px 18px', textAlign: 'center' }}>
+              <p style={{ fontSize: 13, color: 'var(--txt-3)', marginBottom: 12 }}>No sessions yet. Start your first replay to build your library.</p>
               <button
                 type="button"
                 onClick={openSetupModal}
-                className="inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(255,255,255,0.07)] bg-[#1a1917] px-4 text-sm font-medium text-slate-100 transition-colors hover:bg-[#27251f]"
+                style={{ background: 'var(--amber-500)', border: 'none', borderRadius: 5, padding: '8px 16px', fontSize: 13, fontWeight: 600, color: '#000', cursor: 'pointer' }}
               >
                 New Session
               </button>
             </div>
-
-            {sessionHistory.length > 0 ? (
-              <div className="mt-6 overflow-hidden rounded-[24px] border border-[rgba(255,255,255,0.07)] bg-[#141312]">
-                <div className="grid grid-cols-[1.25fr_0.75fr_1fr_0.9fr_0.75fr] gap-3 border-b border-[rgba(255,255,255,0.07)] bg-[#1a1917] px-5 py-3 text-[11px] uppercase tracking-[0.16em] text-slate-500">
-                  <span>Market</span>
-                  <span>Timeframe</span>
-                  <span>Range</span>
-                  <span>Balance</span>
-                  <span className="text-right">Action</span>
-                </div>
-                <div className="divide-y divide-[rgba(255,255,255,0.05)]">
-                  {sessionHistory.slice(0, 8).map(item => (
-                    <div
-                      key={item.sessionId}
-                      className="grid grid-cols-[1.25fr_0.75fr_1fr_0.9fr_0.75fr] items-center gap-3 bg-transparent px-5 py-4 text-sm text-slate-200 transition-colors hover:bg-[#1a1917]"
-                    >
-                      <div>
-                        <p className="font-medium text-white">{item.symbolDisplay}</p>
-                        <p className="mt-1 text-xs text-slate-500">Opened {formatSessionDate(item.lastOpenedAt)}</p>
-                      </div>
-                      <span>{getTimeframeLabel(item.timeframe)}</span>
-                      <span>{item.startDate} {'->'} {item.endDate}</span>
-                      <span>{formatCurrency(item.accountBalance)}</span>
-                      <div className="flex justify-end">
-                        <button
-                          type="button"
-                          onClick={() => resumeSession(item)}
-                          className="inline-flex h-9 items-center justify-center rounded-xl border border-[rgba(245,158,11,0.35)] bg-[rgba(245,158,11,0.12)]/80 px-4 text-sm font-medium text-[#f59e0b] transition-colors hover:bg-[rgba(245,158,11,0.20)]"
-                        >
-                          Open
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div className="mt-6 grid gap-5 rounded-[26px] border border-[rgba(255,255,255,0.07)] bg-[linear-gradient(180deg,rgba(26,25,23,0.82),rgba(20,19,18,0.92))] px-8 py-10 lg:grid-cols-[1.1fr_0.9fr] lg:items-center shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
-                <div>
-                  <p className="text-[11px] uppercase tracking-[0.2em] text-[#f59e0b]">Ready To Start</p>
-                  <p className="mt-3 text-2xl font-semibold tracking-tight text-white">No backtesting sessions saved yet.</p>
-                  <p className="mt-3 max-w-xl text-sm leading-7 text-slate-300">
-                    Start one fresh session and this library will begin filling out with reusable setups for different markets, date ranges, and account sizes.
-                  </p>
-                </div>
-
-                <div className="grid gap-3 text-sm text-slate-300">
-                  {[
-                    'Choose the symbol and timeframe you want to rehearse',
-                    'Set the date window and the starting balance for context',
-                    'Launch the chart and come back here anytime to reopen it',
-                  ].map((item, index) => (
-                    <div key={item} className="flex items-start gap-3 rounded-2xl border border-[rgba(255,255,255,0.07)] bg-[#1a1917] px-4 py-3">
-                      <span className="mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded-full bg-[#d97706]/20 text-xs font-semibold text-[#f59e0b]">
-                        {index + 1}
-                      </span>
-                      <span className="leading-6">{item}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
+          )}
         </div>
 
         {isSetupOpen && (
@@ -811,13 +726,13 @@ export default function Chart() {
               onClick={() => setIsSetupOpen(false)}
               className="absolute inset-0 cursor-default"
             />
-            <div className="relative z-10 w-full max-w-4xl rounded-[32px] border border-[#222] bg-[#111111] p-8 shadow-[0_30px_80px_rgba(0,0,0,0.45)]">
+            <div style={{ position: 'relative', zIndex: 10, width: '100%', maxWidth: 720, background: 'var(--surface-1)', border: '1px solid var(--border)', borderRadius: 12, padding: 32, boxShadow: '0 30px 80px rgba(0,0,0,0.5)' }}>
               <div className="flex items-start justify-between gap-4">
                 <div className="space-y-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Backtest Setup</p>
-                  <h2 className="text-3xl font-semibold tracking-tight text-white">Configure Your Backtest</h2>
-                  <p className="max-w-2xl text-sm text-slate-400">
-                    Choose the asset, timeframe, backtest window, and account balance first. After you submit, the live backtesting chart will open with those settings applied.
+                  <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.24em', color: 'var(--txt-3)', marginBottom: 4 }}>Backtest Setup</p>
+                  <h2 style={{ fontSize: 22, fontWeight: 600, color: 'var(--txt)', fontFamily: "'Instrument Serif', Georgia, serif", margin: 0 }}>Configure Your Backtest</h2>
+                  <p style={{ fontSize: 13, color: 'var(--txt-3)', maxWidth: 500 }}>
+                    Choose the asset, timeframe, backtest window, and account balance. The chart will open with those settings applied.
                   </p>
                 </div>
                 <button type="button" onClick={() => setIsSetupOpen(false)} className={iconButtonClass}>
@@ -972,7 +887,7 @@ export default function Chart() {
                   </p>
                   <button
                     type="submit"
-                    className="inline-flex h-12 items-center justify-center rounded-2xl bg-[#d97706] px-6 text-sm font-semibold text-white transition-colors hover:bg-[#b45309]"
+                    style={{ background: 'var(--amber-500)', color: '#000', border: 'none', borderRadius: 5, padding: '10px 22px', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}
                   >
                     Launch Backtest
                   </button>

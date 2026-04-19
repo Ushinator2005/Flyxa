@@ -1,12 +1,12 @@
-import { CSSProperties } from 'react';
 import { NavLink } from 'react-router-dom';
 
-const subSectionLabelStyle: CSSProperties = {
-  fontSize: 9,
-  fontWeight: 600,
-  letterSpacing: '0.1em',
-  textTransform: 'uppercase',
-  color: '#64748b',
+const colors = {
+  d1: '#141312',
+  b0: 'rgba(255,255,255,0.07)',
+  t0: '#e8e3dc',
+  t1: '#8a8178',
+  t2: '#5c5751',
+  acc: '#f59e0b',
 };
 
 const NAV_ITEMS = [
@@ -20,29 +20,26 @@ const NAV_ITEMS = [
 export default function FlyxaNav() {
   return (
     <aside
-      className="min-h-0 overflow-y-auto border-r border-white/10 px-3 py-4"
-      style={{ backgroundColor: '#080d18' }}
+      className="min-h-0 overflow-y-auto border-r px-2 py-4"
+      style={{ backgroundColor: colors.d1, borderColor: colors.b0 }}
     >
-      <p style={subSectionLabelStyle}>Flyxa AI</p>
-      <nav className="mt-4 space-y-1">
+      <div className="px-2">
+        <p className="text-[14px] font-bold tracking-[0.1em]" style={{ color: colors.t0 }}>FLYXA</p>
+        <p className="mt-0.5 text-[9.5px]" style={{ color: colors.t2 }}>Trading Intelligence</p>
+      </div>
+
+      <nav className="mt-4 space-y-0.5">
         {NAV_ITEMS.map(item => (
           <NavLink key={item.key} to={item.to} end={item.end}>
             {({ isActive }) => (
               <span
-                className="flex w-full items-center gap-2 text-sm transition-colors"
+                className="block border-l-2 px-2.5 py-2 text-[12.5px] transition-colors hover:bg-white/[0.04]"
                 style={{
-                  color: isActive ? '#c7d2fe' : '#94a3b8',
-                  backgroundColor: isActive ? 'rgba(74,158,255,0.12)' : 'transparent',
-                  borderRight: isActive ? '2px solid #4a9eff' : '2px solid transparent',
-                  padding: '0.5rem 0.75rem',
-                  borderRadius: 6,
-                  display: 'flex',
+                  borderLeftColor: isActive ? colors.acc : 'transparent',
+                  backgroundColor: isActive ? 'rgba(245,158,11,0.07)' : 'transparent',
+                  color: isActive ? colors.acc : colors.t1,
                 }}
               >
-                <span
-                  className="h-[7px] w-[7px] shrink-0 rounded-full"
-                  style={{ backgroundColor: isActive ? '#4a9eff' : '#64748b' }}
-                />
                 {item.label}
               </span>
             )}
