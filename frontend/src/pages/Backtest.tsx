@@ -2,12 +2,19 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   AlertCircle,
+  BarChart3,
   ChevronLeft,
+  Clock3,
+  DollarSign,
   Download,
+  ExternalLink,
+  Filter,
+  Layers3,
   Minus,
   MousePointer2,
   Pause,
   Play,
+  PlayCircle,
   Plus,
   Search,
   Square,
@@ -170,11 +177,31 @@ interface SavedSession {
   endDate: string;
   balance: number;
   openedAt: string;
+  isActive: boolean;
 }
 
 const CHART_SCRIPT_SRC = 'https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js';
 const BACKTEST_PREFILL_KEY = 'tw_backtest_trade_prefill';
 const SESSIONS_KEY = 'tw_backtest_sessions';
+
+const BACKTEST_LIBRARY_THEME = {
+  '--bg': 'var(--app-bg)',
+  '--surface-1': 'var(--app-panel)',
+  '--surface-2': 'var(--app-panel-strong)',
+  '--border': 'var(--app-border)',
+  '--border-sub': 'rgba(255,255,255,0.05)',
+  '--txt': 'var(--app-text)',
+  '--txt-2': 'var(--app-text-muted)',
+  '--txt-3': 'var(--app-text-subtle)',
+  '--amber': 'var(--accent)',
+  '--amber-dim': 'var(--accent-dim)',
+  '--amber-border': 'var(--accent-border)',
+  '--cobalt': '#6EA8FE',
+  '--cobalt-dim': 'rgba(110,168,254,0.14)',
+  '--green': '#34D399',
+  '--green-dim': 'rgba(52,211,153,0.14)',
+  '--danger': '#F87171',
+} as React.CSSProperties;
 
 const TIMEFRAME_OPTIONS: Array<{ label: ReplayTimeframe; interval: string; minutes: number }> = [
   { label: '1m', interval: '1m', minutes: 1 },
@@ -630,7 +657,23 @@ export default function Backtest() {
   useEffect(() => {
     try {
       const raw = localStorage.getItem(SESSIONS_KEY);
-      if (raw) setSavedSessions(JSON.parse(raw) as SavedSession[]);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Array<Partial<SavedSession>>;
+      if (!Array.isArray(parsed)) return;
+      const normalized = parsed
+        .filter(item => typeof item?.id === 'string' && typeof item?.symbol === 'string')
+        .map(item => ({
+          id: item.id as string,
+          symbol: item.symbol as string,
+          timeframe: (item.timeframe as ReplayTimeframe) ?? '5m',
+          range: (item.range as ReplayRange) ?? '5D',
+          startDate: typeof item.startDate === 'string' ? item.startDate : '',
+          endDate: typeof item.endDate === 'string' ? item.endDate : '',
+          balance: Number.isFinite(item.balance) ? Number(item.balance) : 25000,
+          openedAt: typeof item.openedAt === 'string' ? item.openedAt : new Date().toISOString(),
+          isActive: Boolean(item.isActive),
+        }));
+      setSavedSessions(normalized);
     } catch { /* ignore */ }
   }, []);
 
@@ -648,6 +691,12 @@ export default function Backtest() {
     setTimeframe(sess.timeframe);
     setRange(sess.range);
     setShowNewSessionForm(false);
+    const openedAt = new Date().toISOString();
+    setSavedSessions(prev => prev.map(item => (
+      item.id === sess.id
+        ? { ...item, openedAt, isActive: true }
+        : { ...item, isActive: false }
+    )));
     // Trigger load after state flushes
     setLoading(true);
     setLoadError('');
@@ -704,8 +753,15 @@ export default function Backtest() {
         endDate: candles[candles.length - 1] ? toDate(candles[candles.length - 1].time) : '',
         balance: Number(startingBalance) || 25000,
         openedAt: new Date().toISOString(),
+        isActive: true,
       };
-      setSavedSessions(prev => [newSaved, ...prev.filter(s => !(s.symbol === symbol && s.timeframe === timeframe && s.range === range)).slice(0, 49)]);
+      setSavedSessions(prev => [
+        newSaved,
+        ...prev
+          .filter(s => !(s.symbol === symbol && s.timeframe === timeframe && s.range === range))
+          .map(s => ({ ...s, isActive: false }))
+          .slice(0, 49),
+      ]);
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : 'Failed to load replay data.');
     } finally {
@@ -850,7 +906,7 @@ export default function Backtest() {
     Number.isFinite(targetValue) && Number.isFinite(quantityValue) && quantityValue > 0 && !simulation.activeTrade
   );
 
-  // ── Library + setup screens ──────────────────────────────────────────────────
+  // Library + setup screens
   if (!session) {
     const S: React.CSSProperties = {}; // namespace helper (unused, just for reference)
     void S;
@@ -860,19 +916,13 @@ export default function Backtest() {
     const avgBalance = totalSessions > 0
       ? savedSessions.reduce((n, s) => n + s.balance, 0) / totalSessions
       : 0;
-    const mostUsedTf = (() => {
-      if (!totalSessions) return '—';
-      const freq: Record<string, number> = {};
-      savedSessions.forEach(s => { freq[s.timeframe] = (freq[s.timeframe] ?? 0) + 1; });
-      return Object.entries(freq).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '—';
-    })();
     const filteredSessions = savedSessions.filter(s =>
       !sessionSearch.trim() || s.symbol.toUpperCase().includes(sessionSearch.trim().toUpperCase()),
     );
     const fmtCurrency = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 });
     const fmtOpened = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 
-    // ── New session config form ──
+    // New session config form
     if (showNewSessionForm) {
       return (
         <div style={{ padding: 28, maxWidth: 760 }}>
@@ -970,170 +1020,522 @@ export default function Backtest() {
       );
     }
 
-    // ── Library view ──
-    return (
-      <div style={{ padding: 28, overflowY: 'auto' }}>
+    // Library view
+    const activeSession = savedSessions.find(s => s.isActive) ?? null;
+    const latestSession = [...savedSessions].sort(
+      (a, b) => new Date(b.openedAt).getTime() - new Date(a.openedAt).getTime()
+    )[0] ?? null;
 
-        {/* Top bar */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+    const statCards = [
+      {
+        label: 'Total Sessions',
+        value: String(totalSessions),
+        sub: 'saved replay setups',
+        Icon: Layers3,
+        badgeBg: 'var(--amber-dim)',
+        badgeColor: 'var(--amber)',
+        badgeBorder: 'var(--amber-border)',
+      },
+      {
+        label: 'Markets Tested',
+        value: String(marketsTested),
+        sub: 'unique symbols',
+        Icon: BarChart3,
+        badgeBg: 'var(--cobalt-dim)',
+        badgeColor: 'var(--cobalt)',
+        badgeBorder: 'var(--border)',
+      },
+      {
+        label: 'Avg Starting Balance',
+        value: totalSessions ? fmtCurrency(avgBalance) : '—',
+        sub: 'across sessions',
+        Icon: DollarSign,
+        badgeBg: 'var(--green-dim)',
+        badgeColor: 'var(--green)',
+        badgeBorder: 'var(--border)',
+      },
+      {
+        label: 'Last Opened',
+        value: latestSession ? fmtOpened(latestSession.openedAt) : '—',
+        sub: 'most recent session',
+        Icon: Clock3,
+        badgeBg: 'var(--surface-2)',
+        badgeColor: 'var(--txt-2)',
+        badgeBorder: 'var(--border)',
+      },
+    ] as const;
+
+    return (
+      <div
+        style={{
+          ...BACKTEST_LIBRARY_THEME,
+          minHeight: 'calc(100vh - 56px)',
+          overflowY: 'auto',
+          background: 'linear-gradient(180deg, color-mix(in srgb, var(--surface-2) 34%, var(--bg)) 0%, var(--bg) 280px)',
+          fontFamily: 'var(--font-sans)',
+        }}
+      >
+        <div
+          style={{
+            position: 'sticky',
+            top: 0,
+            zIndex: 20,
+            background: 'var(--bg)',
+            borderBottom: '1px solid var(--border)',
+            padding: '16px 28px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 16,
+          }}
+        >
           <div>
-            <h1 style={{ fontSize: 18, fontWeight: 600, color: 'var(--txt)', margin: 0, lineHeight: 1.2 }}>Backtest</h1>
-            <p style={{ fontSize: 12, color: 'var(--txt-3)', margin: '4px 0 0' }}>
+            <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--txt-3)', margin: '0 0 4px' }}>
+              BACKTEST
+            </p>
+            <p style={{ fontSize: 18, fontWeight: 600, color: 'var(--txt)', margin: '0 0 3px', lineHeight: 1.2 }}>
+              Backtest
+            </p>
+            <p style={{ fontSize: 12, color: 'var(--txt-2)', margin: 0 }}>
               TradingView replay shell ·{' '}
-              <span style={{ color: 'var(--amber-500)', fontWeight: 500 }}>{totalSessions}</span> saved session{totalSessions !== 1 ? 's' : ''}
+              <span style={{ color: 'var(--amber)', fontWeight: 500 }}>{totalSessions}</span>{' '}
+              saved session{totalSessions !== 1 ? 's' : ''}
             </p>
           </div>
-          <button type="button" onClick={() => setShowNewSessionForm(true)}
-            style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--amber-500)', color: '#000', border: 'none', borderRadius: 5, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-            <Plus size={13} /> New Session
+
+          <button
+            type="button"
+            onClick={() => setShowNewSessionForm(true)}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 7,
+              background: 'var(--amber)',
+              color: 'var(--bg)',
+              border: 'none',
+              borderRadius: 5,
+              padding: '8px 14px',
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            <Plus size={14} />
+            New Session
           </button>
         </div>
 
-        {/* Stat cards row */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
-          {[
-            { label: 'Total Sessions', value: String(totalSessions), sub: 'all time' },
-            { label: 'Markets Tested', value: String(marketsTested), sub: 'unique symbols' },
-            { label: 'Avg Starting Balance', value: totalSessions ? fmtCurrency(avgBalance) : '—', sub: 'across sessions' },
-            { label: 'Most Used Timeframe', value: mostUsedTf, sub: 'by frequency' },
-          ].map(card => (
-            <div key={card.label} style={{ background: 'var(--surface-1)', border: '1px solid var(--border)', borderRadius: 8, padding: 16 }}>
-              <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--txt-3)', marginBottom: 8 }}>{card.label}</p>
-              <p style={{ fontFamily: 'var(--font-mono)', fontSize: 24, fontWeight: 500, color: 'var(--txt)', marginBottom: 5, tabularNums: true } as React.CSSProperties}>{card.value}</p>
-              <p style={{ fontSize: 11, color: 'var(--txt-3)' }}>{card.sub}</p>
-            </div>
-          ))}
-        </div>
-
-        {/* Current Focus card */}
-        <div style={{ background: 'var(--surface-1)', border: '1px solid var(--border)', borderRadius: 8, padding: '20px 24px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 24 }}>
-          {/* Icon badge */}
-          <div style={{ width: 44, height: 44, borderRadius: 8, background: 'var(--amber-dim)', border: '1px solid var(--amber-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <Play size={18} style={{ color: 'var(--amber-500)' }} />
+        <div style={{ padding: '24px 28px 40px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 12, marginBottom: 20 }}>
+            {statCards.map(card => (
+              <div
+                key={card.label}
+                style={{
+                  background: 'var(--surface-1)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 8,
+                  padding: 16,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                  <div
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 8,
+                      background: card.badgeBg,
+                      border: `1px solid ${card.badgeBorder}`,
+                      color: card.badgeColor,
+                      display: 'grid',
+                      placeItems: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <card.Icon size={16} />
+                  </div>
+                  <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--txt-3)', margin: 0 }}>
+                    {card.label}
+                  </p>
+                </div>
+                <p
+                  style={{
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 22,
+                    fontWeight: 500,
+                    color: 'var(--txt)',
+                    margin: '0 0 5px',
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
+                >
+                  {card.value}
+                </p>
+                <p style={{ fontSize: 11, color: 'var(--txt-3)', margin: 0 }}>{card.sub}</p>
+              </div>
+            ))}
           </div>
-          {/* Content */}
-          <div style={{ flex: 1 }}>
-            <p style={{ fontSize: 14, fontWeight: 500, color: 'var(--txt)', marginBottom: 4 }}>Current Focus</p>
-            {savedSessions.length === 0 ? (
-              <p style={{ fontSize: 12, color: 'var(--txt-3)', fontStyle: 'italic' }}>No active session — set up your first replay workspace.</p>
-            ) : (
-              <p style={{ fontSize: 12, color: 'var(--txt-2)' }}>
-                {savedSessions[0].symbol} · {savedSessions[0].timeframe} · {savedSessions[0].startDate} → {savedSessions[0].endDate}
+
+          <div
+            style={{
+              marginBottom: 20,
+              background: 'var(--surface-1)',
+              border: '1px solid var(--border)',
+              borderRadius: 8,
+              padding: '18px 22px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 20,
+            }}
+          >
+            <div
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 8,
+                background: 'var(--amber-dim)',
+                border: '1px solid var(--amber-border)',
+                display: 'grid',
+                placeItems: 'center',
+                color: 'var(--amber)',
+                flexShrink: 0,
+              }}
+            >
+              <PlayCircle size={20} />
+            </div>
+
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--txt-3)', margin: '0 0 4px' }}>
+                CURRENT FOCUS
               </p>
-            )}
-            <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
-              {['TradingView replay shell', 'Saved setup history', 'One-click session resume'].map(chip => (
-                <span key={chip} style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 3, padding: '3px 8px', fontSize: 11, color: 'var(--txt-3)' }}>{chip}</span>
-              ))}
-            </div>
-          </div>
-          {/* CTA */}
-          <button type="button" onClick={() => setShowNewSessionForm(true)}
-            style={{ flexShrink: 0, background: 'var(--amber-500)', color: '#000', border: 'none', borderRadius: 5, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-            Start New Session
-          </button>
-        </div>
-
-        {/* Session Library table card */}
-        <div style={{ background: 'var(--surface-1)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
-          {/* Card header */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid var(--border)' }}>
-            <div>
-              <p style={{ fontSize: 13, fontWeight: 500, color: 'var(--txt)', margin: 0 }}>Session Library</p>
-              <p style={{ fontSize: 11, color: 'var(--txt-3)', margin: '3px 0 0' }}>{totalSessions} saved replay configuration{totalSessions !== 1 ? 's' : ''}</p>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ position: 'relative' }}>
-                <Search size={12} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-3)', pointerEvents: 'none' }} />
-                <input
-                  type="text"
-                  value={sessionSearch}
-                  onChange={e => setSessionSearch(e.target.value)}
-                  placeholder="Search sessions…"
-                  style={{ height: 32, paddingLeft: 28, paddingRight: 10, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 5, fontSize: 12, color: 'var(--txt)', outline: 'none', width: 180 }}
-                />
+              {activeSession ? (
+                <>
+                  <p style={{ fontSize: 13, fontWeight: 500, color: 'var(--txt)', margin: '0 0 3px' }}>
+                    {activeSession.symbol} · {activeSession.timeframe}
+                  </p>
+                  <p
+                    style={{
+                      fontSize: 12,
+                      color: 'var(--txt-2)',
+                      margin: 0,
+                      fontFamily: 'var(--font-mono)',
+                      fontVariantNumeric: 'tabular-nums',
+                    }}
+                  >
+                    {activeSession.startDate} {'->'} {activeSession.endDate} · {fmtCurrency(activeSession.balance)}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p style={{ fontSize: 13, fontWeight: 500, color: 'var(--txt)', margin: '0 0 3px' }}>No active session</p>
+                  <p style={{ fontSize: 12, color: 'var(--txt-2)', margin: 0 }}>Set up your first replay workspace to begin testing.</p>
+                </>
+              )}
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
+                {['TradingView replay shell', 'Saved setup history', 'One-click session resume'].map(chip => (
+                  <span
+                    key={chip}
+                    style={{
+                      fontSize: 11,
+                      color: 'var(--txt-3)',
+                      background: 'var(--surface-2)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 3,
+                      padding: '3px 9px',
+                    }}
+                  >
+                    {chip}
+                  </span>
+                ))}
               </div>
             </div>
+
+            <button
+              type="button"
+              onClick={() => setShowNewSessionForm(true)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 7,
+                flexShrink: 0,
+                background: 'var(--amber)',
+                color: 'var(--bg)',
+                border: 'none',
+                borderRadius: 5,
+                padding: '8px 14px',
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              <Play size={14} />
+              Start New Session
+            </button>
           </div>
 
-          {/* Table */}
-          {filteredSessions.length === 0 ? (
-            <div style={{ padding: '32px 18px', textAlign: 'center' }}>
-              <p style={{ fontSize: 13, color: 'var(--txt-3)' }}>
-                {totalSessions === 0 ? 'No sessions yet. Start your first replay to build your library.' : 'No sessions match your search.'}
-              </p>
-              {totalSessions === 0 && (
-                <button type="button" onClick={() => setShowNewSessionForm(true)}
-                  style={{ marginTop: 12, background: 'var(--amber-500)', border: 'none', borderRadius: 5, padding: '8px 14px', fontSize: 13, fontWeight: 600, color: '#000', cursor: 'pointer' }}>
+          <div style={{ background: 'var(--surface-1)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+            <div
+              style={{
+                padding: '14px 20px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+                borderBottom: '1px solid var(--border)',
+              }}
+            >
+              <div>
+                <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--txt-3)', margin: '0 0 3px' }}>
+                  SESSION LIBRARY
+                </p>
+                <p style={{ fontSize: 13, fontWeight: 500, color: 'var(--txt)', margin: 0 }}>
+                  {totalSessions} saved configuration{totalSessions !== 1 ? 's' : ''}
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ position: 'relative' }}>
+                  <Search
+                    size={12}
+                    style={{
+                      position: 'absolute',
+                      left: 10,
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      color: 'var(--txt-3)',
+                      pointerEvents: 'none',
+                    }}
+                  />
+                  <input
+                    type="text"
+                    value={sessionSearch}
+                    onChange={event => setSessionSearch(event.target.value)}
+                    placeholder="Search symbol..."
+                    style={{
+                      width: 184,
+                      height: 32,
+                      background: 'var(--surface-2)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 5,
+                      padding: '6px 10px 6px 30px',
+                      fontSize: 12,
+                      color: 'var(--txt)',
+                      outline: 'none',
+                    }}
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  style={{
+                    height: 32,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    background: 'var(--surface-2)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 4,
+                    padding: '0 10px',
+                    fontSize: 11,
+                    color: 'var(--txt-2)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <Filter size={12} />
+                  Filter
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowNewSessionForm(true)}
+                  style={{
+                    height: 32,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    background: 'var(--amber)',
+                    color: 'var(--bg)',
+                    border: 'none',
+                    borderRadius: 4,
+                    padding: '0 10px',
+                    fontSize: 11,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <Plus size={11} />
                   New Session
                 </button>
-              )}
+              </div>
             </div>
-          ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr>
-                  {['Market', 'Timeframe', 'Date Range', 'Balance', 'Opened', ''].map((col, i) => (
-                    <th key={col + i} style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--txt-3)', padding: '10px 18px', borderBottom: '1px solid var(--border)', textAlign: i === 5 ? 'right' : 'left', fontWeight: 600 }}>
-                      {col}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filteredSessions.map((sess, rowIdx) => (
-                  <tr key={sess.id}
-                    style={{ borderBottom: rowIdx < filteredSessions.length - 1 ? '1px solid var(--border-sub)' : 'none' }}
-                    onMouseEnter={e => { Array.from((e.currentTarget as HTMLTableRowElement).cells).forEach(td => { (td as HTMLTableCellElement).style.background = 'rgba(255,255,255,0.015)'; }); }}
-                    onMouseLeave={e => { Array.from((e.currentTarget as HTMLTableRowElement).cells).forEach(td => { (td as HTMLTableCellElement).style.background = 'transparent'; }); }}
-                  >
-                    <td style={{ padding: '12px 18px', transition: 'background 150ms' }}>
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 500, color: 'var(--txt)' }}>{sess.symbol}</span>
-                    </td>
-                    <td style={{ padding: '12px 18px', transition: 'background 150ms' }}>
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 500, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 3, padding: '2px 7px', color: 'var(--txt-2)' }}>{sess.timeframe}</span>
-                    </td>
-                    <td style={{ padding: '12px 18px', fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--txt)', tabularNums: true, transition: 'background 150ms' } as React.CSSProperties}>
-                      {sess.startDate} → {sess.endDate}
-                    </td>
-                    <td style={{ padding: '12px 18px', fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--txt)', tabularNums: true, transition: 'background 150ms' } as React.CSSProperties}>
-                      {fmtCurrency(sess.balance)}
-                    </td>
-                    <td style={{ padding: '12px 18px', fontSize: 11, color: 'var(--txt-3)', transition: 'background 150ms' }}>
-                      {fmtOpened(sess.openedAt)}
-                    </td>
-                    <td style={{ padding: '12px 18px', textAlign: 'right', transition: 'background 150ms' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
-                        <button type="button" onClick={() => handleDeleteSession(sess.id)}
-                          title="Delete session"
-                          style={{ background: 'none', border: 'none', padding: 4, cursor: 'pointer', color: 'var(--txt-3)', display: 'flex', alignItems: 'center', transition: 'color 150ms' }}
-                          onMouseEnter={e => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--red)')}
-                          onMouseLeave={e => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--txt-3)')}>
-                          <Trash2 size={13} />
-                        </button>
-                        <button type="button" onClick={() => handleOpenSession(sess)}
-                          style={{ background: 'var(--amber-500)', color: '#000', border: 'none', borderRadius: 4, padding: '5px 12px', fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
-                          <Play size={11} /> Open
-                        </button>
-                      </div>
-                    </td>
+
+            {filteredSessions.length === 0 ? (
+              <div style={{ padding: '30px 20px', textAlign: 'center' }}>
+                <p style={{ fontSize: 13, color: 'var(--txt-2)', margin: 0 }}>
+                  {totalSessions === 0
+                    ? 'No sessions yet. Start your first replay to build your library.'
+                    : 'No sessions match this symbol search.'}
+                </p>
+              </div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>
+                    {['Market', 'Timeframe', 'Date Range', 'Balance', 'Opened', 'Action'].map((column, index) => (
+                      <th
+                        key={`${column}-${index}`}
+                        style={{
+                          fontSize: 10,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.08em',
+                          color: 'var(--txt-3)',
+                          padding: '10px 20px',
+                          borderBottom: '1px solid var(--border)',
+                          textAlign: index === 5 ? 'right' : 'left',
+                          fontWeight: 600,
+                        }}
+                      >
+                        {column}
+                      </th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+                </thead>
+                <tbody>
+                  {filteredSessions.map((sess, rowIdx) => {
+                    const isLast = rowIdx === filteredSessions.length - 1;
+                    return (
+                      <tr
+                        key={sess.id}
+                        style={{ borderBottom: isLast ? 'none' : '1px solid var(--border-sub)' }}
+                        onMouseEnter={event => {
+                          Array.from((event.currentTarget as HTMLTableRowElement).cells).forEach(cell => {
+                            (cell as HTMLTableCellElement).style.background = 'rgba(255,255,255,0.015)';
+                          });
+                        }}
+                        onMouseLeave={event => {
+                          Array.from((event.currentTarget as HTMLTableRowElement).cells).forEach(cell => {
+                            (cell as HTMLTableCellElement).style.background = 'transparent';
+                          });
+                        }}
+                      >
+                        <td style={{ padding: '20px 20px', transition: 'background 120ms' }}>
+                          <p style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 500, color: 'var(--txt)', margin: 0 }}>
+                            {sess.symbol}
+                          </p>
+                          <p
+                            style={{
+                              margin: '2px 0 0',
+                              fontFamily: 'var(--font-mono)',
+                              fontSize: 11,
+                              color: 'var(--txt-3)',
+                              fontVariantNumeric: 'tabular-nums',
+                            }}
+                          >
+                            {fmtOpened(sess.openedAt)}
+                          </p>
+                        </td>
+                        <td style={{ padding: '20px 20px', transition: 'background 120ms' }}>
+                          <span
+                            style={{
+                              fontFamily: 'var(--font-mono)',
+                              fontSize: 11,
+                              fontWeight: 500,
+                              color: 'var(--txt-2)',
+                              background: 'var(--surface-2)',
+                              border: '1px solid var(--border)',
+                              borderRadius: 3,
+                              padding: '2px 7px',
+                            }}
+                          >
+                            {sess.timeframe}
+                          </span>
+                        </td>
+                        <td
+                          style={{
+                            padding: '20px 20px',
+                            transition: 'background 120ms',
+                            fontFamily: 'var(--font-mono)',
+                            fontSize: 12,
+                            color: 'var(--txt)',
+                            fontVariantNumeric: 'tabular-nums',
+                          }}
+                        >
+                          <span>{sess.startDate}</span>
+                          <span style={{ color: 'var(--txt-3)', margin: '0 6px' }}>{'->'}</span>
+                          <span>{sess.endDate}</span>
+                        </td>
+                        <td
+                          style={{
+                            padding: '20px 20px',
+                            transition: 'background 120ms',
+                            fontFamily: 'var(--font-mono)',
+                            fontSize: 12,
+                            color: 'var(--txt)',
+                            fontVariantNumeric: 'tabular-nums',
+                          }}
+                        >
+                          {fmtCurrency(sess.balance)}
+                        </td>
+                        <td style={{ padding: '20px 20px', transition: 'background 120ms', fontSize: 11, color: 'var(--txt-3)' }}>
+                          {fmtOpened(sess.openedAt)}
+                        </td>
+                        <td style={{ padding: '20px 20px', transition: 'background 120ms' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8 }}>
+                            <button
+                              type="button"
+                              title="Delete session"
+                              onClick={() => handleDeleteSession(sess.id)}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                padding: 0,
+                                display: 'grid',
+                                placeItems: 'center',
+                                color: 'var(--txt-3)',
+                                cursor: 'pointer',
+                              }}
+                              onMouseEnter={event => { (event.currentTarget as HTMLButtonElement).style.color = 'var(--danger)'; }}
+                              onMouseLeave={event => { (event.currentTarget as HTMLButtonElement).style.color = 'var(--txt-3)'; }}
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenSession(sess)}
+                              style={{
+                                background: 'var(--amber)',
+                                color: 'var(--bg)',
+                                border: 'none',
+                                borderRadius: 4,
+                                padding: '5px 12px',
+                                fontSize: 11,
+                                fontWeight: 600,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 5,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              <ExternalLink size={11} />
+                              Open
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
         </div>
       </div>
     );
   }
-
-  // ── Replay screen ────────────────────────────────────────────────────────────
   const progressPct = session.candles.length ? (revealedCount / session.candles.length) * 100 : 0;
 
   return (
     <div className="flex flex-col gap-3">
 
-      {/* ── Top control bar ── */}
+      {/* Top control bar */}
       <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-700/50 bg-slate-900 px-4 py-2.5">
 
         {/* Symbol + back */}
@@ -1210,7 +1612,7 @@ export default function Backtest() {
         </div>
       </div>
 
-      {/* ── Main grid: chart + right panel ── */}
+      {/* Main grid: chart + right panel */}
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_300px]">
 
         {/* Chart column */}
@@ -1314,7 +1716,7 @@ export default function Backtest() {
           </div>
         </div>
 
-        {/* ── Right panel ── */}
+        {/* Right panel */}
         <div className="flex flex-col gap-3 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 200px)' }}>
 
           {/* Trade ticket */}
@@ -1487,7 +1889,7 @@ export default function Backtest() {
         </div>
       </div>
 
-      {/* ── Result modal ── */}
+      {/* Result modal */}
       <Modal isOpen={!!resultTrade} onClose={() => setResultTrade(null)} title="Trade Closed" size="md">
         {resultTrade && (
           <div className="space-y-4">

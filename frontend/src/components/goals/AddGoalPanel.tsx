@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { X } from 'lucide-react';
-import type { Goal, GoalCategory, GoalColor, GoalInput } from '../../types/goals.js';
+import { X, Plus, GripVertical } from 'lucide-react';
+import type { Goal, GoalCategory, GoalColor, GoalInput, GoalStep } from '../../types/goals.js';
 
 interface Props {
   isOpen: boolean;
@@ -45,7 +45,10 @@ const COLOR_MAP: Record<GoalColor, { dot: string; label: string; active: string 
 
 export default function AddGoalPanel({ isOpen, onClose, editGoal, onSave }: Props) {
   const [form, setForm] = useState<FormState>(EMPTY);
+  const [steps, setSteps] = useState<GoalStep[]>([]);
+  const [stepInput, setStepInput] = useState('');
   const titleRef = useRef<HTMLInputElement>(null);
+  const stepInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -58,9 +61,12 @@ export default function AddGoalPanel({ isOpen, onClose, editGoal, onSave }: Prop
         description: editGoal.description ?? '',
         status:      editGoal.status === 'Achieved' ? 'Active' : (editGoal.status as 'Active' | 'Paused'),
       });
+      setSteps(editGoal.steps ?? []);
     } else {
       setForm(EMPTY);
+      setSteps([]);
     }
+    setStepInput('');
     setTimeout(() => titleRef.current?.focus(), 50);
   }, [editGoal, isOpen]);
 
@@ -71,15 +77,35 @@ export default function AddGoalPanel({ isOpen, onClose, editGoal, onSave }: Prop
     return () => document.removeEventListener('keydown', handler);
   }, [isOpen, onClose]);
 
+  const addStep = () => {
+    const text = stepInput.trim();
+    if (!text) return;
+    setSteps(prev => [
+      ...prev,
+      { id: crypto.randomUUID(), text, done: false },
+    ]);
+    setStepInput('');
+    stepInputRef.current?.focus();
+  };
+
+  const removeStep = (id: string) =>
+    setSteps(prev => prev.filter(s => s.id !== id));
+
   const handleSave = () => {
     if (!form.title.trim()) return;
+    // flush any pending step input
+    const pendingStep = stepInput.trim();
+    const finalSteps = pendingStep
+      ? [...steps, { id: crypto.randomUUID(), text: pendingStep, done: false }]
+      : steps;
+
     onSave({
       title:       form.title.trim(),
       category:    form.category,
       color:       form.color,
       horizon:     form.horizon,
       description: form.description.trim(),
-      steps:       editGoal?.steps ?? [],
+      steps:       finalSteps,
       status:      form.status,
     });
     onClose();
@@ -110,7 +136,7 @@ export default function AddGoalPanel({ isOpen, onClose, editGoal, onSave }: Prop
             </p>
             <h2
               className="text-xl font-normal text-slate-100"
-              style={{ fontFamily: "'Instrument Serif', Georgia, serif" }}
+              style={{ fontFamily: "'DM Serif Display', Georgia, serif" }}
             >
               {editGoal ? 'Edit goal' : 'New goal'}
             </h2>
@@ -161,7 +187,7 @@ export default function AddGoalPanel({ isOpen, onClose, editGoal, onSave }: Prop
           {/* Color */}
           <div>
             <label className="label">Color</label>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               {(Object.keys(COLOR_MAP) as GoalColor[]).map(c => {
                 const tok = COLOR_MAP[c];
                 const active = form.color === c;
@@ -207,6 +233,75 @@ export default function AddGoalPanel({ isOpen, onClose, editGoal, onSave }: Prop
               onChange={e => set('description', e.target.value)}
               placeholder="What does achieving this look like?"
             />
+          </div>
+
+          {/* Sub-goals / steps */}
+          <div>
+            <label className="label">
+              Sub-goals{' '}
+              <span className="text-slate-600 font-normal">
+                ({steps.length} added)
+              </span>
+            </label>
+            <p className="text-xs text-slate-600 mb-3 leading-relaxed">
+              Break this goal into smaller steps. Each sub-goal shows progress
+              toward the finish line.
+            </p>
+
+            {/* Existing steps */}
+            {steps.length > 0 && (
+              <div className="space-y-1.5 mb-3">
+                {steps.map((step, i) => (
+                  <div
+                    key={step.id}
+                    className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2 group"
+                  >
+                    <GripVertical size={13} className="text-slate-700 shrink-0" />
+                    <span className="text-xs text-slate-500 font-mono w-4 shrink-0">
+                      {i + 1}.
+                    </span>
+                    <span
+                      className={`flex-1 text-sm ${
+                        step.done ? 'text-slate-600 line-through' : 'text-slate-300'
+                      }`}
+                    >
+                      {step.text}
+                    </span>
+                    <button
+                      type="button"
+                      aria-label="Remove step"
+                      onClick={() => removeStep(step.id)}
+                      className="opacity-0 group-hover:opacity-100 text-slate-600 hover:text-red-400 transition-all p-0.5 rounded"
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Add step input */}
+            <div className="flex gap-2">
+              <input
+                ref={stepInputRef}
+                className="input-field flex-1 text-sm"
+                value={stepInput}
+                onChange={e => setStepInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') { e.preventDefault(); addStep(); }
+                }}
+                placeholder="e.g. Open a funded account"
+              />
+              <button
+                type="button"
+                onClick={addStep}
+                disabled={!stepInput.trim()}
+                className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-300 hover:bg-slate-700 transition disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+              >
+                <Plus size={13} />
+                Add
+              </button>
+            </div>
           </div>
 
           {/* Status */}

@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { journalApi } from '../../services/api.js';
-import { formatCurrency } from '../../utils/calculations.js';
 import { JournalEntry, Trade } from '../../types/index.js';
 import { buildMonthlyHeatmapData } from '../../utils/tradeAnalytics.js';
+import { useAppSettings } from '../../contexts/AppSettingsContext.js';
 
 function getCellBg(pnl: number | undefined): string {
   if (pnl === undefined) return '';
@@ -19,302 +19,757 @@ function getCellBg(pnl: number | undefined): string {
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const JOURNAL_MODAL_DURATION = 380;
-const JOURNAL_MODAL_EASING = 'cubic-bezier(0.32, 0.72, 0, 1)';
-const JOURNAL_MODAL_RADIUS = '28px';
+const TABS = [
+  { key: 'reflection', label: 'Reflection' },
+  { key: 'lessons', label: 'Lessons' },
+  { key: 'gratitude', label: 'Gratitude' },
+] as const;
 
-type RectSnapshot = {
-  top: number;
-  left: number;
-  width: number;
-  height: number;
-};
+type JournalTab = (typeof TABS)[number]['key'];
+type EmotionTone = 'neutral' | 'green' | 'amber' | 'red';
 
-type JournalOverlayState = {
-  journalId: string;
-  journalDate: string;
-  originRect: RectSnapshot;
-  phase: 'opening' | 'open' | 'closing';
-  closeVisible: boolean;
-};
+interface DailyJournalEmotion {
+  label: string;
+  tone: EmotionTone;
+}
 
-function getExpandedRect(): RectSnapshot {
-  const width = Math.min(window.innerWidth - 48, Math.round(window.innerWidth * 0.8));
-  const height = Math.min(window.innerHeight - 48, Math.round(window.innerHeight * 0.85));
+interface DailyJournalModalEntry {
+  date: string;
+  reflection: string;
+  lessons: string;
+  gratitude: string;
+  status: 'complete' | 'incomplete';
+  discipline: number;
+  disciplineNote: string;
+  emotions: DailyJournalEmotion[];
+  pnl: number;
+  account: string;
+  accountStatus: string;
+  lastSaved?: string;
+}
+
+function countWords(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function countTotalWords(values: Record<JournalTab, string>): number {
+  return countWords(values.reflection) + countWords(values.lessons) + countWords(values.gratitude);
+}
+
+function parseJournalContent(content: string): Record<JournalTab, string> {
+  const normalized = (content ?? '').replace(/\r\n/g, '\n');
+  const result: Record<JournalTab, string> = {
+    reflection: '',
+    lessons: '',
+    gratitude: '',
+  };
+
+  if (!normalized.trim()) {
+    return result;
+  }
+
+  const lines = normalized.split('\n');
+  let activeTab: JournalTab = 'reflection';
+  let foundSectionHeader = false;
+
+  lines.forEach(line => {
+    if (/^##\s*reflection\s*$/i.test(line.trim())) {
+      activeTab = 'reflection';
+      foundSectionHeader = true;
+      return;
+    }
+    if (/^##\s*pre[- ]?market\s*$/i.test(line.trim())) {
+      activeTab = 'gratitude';
+      foundSectionHeader = true;
+      return;
+    }
+    if (/^##\s*gratitude\s*$/i.test(line.trim())) {
+      activeTab = 'gratitude';
+      foundSectionHeader = true;
+      return;
+    }
+    if (/^##\s*lessons\s*$/i.test(line.trim())) {
+      activeTab = 'lessons';
+      foundSectionHeader = true;
+      return;
+    }
+
+    result[activeTab] = result[activeTab]
+      ? `${result[activeTab]}\n${line}`
+      : line;
+  });
+
+  if (!foundSectionHeader) {
+    return {
+      reflection: normalized.trim(),
+      lessons: '',
+      gratitude: '',
+    };
+  }
 
   return {
-    width,
-    height,
-    left: Math.round((window.innerWidth - width) / 2),
-    top: Math.round((window.innerHeight - height) / 2),
+    reflection: result.reflection.trim(),
+    lessons: result.lessons.trim(),
+    gratitude: result.gratitude.trim(),
   };
 }
 
-function getFlipTransform(from: RectSnapshot, to: RectSnapshot) {
-  const scaleX = from.width / to.width;
-  const scaleY = from.height / to.height;
-  const translateX = from.left - to.left;
-  const translateY = from.top - to.top;
+function serializeJournalContent(values: Record<JournalTab, string>): string {
+  const cleaned: Record<JournalTab, string> = {
+    reflection: values.reflection.trim(),
+    lessons: values.lessons.trim(),
+    gratitude: values.gratitude.trim(),
+  };
 
-  return `translate3d(${translateX}px, ${translateY}px, 0) scale(${scaleX}, ${scaleY})`;
+  return [
+    '## Reflection',
+    cleaned.reflection,
+    '',
+    '## Lessons',
+    cleaned.lessons,
+    '',
+    '## Gratitude',
+    cleaned.gratitude,
+  ].join('\n').trim();
 }
 
-function JournalOverlay({
-  overlay,
-  selectedJournal,
-  journalLoading,
-  journalError,
-  onRequestClose,
-  onOpenComplete,
-  onCloseComplete,
+function formatSaveAge(value?: string): string {
+  if (!value) {
+    return 'not saved yet';
+  }
+
+  const timestamp = new Date(value).getTime();
+  if (Number.isNaN(timestamp)) {
+    return 'saved recently';
+  }
+
+  const diffMs = Date.now() - timestamp;
+  if (diffMs < 60_000) {
+    return 'saved just now';
+  }
+  if (diffMs < 3_600_000) {
+    const mins = Math.max(1, Math.floor(diffMs / 60_000));
+    return `saved ${mins} min ago`;
+  }
+  if (diffMs < 86_400_000) {
+    const hours = Math.max(1, Math.floor(diffMs / 3_600_000));
+    return `saved ${hours} hr ago`;
+  }
+
+  const days = Math.max(1, Math.floor(diffMs / 86_400_000));
+  return `saved ${days} day ago`;
+}
+
+function formatPnl(value: number): string {
+  return value.toLocaleString('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  });
+}
+
+function getDisciplineTone(score: number): 'green' | 'amber' | 'red' {
+  if (score >= 3.8) return 'green';
+  if (score >= 2.8) return 'amber';
+  return 'red';
+}
+
+function emotionToneFromLabel(label: string): EmotionTone {
+  const normalized = label.toLowerCase();
+  if (normalized.includes('focus') || normalized.includes('calm') || normalized.includes('confident')) {
+    return 'green';
+  }
+  if (normalized.includes('fomo') || normalized.includes('revenge') || normalized.includes('overconfident')) {
+    return 'red';
+  }
+  if (normalized.includes('anxious') || normalized.includes('tired') || normalized.includes('hesitant')) {
+    return 'amber';
+  }
+  return 'neutral';
+}
+
+function nextEmotionTone(current: EmotionTone): EmotionTone {
+  if (current === 'neutral') return 'green';
+  if (current === 'green') return 'amber';
+  if (current === 'amber') return 'red';
+  return 'neutral';
+}
+
+function getTabPlaceholder(tab: JournalTab): string {
+  if (tab === 'reflection') {
+    return 'What happened today? Be honest — this is just for you.';
+  }
+  if (tab === 'lessons') {
+    return 'What would you do differently next time?';
+  }
+  return 'What are 3 things you are grateful for today?\n1.\n2.\n3.';
+}
+
+function StatusChip({ status }: { status: 'complete' | 'incomplete' }) {
+  const complete = status === 'complete';
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
+        borderRadius: 3,
+        fontSize: 11,
+        fontWeight: 500,
+        lineHeight: 1,
+        padding: '4px 8px',
+        border: complete ? '1px solid rgba(34,197,94,0.28)' : '1px solid var(--border)',
+        color: complete ? 'var(--green)' : 'var(--txt-3)',
+        background: complete ? 'var(--green-dim)' : 'var(--surface-2)',
+      }}
+    >
+      {complete && (
+        <span
+          style={{
+            width: 5,
+            height: 5,
+            borderRadius: '50%',
+            background: 'var(--green)',
+            flexShrink: 0,
+          }}
+        />
+      )}
+      {complete ? 'Complete' : 'Incomplete'}
+    </span>
+  );
+}
+
+function SectionTitle({ label }: { label: string }) {
+  return (
+    <p
+      style={{
+        margin: 0,
+        marginBottom: 6,
+        fontSize: 9,
+        textTransform: 'uppercase',
+        letterSpacing: '0.1em',
+        color: 'var(--txt-3)',
+      }}
+    >
+      {label}
+    </p>
+  );
+}
+
+function DailyJournalModal({
+  entry,
+  isLoading,
+  error,
+  canPrev,
+  canNext,
+  onClose,
+  onPrev,
+  onNext,
+  onSave,
 }: {
-  overlay: JournalOverlayState;
-  selectedJournal: JournalEntry | null;
-  journalLoading: boolean;
-  journalError: string;
-  onRequestClose: () => void;
-  onOpenComplete: () => void;
-  onCloseComplete: () => void;
+  entry: DailyJournalModalEntry;
+  isLoading: boolean;
+  error: string;
+  canPrev: boolean;
+  canNext: boolean;
+  onClose: () => void;
+  onPrev: () => void;
+  onNext: () => void;
+  onSave: (tab: JournalTab, content: string) => Promise<void> | void;
 }) {
-  const panelRef = useRef<HTMLDivElement>(null);
-  const backdropRef = useRef<HTMLButtonElement>(null);
-  const expandedRect = useMemo(() => getExpandedRect(), []);
-  const displayDate = selectedJournal
-    ? format(parseISO(selectedJournal.date), 'do MMMM yyyy')
-    : format(parseISO(overlay.journalDate), 'do MMMM yyyy');
+  const [activeTab, setActiveTab] = useState<JournalTab>('reflection');
+  const [draftByTab, setDraftByTab] = useState<Record<JournalTab, string>>({
+    reflection: entry.reflection,
+    lessons: entry.lessons,
+    gratitude: entry.gratitude,
+  });
+  const [lastSaved, setLastSaved] = useState(entry.lastSaved);
+  const [saveError, setSaveError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [emotionToneByLabel, setEmotionToneByLabel] = useState<Record<string, EmotionTone>>(
+    () => Object.fromEntries(entry.emotions.map(emotion => [emotion.label, emotion.tone]))
+  );
+  const textAreaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    const panel = panelRef.current;
-    const backdrop = backdropRef.current;
+    setDraftByTab({
+      reflection: entry.reflection,
+      lessons: entry.lessons,
+      gratitude: entry.gratitude,
+    });
+    setLastSaved(entry.lastSaved);
+    setSaveError('');
+    setSaving(false);
+    setActiveTab('reflection');
+    setEmotionToneByLabel(Object.fromEntries(entry.emotions.map(emotion => [emotion.label, emotion.tone])));
+  }, [entry]);
 
-    if (!panel || !backdrop) return undefined;
+  useEffect(() => {
+    textAreaRef.current?.focus();
+  }, [activeTab, entry.date]);
 
-    panel.getAnimations().forEach(animation => animation.cancel());
-    backdrop.getAnimations().forEach(animation => animation.cancel());
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [onClose]);
 
-    if (overlay.phase === 'opening') {
-      const panelAnimation = panel.animate(
-        [
-          {
-            transform: getFlipTransform(overlay.originRect, expandedRect),
-            borderRadius: JOURNAL_MODAL_RADIUS,
-          },
-          {
-            transform: 'translate3d(0, 0, 0) scale(1, 1)',
-            borderRadius: JOURNAL_MODAL_RADIUS,
-          },
-        ],
-        {
-          duration: JOURNAL_MODAL_DURATION,
-          easing: JOURNAL_MODAL_EASING,
-          fill: 'forwards',
-        }
-      );
+  const totalWordCount = countTotalWords(draftByTab);
+  const status: 'complete' | 'incomplete' = totalWordCount > 0 ? 'complete' : 'incomplete';
+  const disciplineTone = getDisciplineTone(entry.discipline);
 
-      const backdropAnimation = backdrop.animate(
-        [{ opacity: 0 }, { opacity: 1 }],
-        {
-          duration: 300,
-          easing: 'ease',
-          fill: 'forwards',
-        }
-      );
-
-      void backdropAnimation.finished.catch(() => undefined);
-
-      void panelAnimation.finished
-        .then(() => onOpenComplete())
-        .catch(() => undefined);
-
-      return () => {
-        panelAnimation.cancel();
-        backdropAnimation.cancel();
-      };
+  const emotionItems = useMemo(() => {
+    const labels = Object.keys(emotionToneByLabel);
+    if (labels.length === 0) {
+      return ['Focused', 'Calm', 'Anxious', 'FOMO'].map(label => ({
+        label,
+        tone: 'neutral' as EmotionTone,
+      }));
     }
+    return labels.map(label => ({ label, tone: emotionToneByLabel[label] ?? 'neutral' as EmotionTone }));
+  }, [emotionToneByLabel]);
 
-    if (overlay.phase === 'closing') {
-      const panelAnimation = panel.animate(
-        [
-          {
-            transform: 'translate3d(0, 0, 0) scale(1, 1)',
-            borderRadius: JOURNAL_MODAL_RADIUS,
-          },
-          {
-            transform: getFlipTransform(overlay.originRect, expandedRect),
-            borderRadius: JOURNAL_MODAL_RADIUS,
-          },
-        ],
-        {
-          duration: JOURNAL_MODAL_DURATION,
-          easing: JOURNAL_MODAL_EASING,
-          fill: 'forwards',
-        }
-      );
-
-      const backdropAnimation = backdrop.animate(
-        [{ opacity: 1 }, { opacity: 0 }],
-        {
-          duration: 240,
-          easing: 'ease',
-          fill: 'forwards',
-        }
-      );
-
-      void backdropAnimation.finished.catch(() => undefined);
-
-      void panelAnimation.finished
-        .then(() => onCloseComplete())
-        .catch(() => undefined);
-
-      return () => {
-        panelAnimation.cancel();
-        backdropAnimation.cancel();
-      };
+  const handleSave = async () => {
+    setSaveError('');
+    setSaving(true);
+    try {
+      await Promise.resolve(onSave(activeTab, draftByTab[activeTab]));
+      const now = new Date().toISOString();
+      setLastSaved(now);
+    } catch (saveFailure) {
+      setSaveError(saveFailure instanceof Error ? saveFailure.message : 'Unable to save this note.');
+    } finally {
+      setSaving(false);
     }
+  };
 
-    panel.style.transform = 'translate3d(0, 0, 0) scale(1, 1)';
-    backdrop.style.opacity = '1';
-    return undefined;
-  }, [expandedRect, onCloseComplete, onOpenComplete, overlay]);
+  const parsedDate = parseISO(entry.date);
+  const headerDate = Number.isNaN(parsedDate.getTime()) ? entry.date : format(parsedDate, 'do MMMM yyyy');
+  const dayStripDate = Number.isNaN(parsedDate.getTime()) ? entry.date : format(parsedDate, 'EEE, dd MMM');
+  const sidebarDate = Number.isNaN(parsedDate.getTime()) ? entry.date : format(parsedDate, 'do MMMM yyyy');
+  const weekdayName = Number.isNaN(parsedDate.getTime()) ? '' : format(parsedDate, 'EEEE');
+  const saveMetaText = formatSaveAge(lastSaved);
 
   return createPortal(
-    <div className="fixed inset-0 z-[1000]">
+    <div className="fixed inset-0 z-[1200]" style={TOKEN_SCOPE_STYLE}>
+      <style>
+        {`
+          .flyxa-journal-modal {
+            width: min(820px, calc(100vw - 32px));
+            max-height: 88vh;
+          }
+          .flyxa-journal-body {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 200px;
+            min-height: 0;
+            flex: 1;
+            overflow: hidden;
+          }
+          .flyxa-journal-nav-btn {
+            width: 28px;
+            height: 28px;
+            border-radius: 4px;
+            border: 1px solid var(--border);
+            background: var(--surface-2);
+            color: var(--txt-3);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: color 120ms ease, border-color 120ms ease;
+          }
+          .flyxa-journal-nav-btn:hover {
+            color: var(--txt);
+            border-color: rgba(255,255,255,0.14);
+          }
+          .flyxa-journal-tab {
+            height: 34px;
+            border: none;
+            border-bottom: 2px solid transparent;
+            background: transparent;
+            color: var(--txt-2);
+            font-size: 12px;
+            margin-right: 20px;
+            padding: 9px 0;
+            cursor: pointer;
+            transition: color 120ms ease, border-color 120ms ease;
+          }
+          .flyxa-journal-tab:hover {
+            color: var(--txt);
+          }
+          .flyxa-journal-tab.is-active {
+            color: var(--amber);
+            border-color: var(--amber);
+          }
+          .flyxa-journal-emotion-tag {
+            border-radius: 3px;
+            border: 1px solid var(--border);
+            padding: 3px 7px;
+            font-size: 10px;
+            line-height: 1;
+            background: transparent;
+            color: var(--txt-3);
+            cursor: pointer;
+            transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+          }
+          @media (max-width: 900px) {
+            .flyxa-journal-modal {
+              width: calc(100vw - 20px);
+              max-height: 92vh;
+            }
+            .flyxa-journal-body {
+              grid-template-columns: minmax(0, 1fr);
+            }
+            .flyxa-journal-meta {
+              border-top: 1px solid var(--border);
+              border-left: none !important;
+              max-height: 230px;
+            }
+          }
+        `}
+      </style>
+
       <button
-        ref={backdropRef}
         type="button"
-        aria-label="Close journal"
-        onClick={onRequestClose}
-        className="absolute inset-0 opacity-0"
-        style={{
-          background: 'radial-gradient(circle at center, rgba(239, 246, 255, 0.42) 0%, rgba(148, 184, 255, 0.18) 42%, rgba(15, 23, 42, 0.42) 100%)',
-        }}
+        aria-label="Close daily journal"
+        onClick={onClose}
+        className="absolute inset-0"
+        style={{ background: 'rgba(0,0,0,0.65)' }}
       />
 
-      <div
-        ref={panelRef}
-        className="absolute overflow-hidden border border-[#c9dcf6] bg-[linear-gradient(180deg,#e7f2ff_0%,#dcecff_56%,#d3e6ff_100%)] shadow-[0_40px_120px_rgba(83,120,167,0.26)]"
-        style={{
-          top: expandedRect.top,
-          left: expandedRect.left,
-          width: expandedRect.width,
-          height: expandedRect.height,
-          transformOrigin: 'top left',
-          borderRadius: JOURNAL_MODAL_RADIUS,
-        }}
-      >
-        <div className="relative flex h-full flex-col overflow-hidden">
-          <div className="pointer-events-none absolute -left-16 top-0 h-44 w-44 rounded-full bg-[#d7ebff]/80 blur-3xl" />
-          <div className="pointer-events-none absolute right-0 top-24 h-52 w-52 rounded-full bg-[#c6dcff]/60 blur-3xl" />
-
-          <div className="relative flex items-start justify-between gap-4 border-b border-[#cfe1f7] bg-[#e5f0ff]/72 px-6 py-5 backdrop-blur-sm md:px-8">
-            <div className="space-y-2">
-              <p className="text-[11px] uppercase tracking-[0.2em] text-[#6f88aa]">Daily Journal</p>
-              <div>
-                <h3 className="text-2xl font-semibold tracking-tight text-[#28405f]">
-                  {displayDate}
-                </h3>
-                <p className="mt-1 text-sm text-[#6d7f99]">
-                  Review your note for this day without leaving the dashboard.
-                </p>
-              </div>
+      <div className="absolute inset-0 grid place-items-center p-4">
+        <div
+          className="flyxa-journal-modal"
+          style={{
+            background: 'var(--surface-1)',
+            border: '1px solid var(--border)',
+            borderRadius: 10,
+            boxShadow: '0 24px 60px rgba(0,0,0,0.6)',
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
+          <header
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 14,
+              padding: '18px 22px',
+              borderBottom: '1px solid var(--border)',
+              flexShrink: 0,
+            }}
+          >
+            <div>
+              <p
+                style={{
+                  margin: 0,
+                  marginBottom: 4,
+                  fontSize: 10,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.1em',
+                  color: 'var(--txt-3)',
+                }}
+              >
+                Daily Journal
+              </p>
+              <p style={{ margin: 0, marginBottom: 2, fontSize: 16, fontWeight: 600, color: 'var(--txt)' }}>
+                {headerDate}
+              </p>
+              <p style={{ margin: 0, fontSize: 12, color: 'var(--txt-2)' }}>
+                Review and edit your session note
+              </p>
             </div>
 
-            <button
-              type="button"
-              onClick={onRequestClose}
-              className={`inline-flex h-10 w-10 items-center justify-center rounded-full border border-[#c2d8f4] bg-[#edf5ff]/90 text-[#6a84a6] shadow-[0_8px_20px_rgba(158,183,216,0.18)] transition-all duration-150 hover:bg-[#f2f8ff] hover:text-[#28405f] ${
-                overlay.closeVisible ? 'opacity-100' : 'pointer-events-none opacity-0'
-              }`}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <button
+                type="button"
+                aria-label="Previous day"
+                className="flyxa-journal-nav-btn"
+                onClick={onPrev}
+                disabled={!canPrev}
+                style={!canPrev ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
+              >
+                <ChevronLeft size={13} />
+              </button>
+              <button
+                type="button"
+                aria-label="Next day"
+                className="flyxa-journal-nav-btn"
+                onClick={onNext}
+                disabled={!canNext}
+                style={!canNext ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
+              >
+                <ChevronRight size={13} />
+              </button>
+              <button
+                type="button"
+                aria-label="Close"
+                className="flyxa-journal-nav-btn"
+                onClick={onClose}
+              >
+                <X size={13} />
+              </button>
+            </div>
+          </header>
+
+          <div className="flyxa-journal-body">
+            <section
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                minWidth: 0,
+                minHeight: 0,
+                borderRight: '1px solid var(--border)',
+              }}
             >
-              <X size={18} />
-            </button>
-          </div>
-
-          <div className="relative flex-1 overflow-hidden px-6 py-6 md:px-8">
-            {journalLoading && (
-              <div className="flex h-full items-center justify-center text-sm text-[#6d7f99]">
-                Loading journal entry...
+              <div
+                style={{
+                  padding: '14px 22px',
+                  borderBottom: '1px solid var(--border)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 20,
+                  flexWrap: 'wrap',
+                }}
+              >
+                <span
+                  style={{
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 22,
+                    fontWeight: 500,
+                    color: 'var(--txt)',
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
+                >
+                  {dayStripDate}
+                </span>
+                <span style={{ width: 1, height: 28, background: 'var(--border)' }} />
+                <StatusChip status={status} />
               </div>
-            )}
 
-            {!journalLoading && journalError && (
-              <div className="rounded-2xl border border-rose-200 bg-rose-50/90 px-4 py-3 text-sm text-rose-500">
-                {journalError}
+              <div style={{ padding: '0 22px', borderBottom: '1px solid var(--border)' }}>
+                {TABS.map(tab => (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    className={`flyxa-journal-tab${activeTab === tab.key ? ' is-active' : ''}`}
+                    onClick={() => setActiveTab(tab.key)}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
               </div>
-            )}
 
-            {!journalLoading && selectedJournal && (
-              <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-5">
-                <div className="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_340px]">
-                  <div className="rounded-[30px] border border-[#cddff8] bg-[linear-gradient(135deg,rgba(229,240,255,0.96),rgba(211,228,250,0.92))] p-6 shadow-[0_20px_48px_rgba(158,183,216,0.2)]">
-                    <div className="max-w-3xl">
-                      <h4 className="text-[42px] font-semibold tracking-[-0.05em] text-[#28405f] md:text-[54px]">
-                        {format(parseISO(selectedJournal.date), 'do MMMM yyyy')}
-                      </h4>
-                    </div>
+              <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '20px 22px' }}>
+                {isLoading ? (
+                  <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-3)' }}>
+                    Loading daily journal entry...
+                  </p>
+                ) : error ? (
+                  <p style={{ margin: 0, fontSize: 13, color: 'var(--red)' }}>
+                    {error}
+                  </p>
+                ) : (
+                  <textarea
+                    ref={textAreaRef}
+                    value={draftByTab[activeTab]}
+                    onChange={event => {
+                      const nextValue = event.target.value;
+                      setDraftByTab(current => ({ ...current, [activeTab]: nextValue }));
+                    }}
+                    placeholder={getTabPlaceholder(activeTab)}
+                    style={{
+                      width: '100%',
+                      minHeight: '100%',
+                      background: 'transparent',
+                      border: 'none',
+                      outline: 'none',
+                      resize: 'none',
+                      color: 'var(--txt)',
+                      fontSize: 13,
+                      lineHeight: 1.85,
+                      fontFamily: 'var(--font-sans)',
+                    }}
+                  />
+                )}
+              </div>
 
-                    <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-3">
-                      <div className="text-[#486789]">
-                        <span className="text-[28px] font-semibold tracking-[-0.04em]">
-                          {selectedJournal.content?.trim()
-                            ? selectedJournal.content.trim().split(/\s+/).filter(Boolean).length
-                            : 0}
-                        </span>
-                        <span className="ml-2 text-[16px] font-medium text-[#6782a2]">words</span>
-                      </div>
-                      <span className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700">
-                        <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                        Completed daily reflection
-                      </span>
-                    </div>
-                  </div>
+              <footer
+                style={{
+                  borderTop: '1px solid var(--border)',
+                  padding: '10px 22px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                  flexWrap: 'wrap',
+                }}
+              >
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--txt-3)' }}>
+                  {saveMetaText}
+                </span>
 
-                  <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
-                    <div className="rounded-[24px] border border-[#d2e3fa] bg-[#eef5ff]/86 p-4 shadow-[0_14px_34px_rgba(158,183,216,0.16)]">
-                      <p className="text-[11px] uppercase tracking-[0.18em] text-[#7f92ad]">Date</p>
-                      <p className="mt-3 text-base font-semibold text-[#28405f]">{format(parseISO(selectedJournal.date), 'do MMMM yyyy')}</p>
-                    </div>
-                    <div className="rounded-[24px] border border-[#d2e3fa] bg-[#eef5ff]/86 p-4 shadow-[0_14px_34px_rgba(158,183,216,0.16)]">
-                      <p className="text-[11px] uppercase tracking-[0.18em] text-[#7f92ad]">Word Count</p>
-                      <p className="mt-3 text-base font-semibold text-[#28405f]">
-                        {selectedJournal.content?.trim()
-                          ? selectedJournal.content.trim().split(/\s+/).filter(Boolean).length
-                          : 0} words
-                      </p>
-                    </div>
-                    <div className="rounded-[24px] border border-[#d2e3fa] bg-[#eef5ff]/86 p-4 shadow-[0_14px_34px_rgba(158,183,216,0.16)]">
-                      <p className="text-[11px] uppercase tracking-[0.18em] text-[#7f92ad]">Status</p>
-                      <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700">
-                        <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 shadow-[0_0_0_4px_rgba(34,197,94,0.14)]" />
-                        Journal complete
-                      </div>
-                    </div>
-                  </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {saveError && (
+                    <span style={{ fontSize: 11, color: 'var(--red)' }}>{saveError}</span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => { void handleSave(); }}
+                    disabled={isLoading || !!error || saving}
+                    style={{
+                      height: 30,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '0 12px',
+                      border: 'none',
+                      borderRadius: 4,
+                      background: 'var(--amber)',
+                      color: '#000',
+                      fontSize: 12,
+                      fontWeight: 600,
+                      cursor: isLoading || !!error || saving ? 'not-allowed' : 'pointer',
+                      opacity: isLoading || !!error || saving ? 0.6 : 1,
+                    }}
+                  >
+                    <Check size={12} />
+                    {saving ? 'Saving...' : 'Save'}
+                  </button>
                 </div>
+              </footer>
+            </section>
 
-                <div className="min-h-0 rounded-[32px] border border-[#cfe2fb] bg-[linear-gradient(180deg,rgba(226,239,255,0.98),rgba(213,229,250,0.98))] p-2 shadow-[0_22px_56px_rgba(158,183,216,0.18)]">
-                  <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[28px] border border-[#d8e8fc] bg-[linear-gradient(180deg,rgba(241,247,255,0.9),rgba(232,242,255,0.92))]">
-                    <div className="flex items-center justify-between gap-3 border-b border-[#d7e5f8] px-6 py-4">
-                      <div>
-                        <p className="text-[11px] uppercase tracking-[0.22em] text-[#7f92ad]">Reflection</p>
-                        <p className="mt-1 text-sm text-[#6d7f99]">The actual journal entry takes priority here.</p>
-                      </div>
-                      <span className="rounded-full bg-[#e4f0ff] px-3 py-1 text-xs font-medium uppercase tracking-[0.16em] text-[#6d84a3]">
-                        Personal note
-                      </span>
-                    </div>
+            <aside
+              className="flyxa-journal-meta"
+              style={{
+                minWidth: 0,
+                minHeight: 0,
+                overflowY: 'auto',
+                padding: '18px 16px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 0,
+              }}
+            >
+              <div style={{ paddingBottom: 12, borderBottom: '1px solid var(--border)' }}>
+                <SectionTitle label="Date" />
+                <p style={{ margin: 0, fontSize: 13, fontWeight: 500, color: 'var(--txt)' }}>{sidebarDate}</p>
+                <p style={{ margin: 0, marginTop: 2, fontSize: 11, color: 'var(--txt-3)' }}>{weekdayName}</p>
+              </div>
 
-                    <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 md:px-7 md:py-6">
-                      <div className="mx-auto max-w-4xl rounded-[26px] border border-[#d9e7fb] bg-[#f4f8ff]/82 px-6 py-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] md:px-10 md:py-9">
-                        <p className="whitespace-pre-wrap text-[16px] leading-8 text-[#36506e] md:text-[17px]">
-                          {selectedJournal.content?.trim() || 'This journal entry is empty.'}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
+              <div style={{ padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
+                <SectionTitle label="Status" />
+                <StatusChip status={status} />
+              </div>
+
+              <div style={{ padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
+                <SectionTitle label="Discipline" />
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 4, marginBottom: 8 }}>
+                  {[1, 2, 3, 4, 5].map(pip => {
+                    const filled = entry.discipline >= pip;
+                    let fillColor = 'var(--surface-3)';
+                    if (filled && disciplineTone === 'green') fillColor = 'var(--green)';
+                    if (filled && disciplineTone === 'amber') fillColor = 'var(--amber)';
+                    if (filled && disciplineTone === 'red') fillColor = 'var(--red)';
+                    return (
+                      <span
+                        key={`discipline-pip-${pip}`}
+                        style={{
+                          height: 3,
+                          borderRadius: 2,
+                          background: fillColor,
+                        }}
+                      />
+                    );
+                  })}
+                </div>
+                <p style={{ margin: 0, fontSize: 13, fontWeight: 500, color: 'var(--txt)', fontFamily: 'var(--font-mono)' }}>
+                  {entry.discipline.toFixed(1)}/5
+                </p>
+                <p style={{ margin: 0, marginTop: 2, fontSize: 11, color: 'var(--txt-3)' }}>
+                  {entry.disciplineNote}
+                </p>
+              </div>
+
+              <div style={{ padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
+                <SectionTitle label="State of mind" />
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                  {emotionItems.map(emotion => {
+                    const tone = emotionToneByLabel[emotion.label] ?? 'neutral';
+                    const styleByTone: Record<EmotionTone, { color: string; background: string; border: string }> = {
+                      neutral: {
+                        color: 'var(--txt-3)',
+                        background: 'transparent',
+                        border: 'var(--border)',
+                      },
+                      green: {
+                        color: 'var(--green)',
+                        background: 'var(--green-dim)',
+                        border: 'rgba(34,197,94,0.3)',
+                      },
+                      amber: {
+                        color: 'var(--amber)',
+                        background: 'var(--amber-dim)',
+                        border: 'rgba(245,158,11,0.3)',
+                      },
+                      red: {
+                        color: 'var(--red)',
+                        background: 'var(--red-dim)',
+                        border: 'rgba(239,68,68,0.3)',
+                      },
+                    };
+
+                    return (
+                      <button
+                        key={emotion.label}
+                        type="button"
+                        className="flyxa-journal-emotion-tag"
+                        style={{
+                          color: styleByTone[tone].color,
+                          background: styleByTone[tone].background,
+                          borderColor: styleByTone[tone].border,
+                        }}
+                        onClick={() => {
+                          setEmotionToneByLabel(current => ({
+                            ...current,
+                            [emotion.label]: nextEmotionTone(current[emotion.label] ?? 'neutral'),
+                          }));
+                        }}
+                      >
+                        {emotion.label}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
-            )}
+
+              <div style={{ paddingTop: 12 }}>
+                <SectionTitle label="Session P&L" />
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: 15,
+                    fontWeight: 500,
+                    fontFamily: 'var(--font-mono)',
+                    color: entry.pnl >= 0 ? 'var(--green)' : 'var(--red)',
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
+                >
+                  {formatPnl(entry.pnl)}
+                </p>
+                <p style={{ margin: 0, marginTop: 2, fontSize: 11, color: 'var(--txt-3)' }}>
+                  {entry.account} · {entry.accountStatus}
+                </p>
+              </div>
+            </aside>
           </div>
         </div>
       </div>
@@ -323,21 +778,40 @@ function JournalOverlay({
   );
 }
 
+const TOKEN_SCOPE_STYLE = {
+  '--surface-1': 'var(--app-panel)',
+  '--surface-2': 'var(--app-panel-strong)',
+  '--surface-3': 'rgba(255,255,255,0.08)',
+  '--border': 'var(--app-border)',
+  '--txt': 'var(--app-text)',
+  '--txt-2': 'var(--app-text-muted)',
+  '--txt-3': 'var(--app-text-subtle)',
+  '--amber': 'var(--accent)',
+  '--amber-dim': 'var(--accent-dim)',
+  '--green': '#22c55e',
+  '--green-dim': 'rgba(34,197,94,0.10)',
+  '--red': '#ef4444',
+  '--red-dim': 'rgba(239,68,68,0.10)',
+} as CSSProperties;
+
 export default function MonthlyHeatmap({ trades = [] }: { trades?: Trade[] }) {
   const now = new Date();
   const today = useMemo(() => new Date(), []);
+  const { accounts } = useAppSettings();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([]);
   const [journals, setJournals] = useState<Record<number, { id: string; date: string }>>({});
+  const [activeJournalId, setActiveJournalId] = useState<string | null>(null);
+  const [activeJournalDate, setActiveJournalDate] = useState<string | null>(null);
   const [selectedJournal, setSelectedJournal] = useState<JournalEntry | null>(null);
   const [journalLoading, setJournalLoading] = useState(false);
   const [journalError, setJournalError] = useState('');
-  const [journalOverlay, setJournalOverlay] = useState<JournalOverlayState | null>(null);
+  const [lastSavedById, setLastSavedById] = useState<Record<string, string>>({});
   const journalRequestRef = useRef(0);
 
   useEffect(() => {
-    if (journalOverlay) {
+    if (activeJournalId) {
       document.body.style.overflow = 'hidden';
       return () => {
         document.body.style.overflow = '';
@@ -346,13 +820,29 @@ export default function MonthlyHeatmap({ trades = [] }: { trades?: Trade[] }) {
 
     document.body.style.overflow = '';
     return undefined;
-  }, [journalOverlay]);
+  }, [activeJournalId]);
 
   useEffect(() => {
     journalApi.getAll()
       .then(data => setJournalEntries(data as JournalEntry[]))
       .catch(() => setJournalEntries([]));
   }, []);
+
+  useEffect(() => {
+    setLastSavedById(current => {
+      const next = { ...current };
+      let changed = false;
+
+      journalEntries.forEach(entry => {
+        if (!next[entry.id]) {
+          next[entry.id] = entry.created_at;
+          changed = true;
+        }
+      });
+
+      return changed ? next : current;
+    });
+  }, [journalEntries]);
 
   const { days, counts } = useMemo(
     () => buildMonthlyHeatmapData(trades, year, month),
@@ -369,6 +859,16 @@ export default function MonthlyHeatmap({ trades = [] }: { trades?: Trade[] }) {
     }, {});
     setJournals(nextJournals);
   }, [journalEntries, month, year]);
+
+  useEffect(() => {
+    if (!activeJournalId) {
+      return;
+    }
+    const latest = journalEntries.find(entry => entry.id === activeJournalId);
+    if (latest) {
+      setSelectedJournal(latest);
+    }
+  }, [activeJournalId, journalEntries]);
 
   const prevMonth = () => {
     if (month === 1) {
@@ -397,27 +897,39 @@ export default function MonthlyHeatmap({ trades = [] }: { trades?: Trade[] }) {
   for (let i = 1; i <= daysInMonth; i++) cells.push(i);
   while (cells.length % 7 !== 0) cells.push(null);
 
-  const openJournalModal = async (journalId: string, journalDate: string, originRect: RectSnapshot) => {
-    if (journalOverlay) return;
+  const journalOrder = useMemo(
+    () => [...journalEntries].sort((a, b) => a.date.localeCompare(b.date)),
+    [journalEntries]
+  );
 
+  const activeJournalIndex = useMemo(
+    () => (activeJournalId ? journalOrder.findIndex(entry => entry.id === activeJournalId) : -1),
+    [activeJournalId, journalOrder]
+  );
+  const canPrevJournal = activeJournalIndex > 0;
+  const canNextJournal = activeJournalIndex >= 0 && activeJournalIndex < journalOrder.length - 1;
+
+  const openJournalModal = async (journalId: string, journalDate: string) => {
     const requestId = journalRequestRef.current + 1;
     journalRequestRef.current = requestId;
 
-    setJournalOverlay({
-      journalId,
-      journalDate,
-      originRect,
-      phase: 'opening',
-      closeVisible: false,
-    });
-    setJournalLoading(true);
+    setActiveJournalId(journalId);
+    setActiveJournalDate(journalDate);
     setJournalError('');
-    setSelectedJournal(null);
 
+    const existing = journalEntries.find(entry => entry.id === journalId);
+    if (existing) {
+      setSelectedJournal(existing);
+      setJournalLoading(false);
+      return;
+    }
+
+    setSelectedJournal(null);
+    setJournalLoading(true);
     try {
-      const entry = await journalApi.getById(journalId);
+      const fetched = await journalApi.getById(journalId);
       if (journalRequestRef.current !== requestId) return;
-      setSelectedJournal(entry as JournalEntry);
+      setSelectedJournal(fetched as JournalEntry);
     } catch {
       if (journalRequestRef.current !== requestId) return;
       setJournalError('Unable to load this daily journal entry.');
@@ -429,27 +941,121 @@ export default function MonthlyHeatmap({ trades = [] }: { trades?: Trade[] }) {
 
   const closeJournalModal = useCallback(() => {
     journalRequestRef.current += 1;
-    setJournalOverlay(curr => (
-      curr && curr.phase !== 'closing'
-        ? { ...curr, phase: 'closing', closeVisible: false }
-        : curr
-    ));
-  }, []);
-
-  const handleJournalOpenComplete = useCallback(() => {
-    setJournalOverlay(curr => (
-      curr && curr.phase === 'opening'
-        ? { ...curr, phase: 'open', closeVisible: true }
-        : curr
-    ));
-  }, []);
-
-  const handleJournalCloseComplete = useCallback(() => {
-    setJournalOverlay(null);
+    setActiveJournalId(null);
+    setActiveJournalDate(null);
     setSelectedJournal(null);
     setJournalError('');
     setJournalLoading(false);
   }, []);
+
+  const handlePrevJournal = useCallback(() => {
+    if (!canPrevJournal) return;
+    const previous = journalOrder[activeJournalIndex - 1];
+    if (previous) {
+      void openJournalModal(previous.id, previous.date);
+    }
+  }, [activeJournalIndex, canPrevJournal, journalOrder]);
+
+  const handleNextJournal = useCallback(() => {
+    if (!canNextJournal) return;
+    const next = journalOrder[activeJournalIndex + 1];
+    if (next) {
+      void openJournalModal(next.id, next.date);
+    }
+  }, [activeJournalIndex, canNextJournal, journalOrder]);
+
+  const handleSaveTab = useCallback(async (tab: JournalTab, content: string) => {
+    if (!selectedJournal) {
+      throw new Error('No journal is selected.');
+    }
+
+    const parsed = parseJournalContent(selectedJournal.content);
+    const nextTabs = {
+      ...parsed,
+      [tab]: content,
+    };
+    const nextContent = serializeJournalContent(nextTabs);
+
+    const updated = await journalApi.update(
+      selectedJournal.id,
+      { content: nextContent } as Record<string, unknown>
+    );
+    const updatedEntry = updated as JournalEntry;
+
+    setSelectedJournal(updatedEntry);
+    setJournalEntries(current =>
+      current.map(entry => (entry.id === updatedEntry.id ? updatedEntry : entry))
+    );
+    setLastSavedById(current => ({
+      ...current,
+      [selectedJournal.id]: new Date().toISOString(),
+    }));
+  }, [selectedJournal]);
+
+  const modalEntry = useMemo<DailyJournalModalEntry | null>(() => {
+    if (!activeJournalDate) {
+      return null;
+    }
+
+    const fallbackTabs: Record<JournalTab, string> = {
+      reflection: '',
+      lessons: '',
+      gratitude: '',
+    };
+    const parsed = selectedJournal ? parseJournalContent(selectedJournal.content) : fallbackTabs;
+    const dayTrades = trades.filter(trade => trade.trade_date === activeJournalDate);
+    const pnl = dayTrades.reduce((sum, trade) => sum + trade.pnl, 0);
+
+    const followedPlanCount = dayTrades.filter(trade => trade.followed_plan).length;
+    const discipline = dayTrades.length > 0
+      ? Number((1 + ((followedPlanCount / dayTrades.length) * 4)).toFixed(1))
+      : 0;
+    const disciplineNote = dayTrades.length > 0
+      ? `${followedPlanCount}/${dayTrades.length} followed plan`
+      : 'No trades logged';
+
+    const emotionLabels = Array.from(new Set([
+      ...dayTrades.map(trade => trade.emotional_state).filter(Boolean),
+      'Focused',
+      'Calm',
+      'Anxious',
+      'FOMO',
+    ]));
+    const emotions = emotionLabels.map(label => ({
+      label,
+      tone: emotionToneFromLabel(label),
+    }));
+
+    const accountIdCount = dayTrades.reduce<Record<string, number>>((acc, trade) => {
+      const accountId = trade.accountId ?? trade.account_id;
+      if (!accountId) return acc;
+      acc[accountId] = (acc[accountId] ?? 0) + 1;
+      return acc;
+    }, {});
+    const dominantAccountId = Object.entries(accountIdCount)
+      .sort((a, b) => b[1] - a[1])[0]?.[0] ?? '';
+    const matchedAccount = dominantAccountId
+      ? accounts.find(account => account.id === dominantAccountId)
+      : null;
+
+    const wordCount = countTotalWords(parsed);
+    const status = wordCount > 0 ? 'complete' : 'incomplete';
+
+    return {
+      date: activeJournalDate,
+      reflection: parsed.reflection,
+      lessons: parsed.lessons,
+      gratitude: parsed.gratitude,
+      status,
+      discipline,
+      disciplineNote,
+      emotions,
+      pnl,
+      account: matchedAccount?.name ?? 'Primary account',
+      accountStatus: matchedAccount?.status ?? 'Journal only',
+      lastSaved: selectedJournal ? lastSavedById[selectedJournal.id] : undefined,
+    };
+  }, [accounts, activeJournalDate, lastSavedById, selectedJournal, trades]);
 
   return (
     <div>
@@ -495,7 +1101,7 @@ export default function MonthlyHeatmap({ trades = [] }: { trades?: Trade[] }) {
               && month === today.getMonth() + 1
               && year === today.getFullYear();
             const title = [
-              pnl !== undefined ? `${day} - ${formatCurrency(pnl)}` : `${day} - No trades`,
+              pnl !== undefined ? `${day} - ${formatPnl(pnl)}` : `${day} - No trades`,
               hasJournal ? 'Daily journal completed' : undefined,
             ].filter(Boolean).join(' | ');
 
@@ -503,19 +1109,12 @@ export default function MonthlyHeatmap({ trades = [] }: { trades?: Trade[] }) {
               <div
                 key={day}
                 title={title}
-                onClick={event => {
+                onClick={() => {
                   if (!journalEntry) return;
-
-                  const rect = event.currentTarget.getBoundingClientRect();
-                  void openJournalModal(journalEntry.id, journalEntry.date, {
-                    top: rect.top,
-                    left: rect.left,
-                    width: rect.width,
-                    height: rect.height,
-                  });
+                  void openJournalModal(journalEntry.id, journalEntry.date);
                 }}
                 className={`relative flex flex-col border-b border-r border-slate-700/50 p-2 transition-colors last:border-r-0 ${getCellBg(pnl)} ${
-                  hasJournal ? 'cursor-pointer hover:ring-1 hover:ring-blue-400/40 hover:ring-inset' : ''
+                  hasJournal ? 'cursor-pointer hover:ring-1 hover:ring-amber-400/35 hover:ring-inset' : ''
                 } ${
                   isToday ? 'bg-cyan-500/[0.04]' : ''
                 }`}
@@ -551,7 +1150,7 @@ export default function MonthlyHeatmap({ trades = [] }: { trades?: Trade[] }) {
                 )}
                 {hasJournal && (
                   <span
-                    className="absolute bottom-2 right-2 h-2.5 w-2.5 rounded-full bg-blue-400 shadow-[0_0_0_2px_rgba(15,23,42,0.9)]"
+                    className="absolute bottom-2 right-2 h-2.5 w-2.5 rounded-full bg-amber-400 shadow-[0_0_0_2px_rgba(15,23,42,0.9)]"
                     aria-label="Daily journal completed"
                   />
                 )}
@@ -561,15 +1160,17 @@ export default function MonthlyHeatmap({ trades = [] }: { trades?: Trade[] }) {
         </div>
       </div>
 
-      {journalOverlay && (
-        <JournalOverlay
-          overlay={journalOverlay}
-          selectedJournal={selectedJournal}
-          journalLoading={journalLoading}
-          journalError={journalError}
-          onRequestClose={closeJournalModal}
-          onOpenComplete={handleJournalOpenComplete}
-          onCloseComplete={handleJournalCloseComplete}
+      {activeJournalId && modalEntry && (
+        <DailyJournalModal
+          entry={modalEntry}
+          isLoading={journalLoading}
+          error={journalError}
+          canPrev={canPrevJournal}
+          canNext={canNextJournal}
+          onClose={closeJournalModal}
+          onPrev={handlePrevJournal}
+          onNext={handleNextJournal}
+          onSave={handleSaveTab}
         />
       )}
     </div>

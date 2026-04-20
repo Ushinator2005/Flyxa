@@ -13,6 +13,7 @@ import psychologyRouter from './routes/psychology';
 import playbookRouter from './routes/playbook';
 import journalRouter from './routes/journal';
 import marketDataRouter from './routes/marketData';
+import billingRouter from './routes/billing';
 
 dotenv.config({ override: true });
 
@@ -54,6 +55,7 @@ app.use('/api/psychology', psychologyRouter);
 app.use('/api/playbook', playbookRouter);
 app.use('/api/journal', journalRouter);
 app.use('/api/market-data', marketDataRouter);
+app.use('/api/billing', billingRouter);
 
 // Error handler
 app.use(errorHandler);

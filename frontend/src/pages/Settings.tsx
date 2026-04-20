@@ -3,6 +3,7 @@ import { AlertTriangle, Check, ChevronDown, Monitor, Palette, Plus, Trash2, Wall
 import { useTheme } from '../contexts/ThemeContext.js';
 import { DEFAULT_ACCOUNT_ID, useAppSettings } from '../contexts/AppSettingsContext.js';
 import { TradingAccountStatus, TradingAccountType } from '../types/index.js';
+import ChartScannerColorSettings from '../components/settings/ChartScannerColorSettings.js';
 
 const ACCOUNT_TYPES: TradingAccountType[] = ['Futures', 'Forex', 'Stocks'];
 const DEFAULT_ACCOUNT_COLOR = '#3b82f6';
@@ -1011,6 +1012,9 @@ export default function Settings() {
             </label>
           </div>
         </SectionCard>
+        <div style={{ marginTop: '12px' }}>
+          <ChartScannerColorSettings />
+        </div>
       </section>
 
       {/* Accounts section */}

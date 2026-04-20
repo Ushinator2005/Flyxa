@@ -1,6 +1,6 @@
 import { type ChangeEvent, type DragEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowUpRight, ChevronLeft, ChevronRight, Image as ImageIcon, Search, Trash2 } from 'lucide-react';
+import { ArrowUpRight, ChevronLeft, ChevronRight, Expand, Image as ImageIcon, Search, Trash2, X } from 'lucide-react';
 import TradeForm from '../components/scanner/TradeForm.js';
 import { buildScannerAssets } from '../components/scanner/ScreenshotImportModal.js';
 import { useTrades } from '../hooks/useTrades.js';
@@ -9,6 +9,7 @@ import { lookupContract } from '../constants/futuresContracts.js';
 import { aiApi } from '../services/api.js';
 import { Trade } from '../types/index.js';
 import { formatRiskRewardRatio } from '../utils/riskReward.js';
+import { withScannerColorContext } from '../utils/scannerColors.js';
 
 export type FlyxaJournalDirection = 'LONG' | 'SHORT';
 export type FlyxaJournalRuleState = 'ok' | 'fail' | 'unchecked';
@@ -899,8 +900,15 @@ export function FlyxaJournalPage({
   const [editorSaving, setEditorSaving] = useState(false);
   const [editorDropActive, setEditorDropActive] = useState(false);
   const [showImportPrompt, setShowImportPrompt] = useState(forceImportPrompt);
+  const [fullscreenTradeImage, setFullscreenTradeImage] = useState<{ src: string; title: string } | null>(null);
   const firstTradeFileInputRef = useRef<HTMLInputElement>(null);
   const editorFileInputRef = useRef<HTMLInputElement>(null);
+
+  const openFullscreenTradeImage = (imageUrl: string | null | undefined, title: string) => {
+    const normalized = imageUrl?.trim() ?? '';
+    if (!normalized) return;
+    setFullscreenTradeImage({ src: normalized, title });
+  };
 
   useEffect(() => {
     setEntriesState(entries);
@@ -1019,6 +1027,17 @@ export function FlyxaJournalPage({
       setSelectedTradeId(activeEntry.trades[0].id);
     }
   }, [activeEntry, initialTradeId, selectedTradeId]);
+
+  useEffect(() => {
+    if (!fullscreenTradeImage) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setFullscreenTradeImage(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [fullscreenTradeImage]);
 
   const selectedTrade = useMemo(() => {
     if (!selectedTradeId) return null;
@@ -1190,7 +1209,7 @@ export function FlyxaJournalPage({
         scanDate,
         scanTime,
         focusImages,
-        scannerContext ?? undefined
+        withScannerColorContext(scannerContext ?? undefined)
       );
       const mapped = buildTradePatchFromScan({
         extracted,
@@ -1934,7 +1953,13 @@ export function FlyxaJournalPage({
                           <button
                             type="button"
                             className="flyxa-shot-slot"
-                            onClick={event => { event.stopPropagation(); }}
+                            onClick={event => {
+                              event.stopPropagation();
+                              const tradeScreenshot = trade.screenshotUrl?.trim() ?? '';
+                              if (!tradeScreenshot) return;
+                              setSelectedTradeId(trade.id);
+                              openFullscreenTradeImage(tradeScreenshot, `${trade.symbol} ${trade.entryTime} screenshot`);
+                            }}
                             style={{
                               width: 48,
                               height: 32,
@@ -1944,8 +1969,11 @@ export function FlyxaJournalPage({
                               color: 'var(--txt-3)',
                               display: 'grid',
                               placeItems: 'center',
-                              cursor: 'pointer',
+                              cursor: trade.screenshotUrl?.trim() ? 'pointer' : 'not-allowed',
+                              opacity: trade.screenshotUrl?.trim() ? 1 : 0.45,
                             }}
+                            title={trade.screenshotUrl?.trim() ? 'View screenshot fullscreen' : 'No screenshot available'}
+                            disabled={!trade.screenshotUrl?.trim()}
                           >
                             <ImageIcon size={13} />
                           </button>
@@ -1979,48 +2007,6 @@ export function FlyxaJournalPage({
                           </button>
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div style={{ marginBottom: 24 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                  <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--txt-3)' }}>
-                    Screenshots
-                  </div>
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
-                  {[0, 1, 2].map(index => {
-                    const imageUrl = activeEntry.screenshots?.[index] ?? '';
-                    return (
-                      <button
-                        key={`screen-${index}`}
-                        type="button"
-                        className="flyxa-shot-slot"
-                        style={{
-                          width: '100%',
-                          aspectRatio: '16 / 9',
-                          borderRadius: 5,
-                          border: '1px dashed var(--border)',
-                          background: 'var(--surface-1)',
-                          color: 'var(--txt-3)',
-                          display: 'grid',
-                          placeItems: 'center',
-                          cursor: 'pointer',
-                          overflow: 'hidden',
-                        }}
-                      >
-                        {imageUrl ? (
-                          <img src={imageUrl} alt={`Chart ${index + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                        ) : (
-                          <span style={{ display: 'grid', placeItems: 'center', gap: 4 }}>
-                            <ImageIcon size={18} />
-                            <span style={{ fontSize: 10 }}>Add chart</span>
-                          </span>
-                        )}
-                      </button>
                     );
                   })}
                 </div>
@@ -2082,11 +2068,44 @@ export function FlyxaJournalPage({
                         onDrop={handleEditorDrop}
                       >
                         {editorImagePreview ? (
-                          <img
-                            src={editorImagePreview}
-                            alt="Trade screenshot preview"
-                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                          />
+                          <>
+                            <img
+                              src={editorImagePreview}
+                              alt="Trade screenshot preview"
+                              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                            />
+                            <button
+                              type="button"
+                              onClick={event => {
+                                event.stopPropagation();
+                                openFullscreenTradeImage(
+                                  editorImagePreview,
+                                  `${selectedTrade?.symbol ?? 'Trade'} screenshot`
+                                );
+                              }}
+                              style={{
+                                position: 'absolute',
+                                top: 8,
+                                right: 8,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 5,
+                                height: 28,
+                                borderRadius: 999,
+                                border: '1px solid rgba(255,255,255,0.24)',
+                                background: 'rgba(2,6,23,0.82)',
+                                color: '#e2e8f0',
+                                fontSize: 11,
+                                fontWeight: 600,
+                                padding: '0 10px',
+                                cursor: 'pointer',
+                              }}
+                              title="Open screenshot fullscreen"
+                            >
+                              <Expand size={12} />
+                              Fullscreen
+                            </button>
+                          </>
                         ) : (
                           <span style={{ display: 'grid', placeItems: 'center', gap: 5, color: 'var(--txt-3)' }}>
                             <ImageIcon size={18} />
@@ -2609,6 +2628,82 @@ export function FlyxaJournalPage({
           </div>
         )}
       </section>
+
+      {fullscreenTradeImage && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 150,
+          }}
+        >
+          <button
+            type="button"
+            aria-label="Close fullscreen screenshot"
+            onClick={() => setFullscreenTradeImage(null)}
+            style={{
+              position: 'absolute',
+              inset: 0,
+              border: 'none',
+              background:
+                'radial-gradient(circle at center, rgba(15,23,42,0.22) 0%, rgba(2,6,23,0.86) 70%, rgba(2,6,23,0.95) 100%)',
+              cursor: 'pointer',
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => setFullscreenTradeImage(null)}
+            style={{
+              position: 'absolute',
+              top: 16,
+              right: 16,
+              width: 42,
+              height: 42,
+              borderRadius: '50%',
+              border: '1px solid rgba(148,163,184,0.45)',
+              background: 'rgba(2,6,23,0.82)',
+              color: '#e2e8f0',
+              display: 'grid',
+              placeItems: 'center',
+              cursor: 'pointer',
+            }}
+          >
+            <X size={18} />
+          </button>
+          <div
+            style={{
+              position: 'absolute',
+              left: 20,
+              top: 20,
+              color: '#cbd5e1',
+              fontSize: 12,
+              letterSpacing: '0.04em',
+              textTransform: 'uppercase',
+            }}
+          >
+            {fullscreenTradeImage.title}
+          </div>
+          <div
+            style={{
+              position: 'absolute',
+              inset: 30,
+              display: 'grid',
+              placeItems: 'center',
+            }}
+          >
+            <img
+              src={fullscreenTradeImage.src}
+              alt={fullscreenTradeImage.title}
+              style={{
+                maxWidth: '100%',
+                maxHeight: '100%',
+                objectFit: 'contain',
+                borderRadius: 8,
+              }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2654,7 +2749,7 @@ export default function TradeScanner() {
         scanDate,
         scanTime,
         focusImages,
-        scannerContext ?? undefined
+        withScannerColorContext(scannerContext ?? undefined)
       );
 
       const mapped = buildTradePatchFromScan({
@@ -2732,4 +2827,3 @@ export default function TradeScanner() {
     />
   );
 }
-

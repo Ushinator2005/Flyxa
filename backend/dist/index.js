@@ -17,6 +17,7 @@ const psychology_1 = __importDefault(require("./routes/psychology"));
 const playbook_1 = __importDefault(require("./routes/playbook"));
 const journal_1 = __importDefault(require("./routes/journal"));
 const marketData_1 = __importDefault(require("./routes/marketData"));
+const billing_1 = __importDefault(require("./routes/billing"));
 dotenv_1.default.config({ override: true });
 const app = (0, express_1.default)();
 const PORT = process.env.PORT || 3001;
@@ -50,6 +51,7 @@ app.use('/api/psychology', psychology_1.default);
 app.use('/api/playbook', playbook_1.default);
 app.use('/api/journal', journal_1.default);
 app.use('/api/market-data', marketData_1.default);
+app.use('/api/billing', billing_1.default);
 // Error handler
 app.use(errorHandler_1.errorHandler);
 app.listen(PORT, () => {

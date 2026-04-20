@@ -1517,15 +1517,13 @@ function applyConservativeExitDecision(result, verification, humanReview, decisi
         !hasHighConfidenceExit(verification, 'TP') &&
         !hasHighConfidenceExit(humanReview, 'TP') &&
         !hasHighConfidenceExit(decisiveReview, 'TP')) {
-        next.exit_reason = 'SL';
-        appendWarning(next.warnings ?? (next.warnings = []), 'Exit-order signals disagreed, so the scanner used the conservative stop-first fallback.');
+        appendWarning(next.warnings ?? (next.warnings = []), 'Exit-order signals disagreed — kept the primary extraction result.');
     }
     else if (next.exit_reason === 'TP' &&
         votes.TP < 3 &&
         votes.SL >= 1 &&
         !hasSanityConfirmation) {
-        next.exit_reason = 'SL';
-        appendWarning(next.warnings ?? (next.warnings = []), 'TP was not confirmed by the sanity pass, so the scanner fell back to the conservative stop-first result.');
+        appendWarning(next.warnings ?? (next.warnings = []), 'TP was not confirmed by the sanity pass — kept the primary extraction result.');
     }
     if (next.exit_reason) {
         next.pnl_result = next.exit_reason === 'TP' ? 'Win' : 'Loss';
@@ -1621,6 +1619,20 @@ async function upscaleLabelCrops(images) {
         }
     }));
 }
+async function cropImageToBoxBoundary(images, scannerContext) {
+    if (!scannerContext?.box_right_ratio)
+        return images;
+    return Promise.all(images.map(async (img) => {
+        const buffer = Buffer.from(img.base64Image, 'base64');
+        const metadata = await (0, sharp_1.default)(buffer).metadata();
+        const cropWidth = Math.round((metadata.width ?? 0) * scannerContext.box_right_ratio);
+        const cropped = await (0, sharp_1.default)(buffer)
+            .extract({ left: 0, top: 0, width: cropWidth, height: metadata.height ?? 0 })
+            .png()
+            .toBuffer();
+        return { ...img, base64Image: cropped.toString('base64'), mimeType: 'image/png' };
+    }));
+}
 async function analyzeChartImage(base64Image, mimeType, entryDate, entryTime, focusImages = [], scannerContext) {
     const safeMimeType = VALID_MIME_TYPES.includes(mimeType)
         ? mimeType
@@ -1678,6 +1690,11 @@ async function analyzeChartImage(base64Image, mimeType, entryDate, entryTime, fo
         'exit-path-focus',
         'trade-box-focus',
         'entry-window-focus',
+    ]);
+    const [croppedVerificationImages, croppedSanityImages, croppedDirectExitImages,] = await Promise.all([
+        cropImageToBoxBoundary(verificationImages, normalizedScannerContext),
+        cropImageToBoxBoundary(sanityImages, normalizedScannerContext),
+        cropImageToBoxBoundary(directExitImages, normalizedScannerContext),
     ]);
     const preAnalysisWarnings = [];
     const upscaledPriceImages = await upscaleLabelCrops(exactPriceImages);
@@ -1776,7 +1793,7 @@ async function analyzeChartImage(base64Image, mimeType, entryDate, entryTime, fo
     // Run exit verification first
     const verificationResult = await (async () => {
         try {
-            return await verifyExitOrder(verificationImages, entryDate, baseRead, normalizedScannerContext);
+            return await verifyExitOrder(croppedVerificationImages, entryDate, baseRead, normalizedScannerContext);
         }
         catch {
             appendWarning(baseRead.warnings ?? (baseRead.warnings = []), 'Exit verification failed — relying on manual chart read.');
@@ -1789,7 +1806,7 @@ async function analyzeChartImage(base64Image, mimeType, entryDate, entryTime, fo
     // Run sanity check after, seeding it with verification's exit_reason
     const sanityResult = await (async () => {
         try {
-            return await sanityCheckLevelTouches(sanityImages, entryDate, {
+            return await sanityCheckLevelTouches(croppedSanityImages, entryDate, {
                 ...baseRead,
                 exit_reason: verificationResult?.exit_reason ?? baseRead.exit_reason,
             });
@@ -1817,7 +1834,7 @@ async function analyzeChartImage(base64Image, mimeType, entryDate, entryTime, fo
     const directExit = finalResult.entry_price != null && finalResult.sl_price != null && finalResult.tp_price != null
         ? await (async () => {
             try {
-                return await directExitRead(directExitImages, {
+                return await directExitRead(croppedDirectExitImages, {
                     direction: finalResult.direction ?? 'Long',
                     entry: finalResult.entry_price,
                     sl: finalResult.sl_price,

@@ -11,6 +11,8 @@ export default function Layout() {
   const isJournalWorkspace = location.pathname === '/scanner';
   const isFullBleed = location.pathname === '/chart'
     || location.pathname === '/backtest'
+    || location.pathname === '/trading-plan'
+    || location.pathname === '/billing'
     || location.pathname === '/'
     || isJournalWorkspace;
 

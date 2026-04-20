@@ -3,7 +3,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Scan, Brain, BarChart2, Target,
   Heart, FileText, Crosshair, Swords, Trophy,
-  Settings, LogOut, ChevronLeft, ChevronRight, Plus,
+  Settings, LogOut, ChevronLeft, ChevronRight, Plus, CreditCard,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext.js';
 import { useAppSettings } from '../../contexts/AppSettingsContext.js';
@@ -26,6 +26,7 @@ const navItems = [
   { path: '/flyxa-ai',   icon: Brain,           label: 'Flyxa AI'      },
   { path: '/analytics',  icon: BarChart2,        label: 'Analytics'    },
   { path: '/backtest',   icon: Target,           label: 'Backtest'     },
+  { path: '/trading-plan', icon: FileText,       label: 'Trading Plan' },
   { path: '/psychology', icon: Heart,            label: 'Psychology'   },
   { path: '/journal',    icon: FileText,         label: 'Daily Journal' },
   { path: '/goals',      icon: Crosshair,        label: 'Goals'        },
@@ -234,6 +235,7 @@ function SidebarContent({ onNavClick, collapsed }: { onNavClick?: () => void; co
 
       {/* Settings */}
       <div style={{ padding: collapsed ? '8px 6px 0' : '8px 8px 0', borderTop: `1px solid ${BSUB}` }}>
+        <NavItem path="/billing" icon={CreditCard} label="Billing" onClick={onNavClick} collapsed={collapsed} />
         <NavItem path="/settings" icon={Settings} label="Settings" onClick={onNavClick} collapsed={collapsed} />
       </div>
 

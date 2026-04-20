@@ -6,6 +6,7 @@ import { Trade } from '../../types/index.js';
 import { aiApi } from '../../services/api.js';
 import { lookupContract } from '../../constants/futuresContracts.js';
 import { useAppSettings } from '../../contexts/AppSettingsContext.js';
+import { withScannerColorContext } from '../../utils/scannerColors.js';
 
 const DRAFT_KEY = 'tw_scanner_draft';
 const DRAFT_IMAGE_KEY = 'tw_scanner_draft_image';
@@ -682,7 +683,7 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
         scanDate,
         scanTime,
         focusImages,
-        scannerContext ? scannerContext as unknown as Record<string, unknown> : undefined
+        withScannerColorContext(scannerContext ? scannerContext as unknown as Record<string, unknown> : undefined)
       );
       const INTERNAL_WARNINGS = new Set([
         'Exact price-label review failed, so price levels relied on the broader chart reads.',

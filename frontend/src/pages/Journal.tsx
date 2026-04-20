@@ -40,7 +40,6 @@ const MOOD_STYLES: Record<string, { bg: string; color: string; border: string }>
 };
 
 const AMBER = '#f59e0b';
-const GREEN = '#22c55e';
 const S1 = 'var(--app-panel)';
 const S2 = 'var(--app-panel-strong)';
 const BORDER = 'var(--app-border)';
@@ -50,11 +49,101 @@ const T2 = 'var(--app-text-muted)';
 const T3 = 'var(--app-text-subtle)';
 const ACCENT = 'var(--accent)';
 const ACCENT_DIM = 'var(--accent-dim)';
+const JOURNAL_SECTION_TABS = [
+  { key: 'reflection', label: 'Reflection' },
+  { key: 'lessons', label: 'Lessons' },
+  { key: 'gratitude', label: 'Gratitude' },
+] as const;
+type JournalSectionTab = (typeof JOURNAL_SECTION_TABS)[number]['key'];
 
 // helpers
 
 function wordCount(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function parseJournalSections(content: string): Record<JournalSectionTab, string> {
+  const normalized = (content ?? '').replace(/\r\n/g, '\n');
+  const sections: Record<JournalSectionTab, string> = {
+    reflection: '',
+    lessons: '',
+    gratitude: '',
+  };
+
+  if (!normalized.trim()) {
+    return sections;
+  }
+
+  const lines = normalized.split('\n');
+  let activeTab: JournalSectionTab = 'reflection';
+  let foundSectionHeader = false;
+
+  lines.forEach(line => {
+    const trimmed = line.trim();
+    if (/^##\s*reflection\s*$/i.test(trimmed)) {
+      activeTab = 'reflection';
+      foundSectionHeader = true;
+      return;
+    }
+    if (/^##\s*lessons\s*$/i.test(trimmed)) {
+      activeTab = 'lessons';
+      foundSectionHeader = true;
+      return;
+    }
+    if (/^##\s*pre[- ]?market\s*$/i.test(trimmed) || /^##\s*gratitude\s*$/i.test(trimmed)) {
+      // Backward compatible: old Pre-market section becomes Gratitude.
+      activeTab = 'gratitude';
+      foundSectionHeader = true;
+      return;
+    }
+
+    sections[activeTab] = sections[activeTab]
+      ? `${sections[activeTab]}\n${line}`
+      : line;
+  });
+
+  if (!foundSectionHeader) {
+    return {
+      reflection: normalized.trim(),
+      lessons: '',
+      gratitude: '',
+    };
+  }
+
+  return {
+    reflection: sections.reflection.trim(),
+    lessons: sections.lessons.trim(),
+    gratitude: sections.gratitude.trim(),
+  };
+}
+
+function serializeJournalSections(sections: Record<JournalSectionTab, string>): string {
+  const cleaned = {
+    reflection: sections.reflection.trim(),
+    lessons: sections.lessons.trim(),
+    gratitude: sections.gratitude.trim(),
+  };
+
+  return [
+    '## Reflection',
+    cleaned.reflection,
+    '',
+    '## Lessons',
+    cleaned.lessons,
+    '',
+    '## Gratitude',
+    cleaned.gratitude,
+  ].join('\n').trim();
+}
+
+function getSectionPlaceholder(tab: JournalSectionTab): string {
+  if (tab === 'reflection') {
+    return 'What happened today? Be honest - this is just for you.';
+  }
+  if (tab === 'lessons') {
+    return 'What would you do differently next time?';
+  }
+  return 'What are 3 things you are grateful for today?\n1.\n2.\n3.';
 }
 
 function getPreview(text: string) {
@@ -111,7 +200,11 @@ function getDisplayTitle(entry: JournalEntry, titleByEntryId: Record<string, str
 }
 
 function getEntryContent(entry: JournalEntry) {
-  return typeof entry.content === 'string' ? entry.content : '';
+  const parsed = parseJournalSections(typeof entry.content === 'string' ? entry.content : '');
+  return [parsed.reflection, parsed.lessons, parsed.gratitude]
+    .filter(Boolean)
+    .join('\n\n')
+    .trim();
 }
 
 function formatEntryDate(date: string, pattern: string) {
@@ -226,6 +319,12 @@ export default function Journal() {
   const [moodByEntryId, setMoodByEntryId] = useState<Record<string, string>>(() => loadJournalMoods());
   const [titleByEntryId, setTitleByEntryId] = useState<Record<string, string>>(() => loadJournalTitles());
   const [titleDraft, setTitleDraft] = useState('');
+  const [activeSectionTab, setActiveSectionTab] = useState<JournalSectionTab>('reflection');
+  const [sectionDraft, setSectionDraft] = useState<Record<JournalSectionTab, string>>({
+    reflection: '',
+    lessons: '',
+    gratitude: '',
+  });
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const titleSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -274,12 +373,27 @@ export default function Journal() {
 
   useEffect(() => {
     if (selected && textareaRef.current) textareaRef.current.focus();
-  }, [selected?.id]);
+  }, [activeSectionTab, selected?.id]);
 
   useEffect(() => {
     if (!selected) { setTitleDraft(''); return; }
     setTitleDraft(titleByEntryId[selected.id] ?? '');
   }, [selected, titleByEntryId]);
+
+  useEffect(() => {
+    if (!selected) {
+      setSectionDraft({
+        reflection: '',
+        lessons: '',
+        gratitude: '',
+      });
+      setActiveSectionTab('reflection');
+      return;
+    }
+
+    setSectionDraft(parseJournalSections(selected.content ?? ''));
+    setActiveSectionTab('reflection');
+  }, [selected?.id]);
 
   function persistEntryTitle(entryId: string, nextTitle: string) {
     const normalized = nextTitle.trim();
@@ -313,10 +427,16 @@ export default function Journal() {
 
   function handleContentChange(content: string) {
     if (!selected) return;
-    applyEntryUpdateLocally(selected.id, { content });
+    const nextSections: Record<JournalSectionTab, string> = {
+      ...sectionDraft,
+      [activeSectionTab]: content,
+    };
+    setSectionDraft(nextSections);
+    const serializedContent = serializeJournalSections(nextSections);
+    applyEntryUpdateLocally(selected.id, { content: serializedContent });
     setSaved(false);
     if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => { void autoSave(content); }, 1500);
+    saveTimer.current = setTimeout(() => { void autoSave(serializedContent); }, 1500);
   }
 
   function handleTitleChange(nextTitle: string) {
@@ -607,7 +727,6 @@ export default function Journal() {
                     style={{
                       display: 'inline-flex',
                       alignItems: 'center',
-                      gap: '5px',
                       padding: '5px 10px',
                       border: `1px solid ${BORDER}`,
                       borderRadius: '6px',
@@ -617,7 +736,6 @@ export default function Journal() {
                       userSelect: 'none',
                     }}
                   >
-                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0, background: saving ? AMBER : GREEN, opacity: saving ? 1 : saved ? 1 : 0.4 }} />
                     {saving ? 'Saving...' : saved ? 'Saved' : 'Auto-save on'}
                   </span>
 
@@ -710,16 +828,43 @@ export default function Journal() {
 
                 {/* Hint bar */}
                 <div style={{ borderTop: `1px solid ${BSUB}`, borderBottom: `1px solid ${BSUB}`, padding: '6px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-                  <span style={{ fontSize: '11px', color: T3 }}>What happened · What you felt · What to carry forward</span>
+                  <span style={{ fontSize: '11px', color: T3 }}>Reflection · Lessons · Gratitude</span>
                   <span style={{ fontSize: '11px', color: T3 }}>Autosaves after 1.5s</span>
+                </div>
+
+                {/* Section tabs */}
+                <div style={{ padding: '0 20px', borderBottom: `1px solid ${BSUB}`, display: 'flex', alignItems: 'center', gap: '18px', flexShrink: 0 }}>
+                  {JOURNAL_SECTION_TABS.map(tab => {
+                    const active = activeSectionTab === tab.key;
+                    return (
+                      <button
+                        key={tab.key}
+                        type="button"
+                        onClick={() => setActiveSectionTab(tab.key)}
+                        style={{
+                          border: 'none',
+                          borderBottom: `2px solid ${active ? ACCENT : 'transparent'}`,
+                          background: 'transparent',
+                          color: active ? ACCENT : T2,
+                          fontSize: '12px',
+                          fontWeight: 500,
+                          padding: '9px 0',
+                          cursor: 'pointer',
+                          transition: 'color 0.12s, border-color 0.12s',
+                        }}
+                      >
+                        {tab.label}
+                      </button>
+                    );
+                  })}
                 </div>
 
                 {/* Body textarea */}
                 <textarea
                   ref={textareaRef}
-                  value={getEntryContent(selected)}
+                  value={sectionDraft[activeSectionTab]}
                   onChange={e => handleContentChange(e.target.value)}
-                  placeholder={`Write your reflection for ${formatEntryDate(selected.date, 'MMMM d, yyyy')}...`}
+                  placeholder={getSectionPlaceholder(activeSectionTab)}
                   style={{
                     display: 'block',
                     width: '100%',

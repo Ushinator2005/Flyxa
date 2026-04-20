@@ -15,7 +15,9 @@ import PsychologyTracker from './pages/PsychologyTracker.js';
 import Journal from './pages/Journal.js';
 import Goals from './pages/Goals.js';
 import Rivals from './pages/Rivals.js';
-import Chart from './pages/Chart.js';
+import Backtest from './pages/Backtest.js';
+import TradingPlan from './pages/TradingPlan.js';
+import Billing from './pages/Billing.js';
 import Settings from './pages/Settings.js';
 import LoadingSpinner from './components/common/LoadingSpinner.js';
 import LandingPage from './lumis/pages/LandingPage.js';
@@ -110,7 +112,9 @@ export default function App() {
           <Route path="/coach" element={<Navigate to="/flyxa-ai" replace />} />
           <Route path="/analytics" element={<Analytics />} />
           <Route path="/achievements" element={<Achievements />} />
-          <Route path="/backtest" element={<Chart />} />
+          <Route path="/backtest" element={<Backtest />} />
+          <Route path="/trading-plan" element={<TradingPlan />} />
+          <Route path="/billing" element={<Billing />} />
           <Route path="/chart" element={<Navigate to="/backtest" replace />} />
           <Route path="/psychology" element={<PsychologyTracker />} />
           <Route path="/journal" element={<Journal />} />

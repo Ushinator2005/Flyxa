@@ -202,3 +202,19 @@ export const marketDataApi = {
       `/api/market-data/chart?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&range=${encodeURIComponent(range)}`
     ),
 };
+
+export interface BillingLivePricesResponse {
+  firm: string;
+  prices: Record<string, number>;
+  source: string;
+  fetchedAt: string;
+  live: boolean;
+  fallback: boolean;
+  note?: string;
+  unavailableSizes?: string[];
+}
+
+export const billingApi = {
+  getLivePrices: (firm: string) =>
+    api.get<BillingLivePricesResponse>(`/api/billing/live-prices?firm=${encodeURIComponent(firm)}`),
+};
