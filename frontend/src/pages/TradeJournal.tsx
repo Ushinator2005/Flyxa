@@ -46,6 +46,7 @@ interface JournalTrade {
   tp?: number;
   priceLevelsSource?: 'ai' | 'manual';
   priceLevelsEdited?: boolean;
+  accountId?: string;
   contracts: number;
   rr: number;
   pnl: number;
@@ -453,6 +454,7 @@ function normalizeEntries(value: unknown[], rulesTemplate: string[]): JournalEnt
           pnl,
           result,
           screenshotUrl: typeof trade.screenshotUrl === 'string' ? trade.screenshotUrl : typeof trade.scannedImageUrl === 'string' ? trade.scannedImageUrl : undefined,
+          accountId: typeof trade.accountId === 'string' && trade.accountId ? trade.accountId : typeof trade.account === 'string' && trade.account ? trade.account : undefined,
           reflection: tradeRef,
         };
         return withTradeDerivedValues(normalizedTrade);
@@ -585,6 +587,46 @@ function ContractSizingBlock({ trade, onMutate }: ContractSizingBlockProps) {
           +
         </button>
       </div>
+    </div>
+  );
+}
+
+const ACCOUNT_STATUS_DOT: Record<string, string> = {
+  Eval: '#60a5fa',
+  Funded: '#fbbf24',
+  Live: '#34d399',
+  Blown: '#fca5a5',
+};
+
+function AccountSelectorBlock({ trade, onMutate }: { trade: JournalTrade; onMutate: (fields: Partial<JournalTrade>) => void }) {
+  const { accounts } = useAppSettings();
+
+  return (
+    <div className="tj-account-card">
+      <span className="tj-size-title">ACCOUNT</span>
+      <select
+        className="tj-account-select"
+        value={trade.accountId ?? ''}
+        onChange={event => {
+          const val = event.target.value || undefined;
+          onMutate({ accountId: val, account: val } as Partial<JournalTrade>);
+        }}
+      >
+        <option value="">— Select account —</option>
+        {accounts.map(account => (
+          <option key={account.id} value={account.id}>
+            {account.name}
+          </option>
+        ))}
+      </select>
+      {(() => {
+        const selected = accounts.find(a => a.id === trade.accountId);
+        if (!selected) return null;
+        const dotColor = ACCOUNT_STATUS_DOT[selected.status] ?? '#888';
+        return (
+          <span className="tj-account-dot" style={{ background: dotColor }} title={selected.status} />
+        );
+      })()}
     </div>
   );
 }
@@ -1097,7 +1139,7 @@ export default function TradeJournal() {
         return prev.map(entry => {
           if (entry.id !== existing.id) return entry;
           const shots = [...entry.screenshots];
-          if (!shots[0]) shots[0] = fileDataUrl;
+          shots[0] = fileDataUrl;
           return {
             ...entry,
             scannedImageUrl: fileDataUrl,
@@ -1310,7 +1352,7 @@ export default function TradeJournal() {
   }, [mutateEntries, selectedEntry]);
 
   const primaryScreenshot = selectedEntry
-    ? (selectedEntry.screenshots[0] || selectedEntry.scannedImageUrl || activeTrade?.screenshotUrl || '')
+    ? (activeTrade?.screenshotUrl || selectedEntry.screenshots[0] || selectedEntry.scannedImageUrl || '')
     : '';
 
   return (
@@ -1574,6 +1616,10 @@ export default function TradeJournal() {
                   <div className="tj-section-head">
                     <span className="tj-section-title">Contract Sizing</span>
                   </div>
+                  <AccountSelectorBlock
+                    trade={activeTrade}
+                    onMutate={fields => mutateTradeFields(activeTrade.id, fields)}
+                  />
                   <ContractSizingBlock
                     trade={activeTrade}
                     onMutate={fields => mutateTradeFields(activeTrade.id, fields)}

@@ -211,7 +211,7 @@ function SidebarContent({ onNavClick, collapsed }: { onNavClick?: () => void; co
                       onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; }}
                       onMouseLeave={e => { e.currentTarget.style.background = sel ? 'rgba(255,255,255,0.04)' : 'transparent'; }}
                     >
-                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: acct.color || AMBER, flexShrink: 0 }} />
+                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: accountStatusColor(acct.status), flexShrink: 0 }} />
                       <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {acct.name}
                       </span>

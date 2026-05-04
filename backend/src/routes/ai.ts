@@ -9,9 +9,9 @@ import {
   generatePsychologyReport,
   compareTradeToPlaybook,
   answerFlyxaQuestion,
-  analyzeChartImage,
   filterNewsItems,
 } from '../services/claude';
+import { analyzeChartImage } from '../services/gemini';
 import { AuthenticatedRequest, Trade } from '../types/index';
 
 const router = Router();

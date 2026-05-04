@@ -1264,32 +1264,6 @@ export default function Settings() {
                   </div>
                 </div>
 
-                {account.status === 'Blown' && (
-                  <div
-                    style={{
-                      margin: '6px 4px 0',
-                      borderRadius: '8px',
-                      border: '1px solid rgba(248,113,113,0.3)',
-                      background: 'rgba(127,29,29,0.28)',
-                      padding: '8px 10px',
-                    }}
-                  >
-                    <p
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        fontSize: '11px',
-                        fontWeight: 600,
-                        letterSpacing: '0.02em',
-                        color: '#fecaca',
-                      }}
-                    >
-                      <AlertTriangle size={13} />
-                      This account is blown. New trades cannot be allocated to it.
-                    </p>
-                  </div>
-                )}
 
                 {/* Delete confirmation */}
                 {deleteTarget === account.id && (

@@ -1261,6 +1261,42 @@
   background: var(--surface-1);
 }
 
+.tj-account-card {
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-1);
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tj-account-select {
+  flex: 1;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--txt);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 8px;
+  outline: none;
+  cursor: pointer;
+  appearance: auto;
+}
+
+.tj-account-select:focus {
+  border-color: var(--txt-3);
+}
+
+.tj-account-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
 .tj-size-card {
   margin-bottom: 14px;
   border: 1px solid var(--border);

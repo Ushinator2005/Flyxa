@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import type { ExtractedTradeData } from '../types/index';
 
 const GEMINI_MODEL_FALLBACK_CHAIN = ['gemini-2.5-pro', 'gemini-2.5-flash'];
 const GEMINI_MAX_RETRIES_PER_MODEL = 2;
@@ -114,6 +115,10 @@ export async function readTradeChart(
     stopLoss: string;
     takeProfit: string;
     entry: string;
+  },
+  boxBounds?: {
+    leftRatio: number;
+    rightRatio: number;
   }
 ): Promise<{
   symbol: string | null;
@@ -172,27 +177,40 @@ STEP 3 — DETERMINE DIRECTION:
 - If take profit price < entry price → SHORT
 Use the prices you found in Step 2 to determine this. Never guess direction from box position alone.
 
-STEP 4 — FIND THE EXIT (FIRST TOUCH ONLY):
+STEP 4 — FIND THE EXIT (FIRST TOUCH ONLY, WITHIN THE P&L BOX ONLY):
+${boxBounds
+  ? `CRITICAL BOUNDARY: The colored P&L overlay spans from approximately ${Math.round(boxBounds.leftRatio * 100)}% to ${Math.round(boxBounds.rightRatio * 100)}% of the image width from the left edge.
+YOU MUST STOP SCANNING AT THE RIGHT EDGE OF THE COLORED BOX (${Math.round(boxBounds.rightRatio * 100)}% from the left).
+Any candle positioned to the RIGHT of this boundary is outside the trade — completely ignore it even if price reaches SL or TP there.
+If neither SL nor TP is touched within the P&L box boundary, set exit_reason to null.`
+  : `Only scan candles that fall within the colored P&L overlay region. Do not read price action outside the box.`}
+
 Starting from the entry candle (left edge of the P&L box), scan candles strictly left to right one by one.
 
+IMPORTANT — HOW TO CHECK IF A LEVEL WAS HIT:
+You must compare the actual pixel height of each candle wick against the pixel height of the SL/TP price line.
+A level is only hit if a candle wick visually reaches or crosses that exact price line on the chart.
+The colored price labels on the right axis are reference markers only — their presence does NOT mean price touched that level.
+Do NOT assume a level was hit just because the label is visible. Only count it if a candle wick inside the box clearly touches or crosses the price line.
+When in doubt, set exit_reason to null rather than guessing.
+
 For LONG trades:
-- If any candle LOW (bottom of wick) touches or goes BELOW sl_price → SL hit
-- If any candle HIGH (top of wick) touches or exceeds tp_price → TP hit
+- SL hit: a candle LOW wick visibly touches or goes below the sl_price line
+- TP hit: a candle HIGH wick visibly touches or exceeds the tp_price line
 
 For SHORT trades:
-- If any candle HIGH (top of wick) touches or exceeds sl_price → SL hit
-- If any candle LOW (bottom of wick) touches or goes below tp_price → TP hit
+- SL hit: a candle HIGH wick visibly touches or exceeds the sl_price line
+- TP hit: a candle LOW wick visibly touches or goes below the tp_price line
 
-THE MOMENT either level is touched, stop scanning immediately.
+THE MOMENT either level is clearly touched within the box boundary, stop scanning immediately.
 Record exit_reason as 'TP' or 'SL'.
-IGNORE everything that happens after the first touch.
+IGNORE everything that happens after the first touch or after the right edge of the P&L box.
 NEVER use the live floating price label (the highlighted current price box on the right axis that shows where price is right now) as any trade level.
 
 STEP 5 — ESTIMATE DURATION:
-Count candles from entry to exit candle.
-Multiply by timeframe_minutes × 60 to get trade_length_seconds.
-Read entry_time from the x-axis label nearest the entry candle in HH:MM format.
-Read close_time from the x-axis label nearest the exit candle in HH:MM format.
+entry_time: Read the x-axis time label at the LEFT EDGE of the colored P&L box (where the box starts). This is when the trade was entered.
+close_time: Read the x-axis time label at the candle where price first crossed SL or TP (from Step 4). If exit_reason is null, use the right edge of the P&L box.
+trade_length_seconds: Count candles from the left edge of the box to the exit candle, then multiply by timeframe_minutes × 60.
 
 Return ONLY this raw JSON with no markdown, no explanation, no code fences:
 {
@@ -280,4 +298,55 @@ function addSecondsToHHMM(time: string | null, seconds: number | null): string |
   const outHours = Math.floor(normalized / 60).toString().padStart(2, '0');
   const outMinutes = (normalized % 60).toString().padStart(2, '0');
   return `${outHours}:${outMinutes}`;
+}
+
+export async function analyzeChartImage(
+  base64Image: string,
+  mimeType: string,
+  entryDate: string,
+  entryTime: string,
+  focusImages: Array<{ base64Image: string; mimeType: string; label: string }> = [],
+  scannerContext?: Record<string, unknown>
+): Promise<ExtractedTradeData> {
+  void focusImages;
+
+  const colors = scannerContext?.scanner_colors as {
+    supplyStopZone?: { hex: string };
+    targetDemandZone?: { hex: string };
+    entryZone?: { hex: string };
+  } | undefined;
+
+  const userColors = colors ? {
+    stopLoss: colors.supplyStopZone?.hex ?? '#C0392B',
+    takeProfit: colors.targetDemandZone?.hex ?? '#1A6B5A',
+    entry: colors.entryZone?.hex ?? '#E67E22',
+  } : undefined;
+
+  const boxLeftRatio = typeof scannerContext?.box_left_ratio === 'number' ? scannerContext.box_left_ratio : null;
+  const boxRightRatio = typeof scannerContext?.box_right_ratio === 'number' ? scannerContext.box_right_ratio : null;
+  const boxBounds = boxLeftRatio !== null && boxRightRatio !== null
+    ? { leftRatio: boxLeftRatio, rightRatio: boxRightRatio }
+    : undefined;
+
+  const result = await readTradeChart(base64Image, mimeType, userColors, boxBounds);
+
+  return {
+    symbol: result.symbol,
+    direction: result.direction,
+    entry_price: result.entry_price,
+    entry_time: result.entry_time ?? entryTime ?? null,
+    close_time: result.close_time,
+    entry_time_confidence: result.confidence,
+    sl_price: result.sl_price,
+    tp_price: result.tp_price,
+    trade_length_seconds: result.trade_length_seconds,
+    candle_count: null,
+    timeframe_minutes: result.timeframe_minutes,
+    exit_reason: result.exit_reason,
+    pnl_result: result.exit_reason === 'TP' ? 'Win' : result.exit_reason === 'SL' ? 'Loss' : null,
+    exit_confidence: result.confidence,
+    first_touch_candle_index: null,
+    first_touch_evidence: result.evidence,
+    warnings: result.warnings ?? [],
+  };
 }
