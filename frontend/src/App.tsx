@@ -183,6 +183,7 @@ export default function App() {
     window.localStorage.setItem('flyxa_store_migrated_v1', '1');
   }, [hydrateSharedData, user]);
 
+
   useEffect(() => {
     if (dailyLoss.limit <= 0) return;
 

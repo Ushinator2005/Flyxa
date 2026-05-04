@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Plus, SlidersHorizontal, Clock, CheckSquare, Pencil, ChevronDown, ChevronUp } from 'lucide-react';
+import { Plus, SlidersHorizontal, Clock, CheckSquare, Pencil, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
 import AddGoalPanel from '../components/goals/AddGoalPanel.js';
 import { useGoals } from '../hooks/useGoals.js';
 import type { Goal, GoalInput } from '../types/goals.js';
@@ -65,11 +65,12 @@ interface CardProps {
   goal: Goal;
   onToggleStep: (goalId: string, stepId: string) => void;
   onEdit: (goal: Goal) => void;
+  onDelete: (goal: Goal) => void;
   expanded: boolean;
   onToggleExpanded: (goalId: string) => void;
 }
 
-function GoalCardView({ goal, onToggleStep, onEdit, expanded, onToggleExpanded }: CardProps) {
+function GoalCardView({ goal, onToggleStep, onEdit, onDelete, expanded, onToggleExpanded }: CardProps) {
   const steps = goal.steps;
   const doneCount = steps.filter(s => s.done).length;
   const totalCount = steps.length;
@@ -129,6 +130,9 @@ function GoalCardView({ goal, onToggleStep, onEdit, expanded, onToggleExpanded }
               <button type="button" className="goals-icon-btn" onClick={() => onEdit(goal)} aria-label="Edit goal">
                 <Pencil size={14} />
               </button>
+              <button type="button" className="goals-icon-btn goals-icon-btn--delete" onClick={() => onDelete(goal)} aria-label="Delete goal">
+                <Trash2 size={14} />
+              </button>
             </div>
           </div>
         </div>
@@ -177,7 +181,7 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
 }
 
 export default function Goals() {
-  const { goals, addGoal, updateGoal, toggleStep } = useGoals();
+  const { goals, addGoal, updateGoal, deleteGoal, toggleStep } = useGoals();
   const [filter, setFilter] = useState<Filter>('All');
   const [panelOpen, setPanelOpen] = useState(false);
   const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
@@ -211,6 +215,11 @@ export default function Goals() {
 
   const toggleExpanded = (goalId: string) => {
     setExpandedGoalIds(prev => (prev.includes(goalId) ? prev.filter(id => id !== goalId) : [...prev, goalId]));
+  };
+
+  const handleDelete = (goal: Goal) => {
+    if (!window.confirm(`Delete "${goal.title}"? This cannot be undone.`)) return;
+    deleteGoal(goal.id);
   };
 
   const handleSave = (data: GoalInput) => {
@@ -302,6 +311,7 @@ export default function Goals() {
               goal={goal}
               onToggleStep={toggleStep}
               onEdit={openEdit}
+              onDelete={handleDelete}
               expanded={expandedGoalIds.includes(goal.id)}
               onToggleExpanded={toggleExpanded}
             />

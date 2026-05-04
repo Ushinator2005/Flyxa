@@ -56,7 +56,7 @@ router.post('/scan', authMiddleware, upload.fields([
 });
 
 // POST /flyxa-chat
-router.post('/flyxa-chat', async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+router.post('/flyxa-chat', authMiddleware, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const question = typeof req.body.question === 'string' ? req.body.question : '';
     const history = Array.isArray(req.body.history)
@@ -227,7 +227,7 @@ router.post('/playbook-check/:tradeId', authMiddleware, async (req: Authenticate
 });
 
 // POST /filter-news
-router.post('/filter-news', async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+router.post('/filter-news', authMiddleware, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const { headlines } = req.body;
     if (!Array.isArray(headlines)) {

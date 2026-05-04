@@ -927,6 +927,7 @@ export default function TradeJournal() {
   const [dayFilter, setDayFilter] = useState<DayFilter>('all');
   const [query, setQuery] = useState('');
   const [activeTradeId, setActiveTradeId] = useState<string | null>(null);
+  const [showScanner, setShowScanner] = useState(true);
   const [isScanning, setIsScanning] = useState(false);
   const [scanError, setScanError] = useState('');
   const [scanPreviewUrl, setScanPreviewUrl] = useState('');
@@ -1059,6 +1060,7 @@ export default function TradeJournal() {
   }, [entries, mutateEntries, rulesTemplate, selectedEntry?.date]);
 
   const goToScanner = useCallback(() => {
+    setShowScanner(true);
     navigate('/scanner');
   }, [navigate]);
 
@@ -1412,7 +1414,7 @@ export default function TradeJournal() {
                   key={entry.id}
                   type="button"
                   className={`tj-day-item ${selectedEntryId === entry.id ? 'active' : ''}`}
-                  onClick={() => setSelectedEntryId(entry.id)}
+                  onClick={() => { setSelectedEntryId(entry.id); setShowScanner(false); }}
                 >
                   <div className="tj-date-col">
                     <div className="tj-day-num">{day}</div>
@@ -1442,7 +1444,7 @@ export default function TradeJournal() {
       </aside>
 
       <section className="tj-entry-panel">
-        {selectedEntry && selectedEntry.trades.length > 0 ? (
+        {!showScanner && selectedEntry && selectedEntry.trades.length > 0 ? (
           <>
             <div className="tj-sticky-head">
               <div>

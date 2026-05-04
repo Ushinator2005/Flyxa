@@ -14,20 +14,31 @@ const API_URL = import.meta.env.VITE_API_URL as string || 'http://localhost:3001
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 class ApiService {
-  private async getHeaders(): Promise<HeadersInit> {
+  private async getFreshToken(): Promise<string> {
     const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return '';
+    const now = Math.floor(Date.now() / 1000);
+    if (session.expires_at !== undefined && session.expires_at < now + 60) {
+      const { data: refreshed } = await supabase.auth.refreshSession();
+      return refreshed.session?.access_token ?? '';
+    }
+    return session.access_token;
+  }
+
+  private async getHeaders(): Promise<HeadersInit> {
+    const token = await this.getFreshToken();
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
     };
-    if (session?.access_token) {
-      headers['Authorization'] = `Bearer ${session.access_token}`;
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
     }
     return headers;
   }
 
   private async getAuthHeader(): Promise<string> {
-    const { data: { session } } = await supabase.auth.getSession();
-    return session?.access_token ? `Bearer ${session.access_token}` : '';
+    const token = await this.getFreshToken();
+    return token ? `Bearer ${token}` : '';
   }
 
   async get<T>(path: string): Promise<T> {

@@ -44,6 +44,21 @@ const fmtUSD = (v: number) =>
   v.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 const fmtPct = (v: number) => v.toFixed(1) + '%';
 const fmtRR  = (v: number) => formatRiskRewardRatio(v, { placeholder: '1:0 RR' });
+const fmtSignedCompactUSD = (v: number) => {
+  const formatted = new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    notation: 'compact',
+    maximumFractionDigits: 1,
+  }).format(Math.abs(v)).replace('K', 'k');
+  return `${v >= 0 ? '+' : '-'}${formatted}`;
+};
+
+function winRateBadge(winRate: number): string {
+  const diff = Math.round(winRate - 50);
+  if (diff === 0) return 'At target';
+  return `${Math.abs(diff)} pts ${diff > 0 ? 'above' : 'below'} target`;
+}
 
 // ── Sub-components ───────────────────────────────────────────────
 
@@ -78,18 +93,20 @@ function RiskRewardIcon() {
   );
 }
 
-function DeltaBadge({ value, neutral }: { value?: number; neutral?: string }) {
-  if (neutral !== undefined) {
+type BadgeTone = 'positive' | 'negative' | 'neutral';
+
+function DeltaBadge({ label, tone = 'neutral' }: { label?: string; tone?: BadgeTone }) {
+  if (label === undefined) return null;
+  if (tone === 'neutral') {
     return (
       <span style={{
         fontSize: 11, fontFamily: MONO, color: T3,
         background: 'rgba(255,255,255,0.05)',
         padding: '2px 7px', borderRadius: 3,
-      }}>{neutral}</span>
+      }}>{label}</span>
     );
   }
-  if (value === undefined) return null;
-  const pos = value >= 0;
+  const pos = tone === 'positive';
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: 2,
@@ -99,7 +116,7 @@ function DeltaBadge({ value, neutral }: { value?: number; neutral?: string }) {
       padding: '2px 7px', borderRadius: 3,
     }}>
       {pos ? <ArrowUpRight size={10} /> : <ArrowDownRight size={10} />}
-      {pos ? '+' : ''}{value.toFixed(1)}%
+      {label}
     </span>
   );
 }
@@ -157,10 +174,10 @@ function CardHeader({ title, sub, right }: { title: string; sub?: string; right?
   );
 }
 
-function StatCard({ icon, color, dim, label, value, delta, neutral }: {
+function StatCard({ icon, color, dim, label, value, badgeLabel, badgeTone = 'neutral' }: {
   icon: React.ReactNode; color: string; dim: string;
   label: string; value: string;
-  delta?: number; neutral?: string;
+  badgeLabel?: string; badgeTone?: BadgeTone;
 }) {
   return (
     <Card>
@@ -178,10 +195,7 @@ function StatCard({ icon, color, dim, label, value, delta, neutral }: {
           }}>
             {value}
           </p>
-          {neutral !== undefined
-            ? <DeltaBadge neutral={neutral} />
-            : <DeltaBadge value={delta} />
-          }
+          <DeltaBadge label={badgeLabel} tone={badgeTone} />
         </div>
       </div>
     </Card>
@@ -317,25 +331,28 @@ export default function Dashboard() {
             icon={<EquityCurveIcon />} color={AMBER} dim={AMBER_DIM}
             label="Net P&L"
             value={fmtUSD(summary.netPnL)}
-            delta={todayPnL !== 0 ? (todayPnL / Math.max(1, Math.abs(summary.netPnL - todayPnL))) * 100 : 0}
+            badgeLabel={todayTrades.length > 0 ? `Today ${fmtSignedCompactUSD(todayPnL)}` : 'No trades today'}
+            badgeTone={todayTrades.length === 0 ? 'neutral' : todayPnL >= 0 ? 'positive' : 'negative'}
           />
           <StatCard
             icon={<Target size={17} />} color={COBALT} dim={COBALT_DIM}
             label="Win Rate"
             value={fmtPct(summary.winRate)}
-            delta={summary.winRate - 50}
+            badgeLabel={summary.totalTrades > 0 ? winRateBadge(summary.winRate) : 'No closed trades'}
+            badgeTone={summary.totalTrades === 0 ? 'neutral' : summary.winRate >= 50 ? 'positive' : 'negative'}
           />
           <StatCard
             icon={<RiskRewardIcon />} color={GREEN} dim={GREEN_DIM}
             label="Avg R:R"
             value={fmtRR(summary.avgRR)}
-            delta={(summary.avgRR - 1) * 25}
+            badgeLabel={summary.avgRR > 0 ? (summary.avgRR >= 1 ? 'Above 1:1' : 'Below 1:1') : 'No ratio yet'}
+            badgeTone={summary.avgRR === 0 ? 'neutral' : summary.avgRR >= 1 ? 'positive' : 'negative'}
           />
           <StatCard
             icon={<BarChart2 size={17} />} color={RED} dim={RED_DIM}
             label="Trades"
             value={String(summary.totalTrades)}
-            neutral={`${todayTrades.length} Today`}
+            badgeLabel={`${todayTrades.length} Today`}
           />
         </div>
 

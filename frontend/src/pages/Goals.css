@@ -405,6 +405,11 @@
   background: rgba(255, 255, 255, 0.04);
 }
 
+.goals-icon-btn--delete:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.08);
+}
+
 .goals-subgoals {
   border-top: 1px solid rgba(255, 255, 255, 0.07);
   background: rgba(0, 0, 0, 0.14);
