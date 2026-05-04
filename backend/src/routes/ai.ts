@@ -3,35 +3,56 @@ import multer from 'multer';
 import { authMiddleware } from '../middleware/auth';
 import { supabase } from '../services/supabase';
 import {
-  analyzeChartImage,
-  analyzeChartAnalyzerImage,
   analyzeIndividualTrade,
   analyzePatterns,
   generateWeeklyReport,
   generatePsychologyReport,
   compareTradeToPlaybook,
   answerFlyxaQuestion,
+  analyzeChartImage,
+  filterNewsItems,
 } from '../services/claude';
 import { AuthenticatedRequest, Trade } from '../types/index';
 
 const router = Router();
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
-function getFocusImageLabel(file: Express.Multer.File, index: number): string {
-  const name = file.originalname || '';
-  const match = name.match(/^(header-focus|trade-box-focus|entry-window-focus|exit-path-focus|price-label-focus|entry-label-focus|stop-label-focus|target-label-focus)-/i);
-  return match ? match[1].toLowerCase() : `focus_${index + 1}`;
-}
-
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10mb
-  fileFilter: (_req, file, cb) => {
-    if (file.mimetype.startsWith('image/')) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only image files are allowed'));
+// POST /scan
+router.post('/scan', authMiddleware, upload.fields([
+  { name: 'image', maxCount: 1 },
+  { name: 'focusImages', maxCount: 10 },
+]), async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const files = req.files as Record<string, Express.Multer.File[]> | undefined;
+    const imageFile = files?.['image']?.[0];
+    if (!imageFile) {
+      res.status(400).json({ error: 'image is required' });
+      return;
     }
-  },
+
+    const entryDate = typeof req.body.entryDate === 'string' ? req.body.entryDate : new Date().toISOString().slice(0, 10);
+    const entryTime = typeof req.body.entryTime === 'string' ? req.body.entryTime : '09:30';
+
+    let scannerContext: Record<string, unknown> | undefined;
+    if (typeof req.body.scannerContext === 'string') {
+      try { scannerContext = JSON.parse(req.body.scannerContext); } catch { /* ignore */ }
+    }
+
+    const focusFileList = files?.['focusImages'] ?? [];
+    const focusImages = focusFileList.map(f => ({
+      base64Image: f.buffer.toString('base64'),
+      mimeType: f.mimetype,
+      label: f.originalname,
+    }));
+
+    const base64Image = imageFile.buffer.toString('base64');
+    const mimeType = imageFile.mimetype;
+
+    const result = await analyzeChartImage(base64Image, mimeType, entryDate, entryTime, focusImages, scannerContext);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
 });
 
 // POST /flyxa-chat
@@ -57,76 +78,6 @@ router.post('/flyxa-chat', async (req: AuthenticatedRequest, res: Response, next
 
     const reply = await answerFlyxaQuestion(question, history);
     res.json({ reply });
-  } catch (err) {
-    next(err);
-  }
-});
-
-router.post('/chart-analyzer', authMiddleware, upload.single('image'), async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-  try {
-    const imageFile = req.file;
-    if (!imageFile) {
-      res.status(400).json({ error: 'No image file provided' });
-      return;
-    }
-
-    const rawContractSize = Number(req.body.contractSize);
-    const contractSize = Number.isFinite(rawContractSize) && rawContractSize > 0
-      ? Math.floor(rawContractSize)
-      : 1;
-
-    const results = await analyzeChartAnalyzerImage(
-      imageFile.buffer.toString('base64'),
-      imageFile.mimetype,
-      contractSize
-    );
-
-    res.json(results);
-  } catch (err) {
-    next(err);
-  }
-});
-
-// POST /scan — analyze chart image
-router.post('/scan', authMiddleware, upload.fields([
-  { name: 'image', maxCount: 1 },
-  { name: 'focusImages', maxCount: 8 },
-]), async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-  try {
-    const uploadedFiles = req.files as Record<string, Express.Multer.File[]> | undefined;
-    const imageFile = uploadedFiles?.image?.[0];
-    const focusImages = uploadedFiles?.focusImages ?? [];
-
-    if (!imageFile) {
-      res.status(400).json({ error: 'No image file provided' });
-      return;
-    }
-
-    const { entryDate, entryTime } = req.body;
-    if (!entryDate || !entryTime) {
-      res.status(400).json({ error: 'entryDate and entryTime are required' });
-      return;
-    }
-
-    let scannerContext: Record<string, unknown> | undefined;
-    if (typeof req.body.scannerContext === 'string') {
-      try {
-        scannerContext = JSON.parse(req.body.scannerContext) as Record<string, unknown>;
-      } catch {
-        scannerContext = undefined;
-      }
-    }
-
-    const base64Image = imageFile.buffer.toString('base64');
-    const mimeType = imageFile.mimetype;
-    const focusImagePayloads = focusImages.map((file, index) => ({
-      base64Image: file.buffer.toString('base64'),
-      mimeType: file.mimetype,
-      label: getFocusImageLabel(file, index),
-    }));
-
-    const extractedData = await analyzeChartImage(base64Image, mimeType, entryDate, entryTime, focusImagePayloads, scannerContext);
-    res.json(extractedData);
   } catch (err) {
     next(err);
   }
@@ -270,6 +221,21 @@ router.post('/playbook-check/:tradeId', authMiddleware, async (req: Authenticate
       playbookResult.data || []
     );
     res.json({ analysis });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /filter-news
+router.post('/filter-news', async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const { headlines } = req.body;
+    if (!Array.isArray(headlines)) {
+      res.status(400).json({ error: 'headlines array required' });
+      return;
+    }
+    const items = await filterNewsItems(headlines.slice(0, 40));
+    res.json({ items });
   } catch (err) {
     next(err);
   }

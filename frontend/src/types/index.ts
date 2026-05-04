@@ -16,6 +16,7 @@ export interface Trade {
   point_value: number;
   trade_date: string;
   trade_time: string;
+  close_time?: string | null;
   trade_length_seconds: number;
   candle_count: number;
   timeframe_minutes: number;
@@ -58,6 +59,23 @@ export interface JournalEntry {
   content: string;
   screenshots: string[];
   created_at: string;
+}
+
+export interface JournalBackupPayload {
+  version: number;
+  exported_at: string;
+  user_id: string | null;
+  entries: Array<Pick<JournalEntry, 'date' | 'content' | 'screenshots'>>;
+  moods: Record<string, string>;
+  titles: Record<string, string>;
+}
+
+export interface JournalBackupRestoreResult {
+  requested: number;
+  created: number;
+  updated: number;
+  skipped: number;
+  failed: number;
 }
 
 export interface RiskSettings {
@@ -142,6 +160,7 @@ export interface ExtractedTradeData {
   direction: 'Long' | 'Short' | null;
   entry_price: number | null;
   entry_time: string | null;
+  close_time?: string | null;
   entry_time_confidence: 'high' | 'medium' | 'low' | null;
   sl_price: number | null;
   tp_price: number | null;
@@ -194,5 +213,9 @@ export interface AppPreferences {
       end: string;
     };
   };
+  scannerColors: {
+    entry: string;
+    stopLoss: string;
+    takeProfit: string;
+  };
 }
-

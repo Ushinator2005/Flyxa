@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  TrendingUp, Clock, LineChart, BarChart2,
-  ArrowUpRight, ArrowDownRight, Eye, Filter, ChevronLeft, ChevronRight,
+  TrendingUp, Target, BarChart2,
+  ArrowUpRight, ArrowDownRight, Filter, ChevronLeft, ChevronRight, Trash2,
 } from 'lucide-react';
 import {
   PieChart, Pie, Cell,
@@ -43,7 +43,7 @@ const SANS        = 'var(--font-sans)';
 const fmtUSD = (v: number) =>
   v.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 const fmtPct = (v: number) => v.toFixed(1) + '%';
-const fmtRR  = (v: number) => formatRiskRewardRatio(v, { placeholder: '0 RR' });
+const fmtRR  = (v: number) => formatRiskRewardRatio(v, { placeholder: '1:0 RR' });
 
 // ── Sub-components ───────────────────────────────────────────────
 
@@ -56,6 +56,25 @@ function IconBadge({ color, dim, children }: { color: string; dim: string; child
     }}>
       {children}
     </div>
+  );
+}
+
+function EquityCurveIcon() {
+  return (
+    <svg width="17" height="17" viewBox="0 0 17 17" fill="none" aria-hidden="true">
+      <path d="M2 14H15" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" opacity="0.45" />
+      <path d="M2 11L6 8L9 9L12 5L15 3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function RiskRewardIcon() {
+  return (
+    <svg width="17" height="17" viewBox="0 0 17 17" fill="none" aria-hidden="true">
+      <rect x="2" y="4" width="5.5" height="9" rx="1.2" fill={RED} fillOpacity="0.55" />
+      <rect x="9.5" y="4" width="5.5" height="9" rx="1.2" fill={GREEN} fillOpacity="0.75" />
+      <path d="M8.5 3V14" stroke="rgba(255,255,255,0.45)" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
   );
 }
 
@@ -172,7 +191,8 @@ function StatCard({ icon, color, dim, label, value, delta, neutral }: {
 // ── Main component ────────────────────────────────────────────────
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { trades, loading } = useTrades();
+  const { trades, loading, deleteTrade } = useTrades();
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [weekOffset, setWeekOffset] = useState(0);
   const { accounts, selectedAccountId, setSelectedAccountId, filterTradesBySelectedAccount } = useAppSettings();
   const filteredTrades = useMemo(
@@ -274,7 +294,7 @@ export default function Dashboard() {
               <span style={{ pointerEvents: 'none', position: 'absolute', right: 9, top: '50%', transform: 'translateY(-50%)', fontSize: 9, color: T3 }}>▼</span>
             </div>
             <button
-              onClick={() => navigate('/scanner?import=1')}
+              onClick={() => navigate('/trade-scanner')}
               style={{
                 height: 34, padding: '0 14px',
                 background: AMBER, border: 'none', borderRadius: 5,
@@ -286,7 +306,7 @@ export default function Dashboard() {
               onMouseLeave={e => { e.currentTarget.style.opacity = '1'; }}
             >
               <TrendingUp size={13} />
-              Log Trade
+              Log trade
             </button>
           </div>
         </div>
@@ -294,19 +314,19 @@ export default function Dashboard() {
         {/* Stat cards */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, flexShrink: 0 }}>
           <StatCard
-            icon={<TrendingUp size={17} />} color={AMBER} dim={AMBER_DIM}
+            icon={<EquityCurveIcon />} color={AMBER} dim={AMBER_DIM}
             label="Net P&L"
             value={fmtUSD(summary.netPnL)}
             delta={todayPnL !== 0 ? (todayPnL / Math.max(1, Math.abs(summary.netPnL - todayPnL))) * 100 : 0}
           />
           <StatCard
-            icon={<Clock size={17} />} color={COBALT} dim={COBALT_DIM}
+            icon={<Target size={17} />} color={COBALT} dim={COBALT_DIM}
             label="Win Rate"
             value={fmtPct(summary.winRate)}
             delta={summary.winRate - 50}
           />
           <StatCard
-            icon={<LineChart size={17} />} color={GREEN} dim={GREEN_DIM}
+            icon={<RiskRewardIcon />} color={GREEN} dim={GREEN_DIM}
             label="Avg R:R"
             value={fmtRR(summary.avgRR)}
             delta={(summary.avgRR - 1) * 25}
@@ -360,6 +380,7 @@ export default function Dashboard() {
                         {['Symbol', 'Dir', 'Entry', 'Exit', 'Qty', 'R:R', 'P&L', 'Result'].map(col => (
                           <th key={col} style={{
                             padding: '9px 14px',
+                            paddingRight: col === 'Result' ? 36 : 14,
                             textAlign: col === 'P&L' || col === 'Result' ? 'right' : 'left',
                             fontSize: 10, fontWeight: 600, letterSpacing: '0.08em',
                             textTransform: 'uppercase', color: T3, whiteSpace: 'nowrap',
@@ -405,42 +426,31 @@ export default function Dashboard() {
                             <td style={{ padding: '9px 14px', textAlign: 'right' }}>
                               <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                                 <ResultBadge trade={trade} />
-                                <button
-                                  type="button"
-                                  onClick={() => navigate(`/scanner?date=${encodeURIComponent(trade.trade_date)}&tradeId=${encodeURIComponent(trade.id)}`)}
-                                  onMouseEnter={e => {
-                                    const icon = e.currentTarget.querySelector('svg');
-                                    icon?.animate(
-                                      [
-                                        { transform: 'scaleY(1)', opacity: 1 },
-                                        { transform: 'scaleY(0.2)', opacity: 0.65, offset: 0.45 },
-                                        { transform: 'scaleY(1)', opacity: 1 },
-                                      ],
-                                      { duration: 260, easing: 'ease-in-out', iterations: 1 },
-                                    );
-                                  }}
-                                  style={{
-                                    width: 26,
-                                    height: 26,
-                                    borderRadius: 4,
-                                    border: `1px solid ${BORDER}`,
-                                    background: S2,
-                                    color: T2,
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    cursor: 'pointer',
-                                    transition: 'border-color 0.14s, color 0.14s',
-                                  }}
-                                  onFocus={e => { e.currentTarget.style.borderColor = 'rgba(245,158,11,0.35)'; e.currentTarget.style.color = T1; }}
-                                  onBlur={e => { e.currentTarget.style.borderColor = BORDER; e.currentTarget.style.color = T2; }}
-                                  onMouseOver={e => { e.currentTarget.style.borderColor = 'rgba(245,158,11,0.35)'; e.currentTarget.style.color = T1; }}
-                                  onMouseOut={e => { e.currentTarget.style.borderColor = BORDER; e.currentTarget.style.color = T2; }}
-                                  title="View trade"
-                                  aria-label="View trade"
-                                >
-                                  <Eye size={13} />
-                                </button>
+                                {pendingDeleteId === trade.id ? (
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => { deleteTrade(trade.id); setPendingDeleteId(null); }}
+                                      style={{ fontSize: 11, fontFamily: SANS, padding: '2px 8px', borderRadius: 4, border: 'none', background: RED, color: '#fff', cursor: 'pointer', fontWeight: 600 }}
+                                    >Delete</button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setPendingDeleteId(null)}
+                                      style={{ fontSize: 11, fontFamily: SANS, padding: '2px 8px', borderRadius: 4, border: `1px solid ${BORDER}`, background: 'transparent', color: T2, cursor: 'pointer' }}
+                                    >Cancel</button>
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    title="Delete trade"
+                                    onClick={() => setPendingDeleteId(trade.id)}
+                                    style={{ border: 'none', background: 'transparent', padding: 2, color: T3, display: 'inline-flex', alignItems: 'center', cursor: 'pointer', lineHeight: 0 }}
+                                    onMouseEnter={e => { e.currentTarget.style.color = RED; }}
+                                    onMouseLeave={e => { e.currentTarget.style.color = T3; }}
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                )}
                               </div>
                             </td>
                           </tr>
@@ -472,7 +482,7 @@ export default function Dashboard() {
                   </Pie>
                 </PieChart>
                 <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', textAlign: 'center' }}>
-                  <div style={{ fontSize: 20, fontWeight: 600, fontFamily: MONO, fontVariantNumeric: 'tabular-nums', color: T1, lineHeight: 1 }}>
+                  <div style={{ fontSize: 20, fontWeight: 400, fontFamily: MONO, fontVariantNumeric: 'tabular-nums', color: T1, lineHeight: 1 }}>
                     {fmtPct(summary.winRate)}
                   </div>
                   <div style={{ fontSize: 10, color: T3, marginTop: 3, letterSpacing: '0.06em' }}>Win Rate</div>

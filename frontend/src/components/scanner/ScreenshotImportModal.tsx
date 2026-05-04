@@ -1,12 +1,11 @@
-import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+﻿import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { CalendarDays, Clock3, Expand, ImagePlus, Sparkles, Wand2, X, Upload } from 'lucide-react';
 import TradeForm from './TradeForm.js';
 import { Trade } from '../../types/index.js';
-import { aiApi } from '../../services/api.js';
 import { lookupContract } from '../../constants/futuresContracts.js';
 import { useAppSettings } from '../../contexts/AppSettingsContext.js';
-import { withScannerColorContext } from '../../utils/scannerColors.js';
+import { scanChart } from '../../utils/scanChart.js';
 
 const DRAFT_KEY = 'tw_scanner_draft';
 const DRAFT_IMAGE_KEY = 'tw_scanner_draft_image';
@@ -457,7 +456,7 @@ interface Props {
 }
 
 export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTrade, prefillTrade, initialImageFile }: Props) {
-  const { accounts, getDefaultTradeAccountId, isTradeAccountAllocatable, resolveTradeAccountId } = useAppSettings();
+  const { accounts, preferences, getDefaultTradeAccountId, isTradeAccountAllocatable, resolveTradeAccountId } = useAppSettings();
   const getInitialTradeAccountId = useCallback(() => {
     const baseTrade = editTrade ?? prefillTrade ?? null;
     if (baseTrade?.accountId || baseTrade?.account_id || baseTrade?.id) {
@@ -677,13 +676,22 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
     try {
       const scanDate = currentDate || getFallbackScanDate();
       const scanTime = currentTime || getFallbackScanTime();
-      const { focusImages, scannerContext, uploadImage } = await buildScannerAssets(file);
-      const extracted = await aiApi.scanChart(
+      const { focusImages, scannerContext: rawContext, uploadImage } = await buildScannerAssets(file);
+      const colors = preferences.scannerColors;
+      const enrichedContext: Record<string, unknown> = {
+        ...(rawContext ?? {}),
+        scanner_colors: {
+          entryZone: { hex: colors?.entry ?? '#E67E22' },
+          supplyStopZone: { hex: colors?.stopLoss ?? '#C0392B' },
+          targetDemandZone: { hex: colors?.takeProfit ?? '#1A6B5A' },
+        },
+      };
+      const extracted = await scanChart(
         uploadImage,
         scanDate,
         scanTime,
         focusImages,
-        withScannerColorContext(scannerContext ? scannerContext as unknown as Record<string, unknown> : undefined)
+        enrichedContext
       );
       const INTERNAL_WARNINGS = new Set([
         'Exact price-label review failed, so price levels relied on the broader chart reads.',
@@ -732,6 +740,10 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
         mapped.trade_time = timeValue;
         setCurrentTime(timeValue);
         fields.add('trade_time');
+      }
+      if (extracted.close_time) {
+        mapped.close_time = (extracted.close_time as string).slice(0, 5);
+        fields.add('close_time');
       }
       if (extracted.trade_length_seconds){ mapped.trade_length_seconds = Number(extracted.trade_length_seconds); fields.add('trade_length_seconds'); }
       if (extracted.candle_count)     mapped.candle_count = Number(extracted.candle_count);

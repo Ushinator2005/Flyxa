@@ -81,6 +81,7 @@ export interface ExtractedTradeData {
   direction: 'Long' | 'Short' | null;
   entry_price: number | null;
   entry_time: string | null;
+  close_time?: string | null;
   entry_time_confidence: 'high' | 'medium' | 'low' | null;
   sl_price: number | null;
   tp_price: number | null;

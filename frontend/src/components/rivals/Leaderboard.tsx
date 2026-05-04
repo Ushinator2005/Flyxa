@@ -1,12 +1,20 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import type { LeaderboardMetric, Rival } from '../../types/rivals.js';
-import { getMascotLabel, getRivalMetricValue } from '../../lib/mascotProgression.js';
+import { getRivalMetricValue } from '../../lib/mascotProgression.js';
 
 interface LeaderboardProps {
   rivals: Rival[];
   currentUserId: string;
   defaultMetric?: LeaderboardMetric;
 }
+
+const STAGE_LABELS: Record<string, string> = {
+  seed: 'Seed',
+  rookie: 'Rookie',
+  veteran: 'Veteran',
+  elite: 'Elite',
+  apex: 'Apex',
+};
 
 const TABS: { key: LeaderboardMetric; label: string; unit: string }[] = [
   { key: 'streak', label: 'Streak', unit: 'days' },
@@ -15,208 +23,86 @@ const TABS: { key: LeaderboardMetric; label: string; unit: string }[] = [
   { key: 'psychology', label: 'Psychology', unit: 'pts' },
 ];
 
-const RANK_CFG: Record<number, { color: string; rowBg: string }> = {
-  1: { color: '#f59e0b', rowBg: 'rgba(245,158,11,0.06)' },
-  2: { color: '#94a3b8', rowBg: 'rgba(148,163,184,0.04)' },
-  3: { color: '#b87333', rowBg: 'rgba(184,115,51,0.04)' },
-};
+function rankClass(rank: number) {
+  if (rank === 1) return 'gold';
+  if (rank === 2) return 'silver';
+  if (rank === 3) return 'bronze';
+  return 'regular';
+}
 
-const COBALT = '#1E6FFF';
-const COBALT_DIM = 'rgba(30,111,255,0.10)';
-const S1 = 'var(--app-panel)';
-const BORDER = 'var(--app-border)';
-const BSUB = 'rgba(255,255,255,0.04)';
-const T1 = 'var(--app-text)';
-const T2 = 'var(--app-text-muted)';
-const T3 = 'var(--app-text-subtle)';
-const MONO = 'var(--font-mono)';
-const SANS = 'var(--font-sans)';
+function barColor(rank: number, isMe: boolean, avatarColor: string) {
+  if (isMe) return 'var(--rv-blue)';
+  if (rank === 1) return 'var(--rv-gold)';
+  if (rank === 2) return 'var(--rv-silver)';
+  if (rank === 3) return 'var(--rv-bronze)';
+  return avatarColor;
+}
 
 export default function Leaderboard({ rivals, currentUserId, defaultMetric = 'streak' }: LeaderboardProps) {
   const [metric, setMetric] = useState<LeaderboardMetric>(defaultMetric);
+  const activeTab = TABS.find(tab => tab.key === metric) ?? TABS[0];
 
-  const sorted = [...rivals].sort(
-    (a, b) => getRivalMetricValue(b, metric) - getRivalMetricValue(a, metric),
-  );
-  const maxVal = Math.max(...sorted.map(r => getRivalMetricValue(r, metric)), 1);
-  const activeTab = TABS.find(t => t.key === metric)!;
+  const sorted = [...rivals].sort((a, b) => getRivalMetricValue(b, metric) - getRivalMetricValue(a, metric));
+  const maxVal = Math.max(...sorted.map(rival => getRivalMetricValue(rival, metric)), 1);
 
   return (
-    <div
-      style={{
-        background: S1,
-        border: `1px solid ${BORDER}`,
-        borderRadius: 8,
-        overflow: 'hidden',
-      }}
-    >
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '12px 16px 0',
-          borderBottom: `1px solid ${BSUB}`,
-          gap: 12,
-        }}
-      >
-        <div style={{ paddingBottom: 12 }}>
-          <div style={{ fontFamily: SANS, fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: T3, marginBottom: 2 }}>
-            Ranked by {activeTab.label.toLowerCase()}
-          </div>
-          <div style={{ fontFamily: SANS, fontSize: 13, fontWeight: 600, color: T1 }}>
-            Friend leaderboard
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', gap: 0 }}>
-          {TABS.map(tab => {
-            const isActive = metric === tab.key;
-            return (
-              <button
-                key={tab.key}
-                type="button"
-                onClick={() => setMetric(tab.key)}
-                style={{
-                  height: 40,
-                  padding: '0 12px',
-                  border: 'none',
-                  borderBottom: isActive ? `2px solid ${COBALT}` : '2px solid transparent',
-                  background: 'transparent',
-                  fontFamily: SANS,
-                  fontSize: 11,
-                  fontWeight: 600,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.06em',
-                  color: isActive ? '#6ea8fe' : T3,
-                  cursor: 'pointer',
-                  transition: 'color 0.15s, border-color 0.15s',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {tab.label}
-              </button>
-            );
-          })}
+    <div className="rv-card">
+      <div className="rv-section-head" style={{ borderBottom: 'none' }}>
+        <div>
+          <div className="rv-section-kicker">Competitive Board</div>
+          <div className="rv-section-title">Friend leaderboard</div>
         </div>
       </div>
 
-      <div>
-        {sorted.map((rival, idx) => {
-          const rank = idx + 1;
-          const cfg = RANK_CFG[rank];
-          const val = getRivalMetricValue(rival, metric);
-          const barPct = Math.round((val / maxVal) * 100);
-          const isMe = rival.id === currentUserId || rival.isMe;
-          const stageLabel = getMascotLabel(rival.mascot.stage);
+      <div className="rv-tabs">
+        {TABS.map(tab => (
+          <button
+            key={tab.key}
+            type="button"
+            className={`rv-tab ${metric === tab.key ? 'active' : ''}`}
+            onClick={() => setMetric(tab.key)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
-          const rankColor = cfg ? cfg.color : T3;
-          const barColor = isMe ? COBALT : cfg ? cfg.color : rival.avatarColor;
-
-          return (
-            <div
-              key={rival.id}
+      {sorted.map((rival, index) => {
+        const rank = index + 1;
+        const value = getRivalMetricValue(rival, metric);
+        const pct = Math.max(2, Math.round((value / maxVal) * 100));
+        const isMe = rival.id === currentUserId || rival.isMe;
+        return (
+          <div key={rival.id} className={`rv-lb-row ${isMe ? 'me' : ''}`}>
+            <span className={`rv-rank ${rankClass(rank)}`}>{String(rank).padStart(2, '0')}</span>
+            <span
+              className="rv-avatar"
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 0,
-                padding: '11px 16px',
-                borderBottom: idx < sorted.length - 1 ? `1px solid ${BSUB}` : 'none',
-                borderLeft: isMe ? `2px solid ${COBALT}` : cfg ? `2px solid ${cfg.color}66` : '2px solid transparent',
-                background: isMe ? COBALT_DIM : cfg ? cfg.rowBg : 'transparent',
+                width: 30,
+                height: 30,
+                borderRadius: 9,
+                background: `${rival.avatarColor}14`,
+                border: `1px solid ${rival.avatarColor}38`,
+                color: rival.avatarColor,
               }}
             >
-              <div
-                style={{
-                  flexShrink: 0,
-                  width: 30,
-                  fontFamily: MONO,
-                  fontSize: rank <= 3 ? 16 : 12,
-                  fontWeight: rank <= 3 ? 700 : 500,
-                  color: rankColor,
-                  letterSpacing: '-0.02em',
-                }}
-              >
-                {rank <= 3 ? `0${rank}` : rank}
-              </div>
-
-              <div
-                style={{
-                  flexShrink: 0,
-                  width: 30,
-                  height: 30,
-                  borderRadius: 8,
-                  background: `${rival.avatarColor}14`,
-                  border: `1px solid ${rival.avatarColor}38`,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontFamily: MONO,
-                  fontSize: 10,
-                  fontWeight: 700,
-                  color: rival.avatarColor,
-                  marginRight: 10,
-                }}
-              >
-                {rival.avatarInitials}
-              </div>
-
-              <div style={{ flex: '0 0 130px', minWidth: 0, marginRight: 14 }}>
-                <div
-                  style={{
-                    fontFamily: SANS,
-                    fontSize: 13,
-                    fontWeight: 600,
-                    color: isMe ? '#6ea8fe' : T1,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    marginBottom: 1,
-                  }}
-                >
-                  {rival.displayName}
-                </div>
-                <div style={{ fontFamily: MONO, fontSize: 10, color: T3, letterSpacing: '0.02em' }}>
-                  {stageLabel}
-                </div>
-              </div>
-
-              <div style={{ flex: 1, marginRight: 16 }}>
-                <div style={{ height: 5, borderRadius: 999, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
-                  <div
-                    style={{
-                      height: '100%',
-                      width: `${barPct}%`,
-                      borderRadius: 999,
-                      background: barColor,
-                      transition: 'width 0.4s cubic-bezier(.4,0,.2,1)',
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div style={{ flexShrink: 0, textAlign: 'right', minWidth: 40 }}>
-                <div
-                  style={{
-                    fontFamily: MONO,
-                    fontSize: 16,
-                    fontWeight: 600,
-                    color: isMe ? '#6ea8fe' : cfg ? cfg.color : T2,
-                    lineHeight: 1,
-                    marginBottom: 1,
-                    fontVariantNumeric: 'tabular-nums',
-                  }}
-                >
-                  {val}
-                </div>
-                <div style={{ fontFamily: MONO, fontSize: 9, color: T3, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                  {activeTab.unit}
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+              {rival.avatarInitials}
+            </span>
+            <span className="rv-name">
+              <h4 className={isMe ? 'is-me' : undefined}>{rival.displayName}</h4>
+              <p>{STAGE_LABELS[rival.mascot.stage]}</p>
+            </span>
+            <span className="rv-progress">
+              <span style={{ width: `${pct}%`, background: barColor(rank, Boolean(isMe), rival.avatarColor) }} />
+            </span>
+            <span className="rv-value">
+              <strong className={isMe ? 'is-me' : undefined}>{value}</strong>
+              <small>{activeTab.unit}</small>
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
+

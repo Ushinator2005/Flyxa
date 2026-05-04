@@ -8,11 +8,12 @@ import { useRisk } from '../../contexts/RiskContext.js';
 export default function Layout() {
   const { riskLevel, dailyStatus } = useRisk();
   const location = useLocation();
-  const isJournalWorkspace = location.pathname === '/scanner';
+  const isJournalWorkspace = location.pathname === '/scanner' || location.pathname === '/market-news';
   const isFullBleed = location.pathname === '/chart'
     || location.pathname === '/backtest'
     || location.pathname === '/trading-plan'
     || location.pathname === '/billing'
+    || location.pathname === '/market-news'
     || location.pathname === '/'
     || isJournalWorkspace;
 
@@ -20,7 +21,7 @@ export default function Layout() {
     <div className="app-shell flex min-h-screen">
       <Sidebar />
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
-        {location.pathname !== '/' && !isJournalWorkspace && <Header />}
+        <Header />
         {riskLevel !== 'normal' && dailyStatus && (
           <RiskWarningBanner riskLevel={riskLevel} dailyStatus={dailyStatus} />
         )}
@@ -30,7 +31,7 @@ export default function Layout() {
           </div>
         </main>
       </div>
-      {location.pathname !== '/' && !isJournalWorkspace && <FlyxaChatWidget />}
+      <FlyxaChatWidget />
     </div>
   );
 }

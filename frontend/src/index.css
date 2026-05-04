@@ -945,6 +945,16 @@ html[data-theme='light'] .hover\:border-slate-400:hover {
   }
 }
 
+@keyframes analysing-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+@keyframes analysing-shimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
 @media (max-width: 900px) {
   .lumis-bento-grid {
     grid-template-columns: 1fr;

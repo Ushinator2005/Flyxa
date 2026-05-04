@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { Plus, Sparkles, TrendingDown, TrendingUp, X } from 'lucide-react';
 import { Trade } from '../../types/index.js';
 import { formatCurrency } from '../../utils/calculations.js';
@@ -11,6 +11,14 @@ interface Props {
   aiFields?: Set<string>;
   tradeDate: string;
   tradeTime: string;
+  chartImage?: string;
+  aiScanned?: boolean;
+  onRequestChartUpload?: () => void;
+  onRequestChartFullscreen?: () => void;
+  onTradeDateChange?: (value: string) => void;
+  onTradeTimeChange?: (value: string) => void;
+  formId?: string;
+  showActionBar?: boolean;
   showContractsField?: boolean;
   onSubmit: (data: Partial<Trade>) => void;
   onDraftChange?: (data: Partial<Trade>) => void;
@@ -129,13 +137,21 @@ export default function TradeForm({
   aiFields = new Set(),
   tradeDate,
   tradeTime,
+  chartImage,
+  aiScanned = false,
+  onRequestChartUpload,
+  onRequestChartFullscreen,
+  onTradeDateChange,
+  onTradeTimeChange,
+  formId = 'scanner-trade-form',
+  showActionBar = true,
   showContractsField = true,
   onSubmit,
   onDraftChange,
   onCancel,
   isLoading,
 }: Props) {
-  const { confluenceOptions } = useAppSettings();
+  const { confluenceOptions, accounts, getDefaultTradeAccountId } = useAppSettings();
   const [form, setForm] = useState<Partial<Trade>>(() => buildFormState(initialData));
   const [thesisSetup, setThesisSetup] = useState('');
   const [thesisInvalidation, setThesisInvalidation] = useState('');
@@ -193,6 +209,14 @@ export default function TradeForm({
     const reward = Math.abs(tp_price - entry_price);
     if (risk === 0) return 'N/A';
     return (reward / risk).toFixed(2);
+  };
+
+  const pointDiffLabel = (from?: number, to?: number) => {
+    if (typeof from !== 'number' || typeof to !== 'number') return '—';
+    if (!Number.isFinite(from) || !Number.isFinite(to)) return '—';
+    const diff = Number((to - from).toFixed(2));
+    const sign = diff > 0 ? '+' : '';
+    return `${sign}${diff} pts`;
   };
 
   const set = (key: keyof Trade, value: unknown) => {
@@ -294,6 +318,11 @@ export default function TradeForm({
     tradeTime,
   ]);
 
+  useEffect(() => {
+    if (form.accountId) return;
+    setForm(current => ({ ...current, accountId: getDefaultTradeAccountId() }));
+  }, [form.accountId, getDefaultTradeAccountId]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!hasTradeDateTime || !hasDuration) {
@@ -388,10 +417,164 @@ export default function TradeForm({
   const durationInput: React.CSSProperties = { width: '100%', background: 'transparent', border: 'none', textAlign: 'center', fontSize: 13, color: T1, outline: 'none' };
 
   return (
-    <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <form id={formId} onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <style>{`
+        .scanner-row-one {
+          display: grid;
+          grid-template-columns: minmax(240px, 0.9fr) 1fr 1fr;
+          gap: 8px;
+        }
+        .scanner-row-two,
+        .scanner-notes-two-col {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 8px;
+        }
+        .scanner-three-col {
+          display: grid;
+          grid-template-columns: 1fr 1fr 1fr;
+          gap: 8px;
+        }
+        .scanner-chart-meta {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 8px;
+        }
+        .scanner-confluence-row {
+          display: flex;
+          gap: 6px;
+          margin-bottom: 8px;
+        }
+        @media (max-width: 1240px) {
+          .scanner-row-one {
+            grid-template-columns: 1fr 1fr;
+          }
+          .scanner-row-one > :first-child {
+            grid-column: 1 / -1;
+          }
+          .scanner-three-col {
+            grid-template-columns: 1fr 1fr;
+          }
+          .scanner-three-col > :last-child {
+            grid-column: 1 / -1;
+          }
+        }
+        @media (max-width: 860px) {
+          .scanner-row-one {
+            grid-template-columns: 1fr;
+          }
+          .scanner-row-one > :first-child {
+            grid-column: auto;
+          }
+          .scanner-row-two,
+          .scanner-notes-two-col,
+          .scanner-three-col,
+          .scanner-chart-meta {
+            grid-template-columns: 1fr;
+          }
+          .scanner-three-col > :last-child {
+            grid-column: auto;
+          }
+          .scanner-confluence-row {
+            flex-direction: column;
+          }
+        }
+      `}</style>
 
-      {/* ── Row 1: Instrument  +  Price Levels ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+      {/* â”€â”€ Row 1: Chart + Instrument + Price Levels â”€â”€ */}
+      <div className="scanner-row-one">
+        {/* Chart */}
+        <div style={panel}>
+          <SectionLabel>Chart Scanner</SectionLabel>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <button
+              type="button"
+              onClick={() => onRequestChartUpload?.()}
+              style={{
+                width: '100%',
+                minHeight: 190,
+                borderRadius: 6,
+                border: `1px solid ${BD}`,
+                background: P2,
+                overflow: 'hidden',
+                cursor: 'pointer',
+                position: 'relative',
+                display: 'grid',
+                placeItems: 'center',
+                color: T3,
+              }}
+            >
+              {chartImage ? (
+                <img src={chartImage} alt="Trade chart" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              ) : (
+                <span style={{ fontSize: 12 }}>Import screenshot</span>
+              )}
+              {aiScanned && (
+                <span
+                  style={{
+                    position: 'absolute',
+                    top: 8,
+                    left: 8,
+                    borderRadius: 4,
+                    border: `1px solid ${AMBER_BD}`,
+                    background: AMBER_DIM,
+                    padding: '2px 6px',
+                    fontSize: 10,
+                    fontWeight: 700,
+                    color: AMBER,
+                    letterSpacing: '0.06em',
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  AI Scanned
+                </span>
+              )}
+              {chartImage && onRequestChartFullscreen && (
+                <button
+                  type="button"
+                  onClick={event => {
+                    event.stopPropagation();
+                    onRequestChartFullscreen();
+                  }}
+                  style={{
+                    position: 'absolute',
+                    right: 8,
+                    top: 8,
+                    borderRadius: 4,
+                    border: `1px solid ${BD}`,
+                    background: 'rgba(13,17,23,0.78)',
+                    color: T2,
+                    fontSize: 10,
+                    padding: '2px 6px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Fullscreen
+                </button>
+              )}
+            </button>
+            <div className="scanner-chart-meta">
+              <div>
+                <label className="label">Trade Date</label>
+                <input
+                  type="date"
+                  className="input-field h-9"
+                  value={tradeDate}
+                  onChange={event => onTradeDateChange?.(event.target.value)}
+                />
+              </div>
+              <div>
+                <label className="label">Entry Time</label>
+                <input
+                  type="time"
+                  className="input-field h-9"
+                  value={tradeTime}
+                  onChange={event => onTradeTimeChange?.(event.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
 
         {/* Instrument */}
         <div style={panel}>
@@ -435,6 +618,20 @@ export default function TradeForm({
                 />
               </div>
             )}
+            <div>
+              <label className="label">Account</label>
+              <select
+                className="input-field h-9"
+                value={form.accountId || getDefaultTradeAccountId()}
+                onChange={e => set('accountId', e.target.value)}
+              >
+                {accounts.map(account => (
+                  <option key={account.id} value={account.id}>
+                    {account.name} · {account.status}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
 
@@ -445,25 +642,41 @@ export default function TradeForm({
             <div>
               <label className="label">Entry <AIBadge field="entry_price" /></label>
               <input type="number" className="input-field h-9" value={form.entry_price || ''} onChange={e => set('entry_price', parseFloat(e.target.value))} step={0.25} required />
+              <p style={{ fontSize: 10, color: '#60a5fa', marginTop: 3 }}>reference</p>
             </div>
             <div>
               <label className="label">Exit</label>
               <input type="number" className="input-field h-9" value={form.exit_price || ''} onChange={e => set('exit_price', parseFloat(e.target.value))} step={0.25} />
+              <p style={{ fontSize: 10, color: '#34d399', marginTop: 3 }}>{pointDiffLabel(form.entry_price, form.exit_price)}</p>
             </div>
             <div>
               <label className="label">Stop Loss <AIBadge field="sl_price" /></label>
               <input type="number" className="input-field h-9" value={form.sl_price || ''} onChange={e => set('sl_price', parseFloat(e.target.value))} step={0.25} required />
+              <p style={{ fontSize: 10, color: '#f87171', marginTop: 3 }}>{pointDiffLabel(form.entry_price, form.sl_price)}</p>
             </div>
             <div>
               <label className="label">Take Profit <AIBadge field="tp_price" /></label>
               <input type="number" className="input-field h-9" value={form.tp_price || ''} onChange={e => set('tp_price', parseFloat(e.target.value))} step={0.25} required />
+              <p style={{ fontSize: 10, color: '#fbbf24', marginTop: 3 }}>{pointDiffLabel(form.entry_price, form.tp_price)}</p>
+            </div>
+          </div>
+          <div style={{ ...sub, marginTop: 8, display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center' }}>
+            <div>
+              <p style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.14em', color: T3, marginBottom: 3 }}>Net P&L</p>
+              <p style={{ fontFamily: 'var(--font-mono)', fontSize: 18, fontWeight: 600, color: pnl === 0 ? AMBER : pnl > 0 ? '#34d399' : '#f87171' }}>{formatCurrency(pnl)}</p>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <p style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.14em', color: T3, marginBottom: 3 }}>R:R</p>
+              <p style={{ fontFamily: 'var(--font-mono)', fontSize: 16, fontWeight: 600, color: T1 }}>
+                {rr === 'N/A' ? 'N/A' : formatRiskRewardRatio(Number(rr))}
+              </p>
             </div>
           </div>
         </div>
       </div>
 
-      {/* ── Row 2: Outcome  +  Psychology ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+      {/* â”€â”€ Row 2: Outcome  +  Psychology â”€â”€ */}
+      <div className="scanner-row-two">
 
         {/* Outcome */}
         <div style={panel}>
@@ -515,19 +728,6 @@ export default function TradeForm({
                 </div>
               </div>
             </div>
-            {/* P&L + R:R inline */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              <div style={{ ...sub, borderColor: pnl === 0 ? AMBER_BD : pnl > 0 ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)' }}>
-                <p style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.14em', color: T3, marginBottom: 3 }}>P&L</p>
-                <p style={{ fontFamily: 'var(--font-mono)', fontSize: 16, fontWeight: 600, color: pnl === 0 ? AMBER : pnl > 0 ? '#34d399' : '#f87171' }}>{formatCurrency(pnl)}</p>
-              </div>
-              <div style={sub}>
-                <p style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.14em', color: T3, marginBottom: 3 }}>R:R</p>
-                <p style={{ fontFamily: 'var(--font-mono)', fontSize: 16, fontWeight: 600, color: T1 }}>
-                  {rr === 'N/A' ? 'N/A' : formatRiskRewardRatio(Number(rr))}
-                </p>
-              </div>
-            </div>
           </div>
         </div>
 
@@ -567,10 +767,10 @@ export default function TradeForm({
         </div>
       </div>
 
-      {/* ── Row 3: Confluences (full width) ── */}
+      {/* â”€â”€ Row 3: Confluences (full width) â”€â”€ */}
       <div style={panel}>
         <SectionLabel>Confluences</SectionLabel>
-        <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+        <div className="scanner-confluence-row">
           <select
             className="input-field h-9"
             style={{ flex: 1 }}
@@ -607,7 +807,7 @@ export default function TradeForm({
         )}
       </div>
 
-      {/* ── Row 4: Notes (full width, 3-col internal) ── */}
+      {/* â”€â”€ Row 4: Notes (full width, 3-col internal) â”€â”€ */}
       <div style={panel}>
         <SectionLabel>Notes</SectionLabel>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -618,7 +818,7 @@ export default function TradeForm({
               <p style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.18em', color: '#34d399' }}>Pre-trade Thesis</p>
               <p style={{ fontSize: 11, color: T3 }}>Capture setup logic before outcome bias creeps in.</p>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+            <div className="scanner-three-col">
               <div>
                 <label className="label">Setup Thesis</label>
                 <textarea className="input-field resize-none" rows={2} value={thesisSetup} onChange={e => setThesisSetup(e.target.value)} placeholder="What edge did you see?" />
@@ -635,7 +835,7 @@ export default function TradeForm({
           </div>
 
           {/* Process Grade + Reflection side by side */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <div className="scanner-notes-two-col">
             <div style={sub}>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
                 <p style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.18em', color: T2 }}>Process Grade</p>
@@ -675,7 +875,7 @@ export default function TradeForm({
               <p style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.18em', color: AMBER }}>Reflection</p>
               <p style={{ fontSize: 11, color: T3 }}>Force specific learning after the trade.</p>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+            <div className="scanner-three-col">
               <div>
                 <label className="label">Market vs Thesis</label>
                 <textarea className="input-field resize-none" rows={2} value={reflectionMarket} onChange={e => setReflectionMarket(e.target.value)} placeholder="Did price confirm or reject your thesis?" />
@@ -693,35 +893,39 @@ export default function TradeForm({
         </div>
       </div>
 
-      {/* ── Actions ── */}
+      {/* â”€â”€ Actions â”€â”€ */}
       {(submitError || requiredFieldsMessage) && (
         <p style={{ fontSize: 12, color: requiredFieldsMessage && !submitError ? AMBER : '#f87171' }}>
           {submitError || requiredFieldsMessage}
         </p>
       )}
-      <div style={{ display: 'flex', gap: 8, borderTop: `1px solid ${BD}`, paddingTop: 10 }}>
-        <button
-          type="submit"
-          disabled={!canSubmit}
-          title={requiredFieldsMessage || undefined}
-          style={{
-            flex: 1, height: 38, borderRadius: 6,
-            border: `1px solid ${canSubmit ? 'transparent' : BD}`,
-            background: canSubmit ? AMBER : P2,
-            color: canSubmit ? '#000' : T3,
-            fontSize: 13, fontWeight: 600, cursor: canSubmit ? 'pointer' : 'not-allowed',
-          }}
-        >
-          {isLoading ? 'Saving...' : 'Save Trade'}
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          style={{ height: 38, paddingLeft: 16, paddingRight: 16, borderRadius: 6, border: `1px solid ${BD}`, background: 'transparent', color: T2, fontSize: 13, fontWeight: 500, cursor: 'pointer' }}
-        >
-          Cancel
-        </button>
-      </div>
+      {showActionBar && (
+        <div style={{ display: 'flex', gap: 8, borderTop: `1px solid ${BD}`, paddingTop: 10 }}>
+          <button
+            type="submit"
+            disabled={!canSubmit}
+            title={requiredFieldsMessage || undefined}
+            style={{
+              flex: 1, height: 38, borderRadius: 6,
+              border: `1px solid ${canSubmit ? 'transparent' : BD}`,
+              background: canSubmit ? AMBER : P2,
+              color: canSubmit ? '#000' : T3,
+              fontSize: 13, fontWeight: 600, cursor: canSubmit ? 'pointer' : 'not-allowed',
+            }}
+          >
+            {isLoading ? 'Saving...' : 'Save Trade'}
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            style={{ height: 38, paddingLeft: 16, paddingRight: 16, borderRadius: 6, border: `1px solid ${BD}`, background: 'transparent', color: T2, fontSize: 13, fontWeight: 500, cursor: 'pointer' }}
+          >
+            Cancel
+          </button>
+        </div>
+      )}
     </form>
   );
 }
+
+

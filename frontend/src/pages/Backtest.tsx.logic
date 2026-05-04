@@ -1099,7 +1099,7 @@ export default function Backtest() {
     const prefill = getTradePrefill(session, resultTrade);
     sessionStorage.setItem(BACKTEST_PREFILL_KEY, JSON.stringify(prefill));
     setResultTrade(null);
-    navigate('/scanner');
+    navigate('/');
   };
 
   const entryValue = Number(tradeDraft.entryPrice);
@@ -1122,4 +1122,3 @@ export default function Backtest() {
     quantityValue > 0 &&
     !simulation.activeTrade
   );
-

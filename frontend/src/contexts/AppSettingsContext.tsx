@@ -2,6 +2,8 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { AppPreferences, Trade, TradingAccount, TradingAccountStatus } from '../types/index.js';
 import { useAuth } from './AuthContext.js';
 import { deriveTradeSessionLabel } from '../utils/sessionTimes.js';
+import useFlyxaStore from '../store/flyxaStore.js';
+import type { Account } from '../store/types.js';
 
 export const ALL_ACCOUNTS_ID = 'all';
 export const DEFAULT_ACCOUNT_ID = 'default-account';
@@ -41,6 +43,11 @@ const DEFAULT_PREFERENCES: AppPreferences = {
     london: { start: '03:00', end: '11:30' },
     preMarket: { start: '07:00', end: '09:30' },
     newYork: { start: '09:30', end: '16:00' },
+  },
+  scannerColors: {
+    entry: '#E67E22',
+    stopLoss: '#C0392B',
+    takeProfit: '#1A6B5A',
   },
 };
 
@@ -211,6 +218,10 @@ function loadPreferences(userId: string): AppPreferences {
       ...parsed,
       timezone: normalizedTimezone,
       sessionTimes: normalizeSessionTimes(parsed.sessionTimes),
+      scannerColors: {
+        ...DEFAULT_PREFERENCES.scannerColors,
+        ...(typeof parsed.scannerColors === 'object' && parsed.scannerColors !== null ? parsed.scannerColors as object : {}),
+      },
     };
   } catch {
     const fallbackTimezone = window.localStorage.getItem(TIMEZONE_STORAGE_KEY) ?? DEFAULT_TIMEZONE;
@@ -256,6 +267,9 @@ function loadConfluenceOptions(userId: string): string[] {
 
 export function AppSettingsProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
+  const hydrateSharedData = useFlyxaStore(state => state.hydrateSharedData);
+  const setActiveAccount = useFlyxaStore(state => state.setActiveAccount);
+  const updateScannerColors = useFlyxaStore(state => state.updateScannerColors);
   const [accounts, setAccounts] = useState<TradingAccount[]>([DEFAULT_ACCOUNT]);
   const [preferences, setPreferences] = useState<AppPreferences>(DEFAULT_PREFERENCES);
   const [confluenceOptions, setConfluenceOptions] = useState<string[]>([...DEFAULT_CONFLUENCE_OPTIONS]);
@@ -312,6 +326,33 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
     if (!user) return;
     window.localStorage.setItem(getConfluenceOptionsKey(user.id), JSON.stringify(confluenceOptions));
   }, [confluenceOptions, user]);
+
+  useEffect(() => {
+    const mapped: Account[] = accounts.map(account => ({
+      id: account.id,
+      name: account.name,
+      firm: account.broker || 'Flyxa',
+      size: 50000,
+      type: account.status === 'Live' ? 'live' : account.status === 'Funded' ? 'live' : 'eval',
+      phase: account.status === 'Funded' ? 'funded' : 'eval',
+      balance: 50000,
+      dailyLossLimit: 2500,
+      maxDrawdown: 3000,
+      profitTarget: null,
+      startingBalance: 50000,
+      isActive: true,
+      color: account.color,
+    }));
+    hydrateSharedData({ accounts: mapped });
+  }, [accounts, hydrateSharedData]);
+
+  useEffect(() => {
+    setActiveAccount(selectedAccountId === ALL_ACCOUNTS_ID ? null : selectedAccountId);
+  }, [selectedAccountId, setActiveAccount]);
+
+  useEffect(() => {
+    updateScannerColors(preferences.scannerColors);
+  }, [preferences.scannerColors, updateScannerColors]);
 
   const validAccountIds = useMemo(() => new Set(accounts.map(account => account.id)), [accounts]);
   const accountById = useMemo(

@@ -1,0 +1,411 @@
+interface CropPreset {
+  name: string
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+interface ComponentBounds {
+  xMin: number
+  xMax: number
+  yMin: number
+  yMax: number
+  count: number
+}
+
+export interface ScannerContext {
+  direction_hint?: 'Long' | 'Short'
+  chart_left_ratio?: number
+  chart_right_ratio?: number
+  box_left_ratio?: number
+  box_right_ratio?: number
+  entry_line_ratio?: number
+  stop_line_ratio?: number
+  target_line_ratio?: number
+  red_box?: Omit<ComponentBounds, 'count'>
+  green_box?: Omit<ComponentBounds, 'count'>
+}
+
+const SYMBOL_MAP: Record<string, string> = {
+  NQM26: 'NQ',
+  NQH26: 'NQ',
+  NQU26: 'NQ',
+  NQZ26: 'NQ',
+  ESM26: 'ES',
+  ESH26: 'ES',
+  ESU26: 'ES',
+  ESZ26: 'ES',
+  MNQM26: 'MNQ',
+  MNQH26: 'MNQ',
+  MNQU26: 'MNQ',
+  MNQZ26: 'MNQ',
+  MESM26: 'MES',
+  MESH26: 'MES',
+  MESU26: 'MES',
+  MESZ26: 'MES',
+}
+
+const DEFAULT_FOCUS_CROPS: CropPreset[] = [
+  { name: 'header-focus', x: 0, y: 0, width: 0.34, height: 0.12 },
+  { name: 'trade-box-focus', x: 0.46, y: 0.1, width: 0.3, height: 0.72 },
+  { name: 'entry-window-focus', x: 0.4, y: 0.16, width: 0.22, height: 0.62 },
+  { name: 'exit-path-focus', x: 0.46, y: 0.16, width: 0.24, height: 0.62 },
+  { name: 'price-label-focus', x: 0.78, y: 0, width: 0.22, height: 1 },
+  { name: 'entry-label-focus', x: 0.83, y: 0.4, width: 0.17, height: 0.08 },
+  { name: 'stop-label-focus', x: 0.83, y: 0.28, width: 0.17, height: 0.08 },
+  { name: 'target-label-focus', x: 0.83, y: 0.52, width: 0.17, height: 0.08 },
+]
+
+const DEFAULT_SCANNER_COLORS = {
+  entry: '#E67E22',
+  stopLoss: '#C0392B',
+  takeProfit: '#1A6B5A',
+}
+
+function resolveSymbol(raw: string): string {
+  return SYMBOL_MAP[raw.toUpperCase()] ?? raw.toUpperCase()
+}
+
+export function normalizeResolvedSymbol(raw: string | null | undefined): string | null {
+  if (!raw) return null
+  const normalized = resolveSymbol(raw.trim())
+  return ['UNKNOWN', 'UNKWN', 'N/A', 'NA', 'NONE', 'NULL'].includes(normalized) ? null : normalized
+}
+
+export function inferSymbolFromFileName(fileName: string): string | null {
+  const upper = fileName.toUpperCase()
+  const match = upper.match(/(?:^|[^A-Z0-9])(MNQ|MES|NQ|ES|MYM|YM|M2K|RTY|CL|MCL|GC|SI|6E)(?=[^A-Z0-9]|$)/)
+  return match ? match[1] : null
+}
+
+function loadImage(file: File): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file)
+    const image = new Image()
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl)
+      resolve(image)
+    }
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl)
+      reject(new Error('Failed to load chart image for scanner crops'))
+    }
+    image.src = objectUrl
+  })
+}
+
+function canvasToFile(canvas: HTMLCanvasElement, fileName: string, sourceType: string): Promise<File> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(blob => {
+      if (!blob) {
+        reject(new Error('Failed to create scanner crop'))
+        return
+      }
+      resolve(new File([blob], fileName, { type: sourceType || 'image/png' }))
+    }, sourceType || 'image/png', 0.95)
+  })
+}
+
+async function buildUploadImage(image: HTMLImageElement, fileName: string): Promise<File> {
+  const maxWidth = 1800
+  const scale = Math.min(1, maxWidth / Math.max(1, image.naturalWidth || image.width))
+  const width = Math.max(1, Math.round((image.naturalWidth || image.width) * scale))
+  const height = Math.max(1, Math.round((image.naturalHeight || image.height) * scale))
+
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+
+  const context = canvas.getContext('2d')
+  if (!context) throw new Error('Failed to prepare scanner upload image')
+  context.drawImage(image, 0, 0, width, height)
+
+  return canvasToFile(canvas, `${fileName.replace(/\.[^.]+$/, '')}.webp`, 'image/webp')
+}
+
+function clampRatio(value: number, min = 0, max = 1): number {
+  return Math.min(max, Math.max(min, value))
+}
+
+function isGreenOverlay(r: number, g: number, b: number): boolean {
+  return g > r + 6 && b > r + 2 && g > 140 && b > 140
+}
+
+function isRedOverlay(r: number, g: number, b: number): boolean {
+  return r > g + 12 && r > b + 6 && r > 150
+}
+
+function findLargestComponent(mask: Uint8Array, width: number, height: number): ComponentBounds | null {
+  const visited = new Uint8Array(mask.length)
+  let best: ComponentBounds | null = null
+  const queue = new Int32Array(mask.length)
+
+  for (let index = 0; index < mask.length; index += 1) {
+    if (!mask[index] || visited[index]) continue
+
+    let head = 0
+    let tail = 0
+    visited[index] = 1
+    queue[tail++] = index
+
+    let count = 0
+    let xMin = width
+    let xMax = 0
+    let yMin = height
+    let yMax = 0
+
+    while (head < tail) {
+      const current = queue[head++]
+      const x = current % width
+      const y = Math.floor(current / width)
+
+      count += 1
+      xMin = Math.min(xMin, x)
+      xMax = Math.max(xMax, x)
+      yMin = Math.min(yMin, y)
+      yMax = Math.max(yMax, y)
+
+      const neighbors = [current - 1, current + 1, current - width, current + width]
+      neighbors.forEach(next => {
+        if (next < 0 || next >= mask.length || visited[next] || !mask[next]) return
+        const nextX = next % width
+        if (Math.abs(nextX - x) > 1) return
+        visited[next] = 1
+        queue[tail++] = next
+      })
+    }
+
+    if (!best || count > best.count) {
+      best = { xMin, xMax, yMin, yMax, count }
+    }
+  }
+
+  return best
+}
+
+function toRatioBounds(bounds: ComponentBounds, width: number, height: number): Omit<ComponentBounds, 'count'> {
+  return {
+    xMin: bounds.xMin / width,
+    xMax: bounds.xMax / width,
+    yMin: bounds.yMin / height,
+    yMax: bounds.yMax / height,
+  }
+}
+
+function inferChartPaneBounds(boxLeftRatio: number, boxRightRatio: number): { left: number; right: number } {
+  if (boxRightRatio <= 0.48) return { left: 0, right: 0.5 }
+  if (boxLeftRatio >= 0.52) return { left: 0.5, right: 1 }
+  return { left: 0, right: 1 }
+}
+
+function detectTradeBoxContext(image: HTMLImageElement): ScannerContext | null {
+  const targetWidth = Math.min(640, image.naturalWidth || image.width)
+  const scale = targetWidth / (image.naturalWidth || image.width)
+  const width = Math.max(1, Math.round((image.naturalWidth || image.width) * scale))
+  const height = Math.max(1, Math.round((image.naturalHeight || image.height) * scale))
+
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+
+  const context = canvas.getContext('2d', { willReadFrequently: true })
+  if (!context) return null
+
+  context.drawImage(image, 0, 0, width, height)
+  const { data } = context.getImageData(0, 0, width, height)
+  const redMask = new Uint8Array(width * height)
+  const greenMask = new Uint8Array(width * height)
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      if (x > width * 0.88) continue
+      const index = (y * width + x) * 4
+      const r = data[index]
+      const g = data[index + 1]
+      const b = data[index + 2]
+      const pixelIndex = y * width + x
+
+      if (isRedOverlay(r, g, b)) redMask[pixelIndex] = 1
+      if (isGreenOverlay(r, g, b)) greenMask[pixelIndex] = 1
+    }
+  }
+
+  const redBox = findLargestComponent(redMask, width, height)
+  const greenBox = findLargestComponent(greenMask, width, height)
+  if (!redBox || !greenBox || redBox.count < 200 || greenBox.count < 200) return null
+
+  const boxLeftRatio = Math.min(redBox.xMin, greenBox.xMin) / width
+  const boxRightRatio = Math.max(redBox.xMax, greenBox.xMax) / width
+  const chartPane = inferChartPaneBounds(boxLeftRatio, boxRightRatio)
+  const redCenterY = (redBox.yMin + redBox.yMax) / 2
+  const greenCenterY = (greenBox.yMin + greenBox.yMax) / 2
+  const directionHint =
+    redCenterY < greenCenterY ? 'Short' : greenCenterY < redCenterY ? 'Long' : undefined
+
+  let entryLineRatio: number | undefined
+  let stopLineRatio: number | undefined
+  let targetLineRatio: number | undefined
+
+  if (directionHint === 'Long') {
+    entryLineRatio = greenBox.yMax / height
+    stopLineRatio = redBox.yMax / height
+    targetLineRatio = greenBox.yMin / height
+  } else if (directionHint === 'Short') {
+    entryLineRatio = redBox.yMax / height
+    stopLineRatio = redBox.yMin / height
+    targetLineRatio = greenBox.yMax / height
+  }
+
+  return {
+    direction_hint: directionHint,
+    chart_left_ratio: chartPane.left,
+    chart_right_ratio: chartPane.right,
+    box_left_ratio: boxLeftRatio,
+    box_right_ratio: boxRightRatio,
+    entry_line_ratio: entryLineRatio,
+    stop_line_ratio: stopLineRatio,
+    target_line_ratio: targetLineRatio,
+    red_box: toRatioBounds(redBox, width, height),
+    green_box: toRatioBounds(greenBox, width, height),
+  }
+}
+
+function buildDynamicFocusCrops(scannerContext: ScannerContext | null): CropPreset[] {
+  if (!scannerContext?.box_left_ratio || !scannerContext.box_right_ratio) {
+    return DEFAULT_FOCUS_CROPS
+  }
+
+  const chartLeft = scannerContext.chart_left_ratio ?? 0
+  const chartRight = scannerContext.chart_right_ratio ?? 1
+  const chartWidth = Math.max(0.22, chartRight - chartLeft)
+  const left = scannerContext.box_left_ratio
+  const right = scannerContext.box_right_ratio
+  const boxWidth = Math.max(0.08, right - left)
+  const top = Math.min(scannerContext.red_box?.yMin ?? 0.18, scannerContext.green_box?.yMin ?? 0.18)
+  const bottom = Math.max(scannerContext.red_box?.yMax ?? 0.78, scannerContext.green_box?.yMax ?? 0.78)
+  const boxHeight = Math.max(0.22, bottom - top)
+  const entryLine = scannerContext.entry_line_ratio ?? (top + boxHeight / 2)
+  const stopLine = scannerContext.stop_line_ratio ?? top
+  const targetLine = scannerContext.target_line_ratio ?? bottom
+
+  const labelCrop = (name: string, yCenter: number): CropPreset => ({
+    name,
+    x: clampRatio(chartRight - chartWidth * 0.17, chartLeft, 0.9),
+    y: clampRatio(yCenter - 0.045),
+    width: clampRatio(chartWidth * 0.17, 0.1, 0.18),
+    height: 0.09,
+  })
+
+  return [
+    {
+      name: 'header-focus',
+      x: chartLeft,
+      y: 0,
+      width: clampRatio(chartWidth * 0.42, 0.24, 0.42),
+      height: 0.12,
+    },
+    {
+      name: 'trade-box-focus',
+      x: clampRatio(left - boxWidth * 0.25, chartLeft, chartRight - 0.12),
+      y: clampRatio(top - boxHeight * 0.18),
+      width: clampRatio(boxWidth * 1.7, 0.18, chartRight - clampRatio(left - boxWidth * 0.25, chartLeft, chartRight - 0.12)),
+      height: clampRatio(boxHeight * 1.35, 0.3, 0.78),
+    },
+    {
+      name: 'entry-window-focus',
+      x: clampRatio(left - boxWidth * 0.45, chartLeft, chartRight - 0.12),
+      y: clampRatio(top - boxHeight * 0.15),
+      width: clampRatio(boxWidth * 1.2, 0.16, chartRight - clampRatio(left - boxWidth * 0.45, chartLeft, chartRight - 0.12)),
+      height: clampRatio(boxHeight * 1.2, 0.32, 0.74),
+    },
+    {
+      name: 'exit-path-focus',
+      x: clampRatio(left - boxWidth * 0.1, chartLeft, chartRight - 0.12),
+      y: clampRatio(top - boxHeight * 0.15),
+      width: clampRatio(boxWidth * 1.55, 0.18, chartRight - clampRatio(left - boxWidth * 0.1, chartLeft, chartRight - 0.12)),
+      height: clampRatio(boxHeight * 1.2, 0.32, 0.74),
+    },
+    {
+      name: 'price-label-focus',
+      x: clampRatio(chartRight - chartWidth * 0.22, chartLeft, 0.86),
+      y: 0,
+      width: clampRatio(chartWidth * 0.22, 0.14, 0.22),
+      height: 1,
+    },
+    labelCrop('entry-label-focus', entryLine),
+    labelCrop('stop-label-focus', stopLine),
+    labelCrop('target-label-focus', targetLine),
+  ]
+}
+
+export async function buildScannerAssets(file: File): Promise<{
+  focusImages: File[]
+  scannerContext: Record<string, unknown> | null
+  uploadImage: File
+}> {
+  const image = await loadImage(file)
+  const sourceType = file.type || 'image/png'
+  const scannerContext = detectTradeBoxContext(image)
+  const focusCrops = buildDynamicFocusCrops(scannerContext)
+
+  const focusImages = await Promise.all(
+    focusCrops.map(async crop => {
+      const sx = Math.max(0, Math.floor(image.width * crop.x))
+      const sy = Math.max(0, Math.floor(image.height * crop.y))
+      const sw = Math.max(1, Math.floor(image.width * crop.width))
+      const sh = Math.max(1, Math.floor(image.height * crop.height))
+      const boundedWidth = Math.min(sw, image.width - sx)
+      const boundedHeight = Math.min(sh, image.height - sy)
+
+      const canvas = document.createElement('canvas')
+      canvas.width = boundedWidth
+      canvas.height = boundedHeight
+
+      const context = canvas.getContext('2d')
+      if (!context) throw new Error('Failed to prepare scanner crop canvas')
+
+      context.drawImage(image, sx, sy, boundedWidth, boundedHeight, 0, 0, boundedWidth, boundedHeight)
+      return canvasToFile(canvas, `${crop.name}-${file.name}`, sourceType)
+    })
+  )
+
+  const uploadImage = await buildUploadImage(image, file.name)
+  return { focusImages, scannerContext: scannerContext ? (scannerContext as Record<string, unknown>) : null, uploadImage }
+}
+
+function tryReadHex(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+export function buildScannerColorContext(raw: unknown): {
+  entryZone: { hex: string }
+  supplyStopZone: { hex: string }
+  targetDemandZone: { hex: string }
+} {
+  const source = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : {}
+  const scannerColors = typeof source.scanner_colors === 'object' && source.scanner_colors !== null
+    ? (source.scanner_colors as Record<string, unknown>)
+    : source
+
+  const entryHex =
+    tryReadHex((scannerColors.entryZone as { hex?: unknown } | undefined)?.hex)
+    ?? tryReadHex(scannerColors.entry)
+    ?? DEFAULT_SCANNER_COLORS.entry
+
+  const stopHex =
+    tryReadHex((scannerColors.supplyStopZone as { hex?: unknown } | undefined)?.hex)
+    ?? tryReadHex(scannerColors.stopLoss)
+    ?? DEFAULT_SCANNER_COLORS.stopLoss
+
+  const tpHex =
+    tryReadHex((scannerColors.targetDemandZone as { hex?: unknown } | undefined)?.hex)
+    ?? tryReadHex(scannerColors.takeProfit)
+    ?? DEFAULT_SCANNER_COLORS.takeProfit
+
+  return {
+    entryZone: { hex: entryHex },
+    supplyStopZone: { hex: stopHex },
+    targetDemandZone: { hex: tpHex },
+  }
+}

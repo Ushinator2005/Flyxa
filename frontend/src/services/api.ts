@@ -1,5 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
-import { Trade, RiskSettings, ExtractedTradeData } from '../types/index.js';
+import {
+  Trade,
+  RiskSettings,
+  ExtractedTradeData,
+  JournalEntry,
+  JournalBackupRestoreResult,
+} from '../types/index.js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
@@ -156,9 +162,24 @@ export const aiApi = {
   playbookCheck: (tradeId: string) => api.post(`/api/ai/playbook-check/${tradeId}`, {}),
   flyxaChat: (
     question: string,
-    history: Array<{ role: 'user' | 'assistant'; content: string }> = []
-  ) => api.post<{ reply: string }>('/api/ai/flyxa-chat', { question, history }),
+    history: Array<{ role: 'user' | 'assistant'; content: string }> = [],
+    systemContext?: string
+  ) => api.post<{ reply: string }>('/api/ai/flyxa-chat', { question, history, systemContext }),
+  filterNews: (headlines: Array<{ headline: string; source: string; timestamp: string; summary?: string; url?: string }>) =>
+    api.post<{ items: NewsFilterItem[] }>('/api/ai/filter-news', { headlines }),
 };
+
+export interface NewsFilterItem {
+  headline: string;
+  summary: string;
+  impact: 'high' | 'medium' | 'low';
+  category: string;
+  marketImpact: { es: string; nq: string; note?: string };
+  isBreaking: boolean;
+  source: string;
+  timestamp: string;
+  url?: string;
+}
 
 export const riskApi = {
   getSettings: () => api.get<RiskSettings>('/api/risk/settings'),
@@ -187,6 +208,14 @@ export const journalApi = {
   create: (data: Record<string, unknown>) => api.post('/api/journal', data),
   update: (id: string, data: Record<string, unknown>) => api.put(`/api/journal/${id}`, data),
   delete: (id: string) => api.delete(`/api/journal/${id}`),
+  exportBackup: () =>
+    api.get<{
+      version: number;
+      exported_at: string;
+      entries: JournalEntry[];
+    }>('/api/journal/backup'),
+  restoreBackup: (entries: Array<Pick<JournalEntry, 'date' | 'content' | 'screenshots'>>) =>
+    api.post<JournalBackupRestoreResult>('/api/journal/backup/restore', { entries }),
 };
 
 export const marketDataApi = {

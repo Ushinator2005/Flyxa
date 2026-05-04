@@ -8,14 +8,15 @@ interface ThemeContextValue {
   toggleTheme: () => void;
 }
 
-const STORAGE_KEY = 'tradewise-theme';
+const STORAGE_KEY = 'flyxa-ai-theme';
+const LEGACY_STORAGE_KEY = 'tradewise-theme';
 
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 
 function getInitialTheme(): Theme {
   if (typeof window === 'undefined') return 'dark';
 
-  const savedTheme = window.localStorage.getItem(STORAGE_KEY);
+  const savedTheme = window.localStorage.getItem(STORAGE_KEY) ?? window.localStorage.getItem(LEGACY_STORAGE_KEY);
   if (savedTheme === 'dark' || savedTheme === 'light') {
     return savedTheme;
   }

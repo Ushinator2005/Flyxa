@@ -1110,11 +1110,34 @@ export default function MonthlyHeatmap({ trades = [] }: { trades?: Trade[] }) {
                 key={day}
                 title={title}
                 onClick={() => {
-                  if (!journalEntry) return;
-                  void openJournalModal(journalEntry.id, journalEntry.date);
+                  const targetDate = format(new Date(year, month - 1, day), 'yyyy-MM-dd');
+                  if (journalEntry) {
+                    void openJournalModal(journalEntry.id, targetDate);
+                    return;
+                  }
+
+                  void (async () => {
+                    try {
+                      const created = await journalApi.create({
+                        date: targetDate,
+                        content: '',
+                        screenshots: [],
+                      }) as JournalEntry;
+
+                      setJournalEntries(current => [created, ...current.filter(entry => entry.id !== created.id)]);
+                      setJournals(current => ({
+                        ...current,
+                        [day]: { id: created.id, date: created.date },
+                      }));
+
+                      void openJournalModal(created.id, targetDate);
+                    } catch {
+                      setJournalError('Unable to open this daily journal entry.');
+                    }
+                  })();
                 }}
                 className={`relative flex flex-col border-b border-r border-slate-700/50 p-2 transition-colors last:border-r-0 ${getCellBg(pnl)} ${
-                  hasJournal ? 'cursor-pointer hover:ring-1 hover:ring-amber-400/35 hover:ring-inset' : ''
+                  'cursor-pointer hover:ring-1 hover:ring-amber-400/35 hover:ring-inset'
                 } ${
                   isToday ? 'bg-cyan-500/[0.04]' : ''
                 }`}

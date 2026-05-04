@@ -49,7 +49,7 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
     }
 
     onAuthenticated(result.session);
-    navigate('/journal', { replace: true });
+    navigate('/', { replace: true });
   }
 
   function handleSignUp(event: FormEvent<HTMLFormElement>) {
@@ -80,7 +80,7 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
     }
 
     onAuthenticated(result.session);
-    navigate('/journal', { replace: true });
+    navigate('/', { replace: true });
   }
 
   return (

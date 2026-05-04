@@ -191,9 +191,12 @@ export default function Analytics() {
   const [period, setPeriod] = useState<PeriodKey>('1M');
   const today = useMemo(() => new Date(), []);
 
+  const sourceTrades = trades;
+  const isLoading = loading;
+
   const accountTrades = useMemo(
-    () => filterTradesBySelectedAccount(trades),
-    [filterTradesBySelectedAccount, trades]
+    () => filterTradesBySelectedAccount(sourceTrades),
+    [filterTradesBySelectedAccount, sourceTrades]
   );
 
   const filteredTrades = useMemo(() => {
@@ -474,7 +477,7 @@ export default function Analytics() {
       .sort((a, b) => b.netPnL - a.netPnL);
   }, [filteredTrades]);
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
         <LoadingSpinner size="lg" label="Loading analytics..." />

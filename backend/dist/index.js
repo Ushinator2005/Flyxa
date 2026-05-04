@@ -21,18 +21,79 @@ const billing_1 = __importDefault(require("./routes/billing"));
 dotenv_1.default.config({ override: true });
 const app = (0, express_1.default)();
 const PORT = process.env.PORT || 3001;
+function isPrivateIpv4(hostname) {
+    const parts = hostname.split('.').map((part) => Number.parseInt(part, 10));
+    if (parts.length !== 4 || parts.some((part) => !Number.isFinite(part) || part < 0 || part > 255)) {
+        return false;
+    }
+    const [a, b] = parts;
+    if (a === 10)
+        return true;
+    if (a === 172 && b >= 16 && b <= 31)
+        return true;
+    if (a === 192 && b === 168)
+        return true;
+    return false;
+}
+function isAllowedDevOrigin(origin) {
+    try {
+        const parsed = new URL(origin);
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')
+            return false;
+        const hostname = parsed.hostname.toLowerCase();
+        if (hostname === 'localhost' || hostname === '127.0.0.1')
+            return true;
+        return isPrivateIpv4(hostname);
+    }
+    catch {
+        return false;
+    }
+}
 // Security middleware
 app.use((0, helmet_1.default)());
 // CORS
+const defaultAllowedOrigins = ['http://localhost:5173', 'http://127.0.0.1:5173'];
+const configuredAllowedOrigins = (process.env.FRONTEND_URL ?? '')
+    .split(',')
+    .map(origin => origin.trim())
+    .filter(Boolean);
+const allowedOrigins = new Set([...defaultAllowedOrigins, ...configuredAllowedOrigins]);
 app.use((0, cors_1.default)({
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+    origin: (origin, callback) => {
+        // Allow same-origin / non-browser calls (no Origin header)
+        if (!origin) {
+            callback(null, true);
+            return;
+        }
+        if (allowedOrigins.has(origin)) {
+            callback(null, true);
+            return;
+        }
+        if (isLocalDev && isAllowedDevOrigin(origin)) {
+            callback(null, true);
+            return;
+        }
+        callback(new Error(`CORS blocked for origin: ${origin}`));
+    },
     credentials: true,
 }));
 // Rate limiting
+const isLocalDev = process.env.NODE_ENV !== 'production';
+const localhostHosts = new Set(['localhost', '127.0.0.1', '::1']);
 const limiter = (0, express_rate_limit_1.default)({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 200,
+    max: isLocalDev ? 5000 : 200,
     message: { error: 'Too many requests, please try again later.' },
+    skip: (req) => {
+        if (!isLocalDev)
+            return false;
+        const rawHost = (req.hostname || '').toLowerCase();
+        const host = rawHost.startsWith('[') && rawHost.endsWith(']') ? rawHost.slice(1, -1) : rawHost;
+        if (localhostHosts.has(host))
+            return true;
+        const ip = (req.ip || '').replace('::ffff:', '').toLowerCase();
+        return localhostHosts.has(ip);
+    },
 });
 app.use(limiter);
 // Body parser - 50mb for images

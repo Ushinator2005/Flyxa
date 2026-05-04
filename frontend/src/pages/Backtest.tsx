@@ -28,6 +28,7 @@ import { lookupContract } from '../constants/futuresContracts.js';
 import { marketDataApi } from '../services/api.js';
 import { Trade } from '../types/index.js';
 import { formatCurrency, formatDuration, getSession } from '../utils/calculations.js';
+import { formatRiskRewardRatio } from '../utils/riskReward.js';
 
 declare global {
   interface Window {
@@ -891,7 +892,7 @@ export default function Backtest() {
     const prefill = getTradePrefill(session, resultTrade);
     sessionStorage.setItem(BACKTEST_PREFILL_KEY, JSON.stringify(prefill));
     setResultTrade(null);
-    navigate('/scanner');
+    navigate('/');
   };
 
   const entryValue = Number(tradeDraft.entryPrice);
@@ -1769,7 +1770,7 @@ export default function Backtest() {
                   <p className="mb-1 text-[11px] text-slate-500">Take Profit</p>
                   <input type="number" value={tradeDraft.takeProfit} disabled={!!simulation.activeTrade} onChange={e => updateDraft('takeProfit', e.target.value)} className="input-field h-9 text-[13px]" />
                   {rrRatio && (
-                    <p className="mt-1 text-[10px] text-slate-600">{rrRatio.toFixed(2)}R</p>
+                    <p className="mt-1 text-[10px] text-slate-600">{formatRiskRewardRatio(rrRatio, { placeholder: '1:0 RR' })}</p>
                   )}
                 </div>
               </div>

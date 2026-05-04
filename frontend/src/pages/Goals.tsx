@@ -1,31 +1,11 @@
 import { useMemo, useState } from 'react';
-import { Plus, SlidersHorizontal, Clock, CheckSquare, Pencil } from 'lucide-react';
+import { Plus, SlidersHorizontal, Clock, CheckSquare, Pencil, ChevronDown, ChevronUp } from 'lucide-react';
 import AddGoalPanel from '../components/goals/AddGoalPanel.js';
 import { useGoals } from '../hooks/useGoals.js';
 import type { Goal, GoalInput } from '../types/goals.js';
+import './Goals.css';
 
 type Filter = 'All' | 'Active' | 'Achieved' | 'Paused';
-
-const GOAL_THEME = {
-  '--bg': 'var(--app-bg)',
-  '--surface-1': 'var(--app-panel)',
-  '--surface-2': 'var(--app-panel-strong)',
-  '--surface-3': 'rgba(255,255,255,0.08)',
-  '--border': 'var(--app-border)',
-  '--border-sub': 'rgba(255,255,255,0.05)',
-  '--txt': 'var(--app-text)',
-  '--txt-2': 'var(--app-text-muted)',
-  '--txt-3': 'var(--app-text-subtle)',
-  '--cobalt': '#6EA8FE',
-  '--cobalt-dim': 'rgba(110,168,254,0.14)',
-  '--green': '#34D399',
-  '--green-dim': 'rgba(52,211,153,0.14)',
-  '--amber': '#FBBF24',
-  '--amber-dim': 'rgba(251,191,36,0.14)',
-  '--red': '#F87171',
-  '--red-dim': 'rgba(248,113,113,0.14)',
-} as React.CSSProperties;
-
 type QuoteEntry = { pre: string; bold: string; post: string };
 
 const MOTIVATION_QUOTES: QuoteEntry[] = [
@@ -40,31 +20,31 @@ const MOTIVATION_QUOTES: QuoteEntry[] = [
     post: '.',
   },
   {
-    pre: "Discipline is doing the right thing when no one's watching — ",
+    pre: "Discipline is doing the right thing when no one's watching - ",
     bold: 'including when the market is moving against you',
     post: '.',
   },
   {
-    pre: 'One day you\'ll tell someone how hard this period was. ',
+    pre: "One day you'll tell someone how hard this period was. ",
     bold: 'Make sure the story ends with how you got through it',
     post: '.',
   },
 ];
 
 const CATEGORY_EMOJI: Record<string, string> = {
-  Profitability: '💰',
-  Risk: '🛡',
-  Mindset: '🧠',
-  Consistency: '📈',
-  Discipline: '⚡',
+  Profitability: 'P',
+  Risk: 'R',
+  Mindset: 'M',
+  Consistency: 'C',
+  Discipline: 'D',
 };
 
-const CATEGORY_BADGE_BG: Record<string, string> = {
-  Profitability: 'var(--amber-dim)',
-  Risk: 'var(--red-dim)',
-  Mindset: 'var(--cobalt-dim)',
-  Consistency: 'var(--green-dim)',
-  Discipline: 'var(--surface-2)',
+const CATEGORY_BADGE_CLASS: Record<string, string> = {
+  Profitability: 'profitability',
+  Risk: 'risk',
+  Mindset: 'mindset',
+  Consistency: 'consistency',
+  Discipline: 'discipline',
 };
 
 function formatDeadline(dateStr: string): string | null {
@@ -85,437 +65,110 @@ interface CardProps {
   goal: Goal;
   onToggleStep: (goalId: string, stepId: string) => void;
   onEdit: (goal: Goal) => void;
+  expanded: boolean;
+  onToggleExpanded: (goalId: string) => void;
 }
 
-function GoalCardView({ goal, onToggleStep, onEdit }: CardProps) {
+function GoalCardView({ goal, onToggleStep, onEdit, expanded, onToggleExpanded }: CardProps) {
   const steps = goal.steps;
   const doneCount = steps.filter(s => s.done).length;
   const totalCount = steps.length;
   const progress = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
   const status = goal.status ?? 'Active';
   const isPaused = status === 'Paused';
-
-  const accentColor =
-    status === 'Active' ? 'var(--amber)'
-    : status === 'Achieved' ? 'var(--green)'
-    : 'var(--txt-3)';
-
-  const progressFill =
-    status === 'Active' ? 'var(--amber)'
-    : status === 'Achieved' ? 'var(--green)'
-    : 'var(--cobalt)';
-
-  const badgeBg =
-    status === 'Active' ? 'var(--amber-dim)'
-    : status === 'Achieved' ? 'var(--green-dim)'
-    : 'var(--surface-2)';
-
-  const badgeColor =
-    status === 'Active' ? 'var(--amber)'
-    : status === 'Achieved' ? 'var(--green)'
-    : 'var(--txt-3)';
-
+  const visibleSteps = expanded ? steps : steps.slice(0, 3);
+  const hiddenStepsCount = Math.max(0, steps.length - visibleSteps.length);
   const deadline = goal.horizon ? formatDeadline(goal.horizon) : null;
-  const catBg = CATEGORY_BADGE_BG[goal.category] ?? 'var(--surface-2)';
-  const catEmoji = CATEGORY_EMOJI[goal.category] ?? '🎯';
+  const categoryClass = CATEGORY_BADGE_CLASS[goal.category] ?? 'discipline';
+  const categoryBadge = CATEGORY_EMOJI[goal.category] ?? 'G';
+  const cardStateClass = status.toLowerCase();
 
   return (
-    <div
-      style={{
-        position: 'relative',
-        background: 'var(--surface-1)',
-        border: '1px solid var(--border)',
-        borderRadius: 8,
-        overflow: 'hidden',
-        opacity: isPaused ? 0.65 : 1,
-        transition: 'border-color 0.15s',
-      }}
-      onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(255,138,26,0.22)'; }}
-      onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.borderColor = 'var(--border)'; }}
-    >
-      {/* Left status accent */}
-      <div
-        style={{
-          position: 'absolute',
-          left: 0,
-          top: 0,
-          bottom: 0,
-          width: 2,
-          background: accentColor,
-          flexShrink: 0,
-        }}
-      />
+    <article className={`goals-card is-${cardStateClass}${isPaused ? ' is-paused' : ''}`}>
+      <div className="goals-card-main">
+        <div className={`goals-category-badge ${categoryClass}`}>{categoryBadge}</div>
 
-      {/* Main content */}
-      <div style={{ padding: '18px 20px 18px 22px', display: 'flex', gap: 16 }}>
-        {/* Icon badge */}
-        <div
-          style={{
-            width: 40,
-            height: 40,
-            borderRadius: 8,
-            background: catBg,
-            border: '1px solid rgba(255,255,255,0.06)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0,
-            fontSize: 18,
-            lineHeight: 1,
-          }}
-        >
-          {catEmoji}
-        </div>
+        <div className="goals-card-body">
+          <p className="goals-card-category">{goal.category}</p>
+          <h3 className="goals-card-title">{goal.title}</h3>
 
-        {/* Body */}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          {/* Category label */}
-          <div
-            style={{
-              fontSize: 10,
-              fontWeight: 500,
-              textTransform: 'uppercase',
-              letterSpacing: '0.08em',
-              color: 'var(--txt-3)',
-              marginBottom: 4,
-            }}
-          >
-            {goal.category}
+          {goal.description ? <p className="goals-card-description">{goal.description}</p> : null}
+
+          <div className="goals-progress-track">
+            <span className="goals-progress-fill" style={{ width: `${progress}%` }} />
           </div>
 
-          {/* Title */}
-          <div
-            style={{
-              fontFamily: 'var(--font-sans)',
-              fontSize: 14,
-              fontWeight: 500,
-              color: 'var(--txt)',
-              marginBottom: goal.description ? 4 : 12,
-            }}
-          >
-            {goal.title}
+          <div className="goals-progress-meta">
+            <span>{progress}% complete</span>
+            <span>{totalCount > 0 ? `${doneCount} / ${totalCount} steps` : deadline ?? ''}</span>
           </div>
 
-          {/* Description */}
-          {goal.description && (
-            <div
-              style={{
-                fontSize: 12,
-                color: 'var(--txt-2)',
-                lineHeight: 1.55,
-                marginBottom: 12,
-              }}
-            >
-              {goal.description}
-            </div>
-          )}
+          <div className="goals-card-meta-row">
+            <span className={`goals-status-pill is-${cardStateClass}`}>{status}</span>
 
-          {/* Progress bar */}
-          <div
-            style={{
-              height: 3,
-              background: 'var(--surface-3)',
-              borderRadius: 2,
-              overflow: 'hidden',
-            }}
-          >
-            <div
-              style={{
-                height: '100%',
-                width: `${progress}%`,
-                background: progressFill,
-                borderRadius: 2,
-                transition: 'width 0.6s ease',
-              }}
-            />
-          </div>
-
-          {/* Progress labels */}
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              marginTop: 5,
-            }}
-          >
-            <span
-              style={{
-                fontFamily: 'var(--font-mono)',
-                fontSize: 11,
-                color: 'var(--txt-2)',
-              }}
-            >
-              {progress}% complete
-            </span>
-            <span style={{ fontSize: 11, color: 'var(--txt-3)' }}>
-              {totalCount > 0 ? `${doneCount} / ${totalCount} steps` : deadline ?? ''}
-            </span>
-          </div>
-
-          {/* Meta row */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 12,
-              flexWrap: 'wrap',
-              marginTop: 8,
-            }}
-          >
-            {/* Status badge */}
-            <span
-              style={{
-                fontSize: 10,
-                fontWeight: 600,
-                padding: '2px 7px',
-                borderRadius: 3,
-                background: badgeBg,
-                color: badgeColor,
-              }}
-            >
-              {status}
-            </span>
-
-            {deadline && (
-              <span
-                style={{
-                  fontSize: 11,
-                  color: 'var(--txt-3)',
-                  display: 'flex',
-                  gap: 4,
-                  alignItems: 'center',
-                }}
-              >
-                <Clock size={11} />
+            {deadline ? (
+              <span className="goals-card-meta-item">
+                <Clock size={12} />
                 {deadline}
               </span>
-            )}
+            ) : null}
 
-            {totalCount > 0 && (
-              <span
-                style={{
-                  fontSize: 11,
-                  color: 'var(--txt-3)',
-                  display: 'flex',
-                  gap: 4,
-                  alignItems: 'center',
-                }}
-              >
-                <CheckSquare size={11} />
+            {totalCount > 0 ? (
+              <span className="goals-card-meta-item">
+                <CheckSquare size={12} />
                 {doneCount}/{totalCount}
               </span>
-            )}
+            ) : null}
 
-            {/* Actions */}
-            <div style={{ marginLeft: 'auto', display: 'flex', gap: 2 }}>
-              <button
-                type="button"
-                aria-label="Edit goal"
-                onClick={() => onEdit(goal)}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: 'var(--txt-3)',
-                  cursor: 'pointer',
-                  padding: '3px 5px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  borderRadius: 3,
-                  transition: 'color 0.12s',
-                }}
-                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--txt-2)'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--txt-3)'; }}
-              >
-                <Pencil size={13} />
+            <div className="goals-card-actions">
+              {steps.length > 0 ? (
+                <button type="button" className="goals-icon-btn" onClick={() => onToggleExpanded(goal.id)} aria-label={expanded ? 'Collapse steps' : 'Expand steps'}>
+                  {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                </button>
+              ) : null}
+              <button type="button" className="goals-icon-btn" onClick={() => onEdit(goal)} aria-label="Edit goal">
+                <Pencil size={14} />
               </button>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Sub-goals section */}
-      {steps.length > 0 && (
-        <div
-          style={{
-            borderTop: '1px solid var(--border-sub)',
-            background: 'rgba(0,0,0,0.15)',
-          }}
-        >
-          {/* Section label */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '8px 20px 6px 22px',
-            }}
-          >
-            <span
-              style={{
-                fontSize: 9.5,
-                fontWeight: 500,
-                letterSpacing: '0.12em',
-                textTransform: 'uppercase',
-                color: 'var(--txt-3)',
-              }}
-            >
-              Sub-goals
-            </span>
-            <span
-              style={{
-                fontFamily: 'var(--font-mono)',
-                fontSize: 10,
-                color: doneCount === totalCount && totalCount > 0 ? 'var(--green)' : 'var(--txt-3)',
-              }}
-            >
-              {doneCount}/{totalCount}
-            </span>
-          </div>
+      {steps.length > 0 ? (
+        <section className="goals-subgoals">
+          <header className="goals-subgoals-head">
+            <span>Sub-goals</span>
+            <span className="goals-subgoals-count">{doneCount}/{totalCount}</span>
+          </header>
 
-          {/* Steps list */}
-          <div style={{ padding: '0 20px 12px 22px', display: 'flex', flexDirection: 'column', gap: 1 }}>
-            {steps.map((step, i) => (
-              <div
-                key={step.id}
-                onClick={() => onToggleStep(goal.id, step.id)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: 10,
-                  padding: '6px 8px',
-                  borderRadius: 4,
-                  cursor: 'pointer',
-                  transition: 'background 0.1s',
-                }}
-                onMouseEnter={e => {
-                  (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,255,255,0.03)';
-                }}
-                onMouseLeave={e => {
-                  (e.currentTarget as HTMLDivElement).style.background = 'transparent';
-                }}
-              >
-                {/* Step number / check */}
-                <div
-                  style={{
-                    width: 18,
-                    height: 18,
-                    borderRadius: 3,
-                    flexShrink: 0,
-                    marginTop: 1,
-                    background: step.done ? 'var(--green-dim)' : 'transparent',
-                    border: step.done
-                      ? '1px solid rgba(52,211,153,0.35)'
-                      : '1px solid var(--border)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    transition: 'background 0.15s, border-color 0.15s',
-                  }}
-                >
-                  {step.done ? (
-                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                      <path
-                        d="M2 5L4 7L8 3"
-                        stroke="var(--green)"
-                        strokeWidth="1.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  ) : (
-                    <span
-                      style={{
-                        fontFamily: 'var(--font-mono)',
-                        fontSize: 8,
-                        color: 'var(--txt-3)',
-                        lineHeight: 1,
-                      }}
-                    >
-                      {i + 1}
-                    </span>
-                  )}
-                </div>
-
-                {/* Text */}
-                <span
-                  style={{
-                    fontSize: 12,
-                    lineHeight: 1.5,
-                    color: step.done ? 'var(--txt-3)' : 'var(--txt-2)',
-                    textDecoration: step.done ? 'line-through' : 'none',
-                    textDecorationColor: 'rgba(255,255,255,0.12)',
-                  }}
-                >
-                  {step.text}
-                </span>
-              </div>
+          <div className="goals-subgoals-list">
+            {visibleSteps.map((step, i) => (
+              <button key={step.id} type="button" className="goals-step" onClick={() => onToggleStep(goal.id, step.id)}>
+                <span className={`goals-step-check${step.done ? ' is-done' : ''}`}>{step.done ? '✓' : i + 1}</span>
+                <span className={`goals-step-text${step.done ? ' is-done' : ''}`}>{step.text}</span>
+              </button>
             ))}
+
+            {!expanded && hiddenStepsCount > 0 ? (
+              <button type="button" className="goals-more-btn" onClick={() => onToggleExpanded(goal.id)}>
+                +{hiddenStepsCount} more
+              </button>
+            ) : null}
           </div>
-        </div>
-      )}
-    </div>
+        </section>
+      ) : null}
+    </article>
   );
 }
 
 function EmptyState({ onAdd }: { onAdd: () => void }) {
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        paddingTop: 56,
-        paddingBottom: 56,
-      }}
-    >
-      <p
-        style={{
-          fontFamily: "'DM Serif Display', Georgia, serif",
-          fontStyle: 'italic',
-          fontSize: 22,
-          color: 'var(--txt-2)',
-          maxWidth: 480,
-          lineHeight: 1.6,
-          textAlign: 'center',
-          margin: '0 auto 12px',
-          fontWeight: 400,
-        }}
-      >
-        Set the target. Break it down.{' '}
-        <em style={{ fontStyle: 'normal', color: 'var(--amber)' }}>
-          Come back on hard days
-        </em>{' '}
-        to remember why.
+    <div className="goals-empty">
+      <p className="goals-empty-title">
+        Set the target. Break it down. <span>Come back on hard days</span> to remember why.
       </p>
-      <p
-        style={{
-          fontFamily: 'var(--font-sans)',
-          fontSize: 11,
-          color: 'var(--txt-3)',
-          marginBottom: 32,
-          textAlign: 'center',
-        }}
-      >
-        — Add your first goal below
-      </p>
-      <button
-        type="button"
-        onClick={onAdd}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          background: 'var(--amber)',
-          color: '#0a0909',
-          border: 'none',
-          borderRadius: 5,
-          padding: '10px 20px',
-          fontSize: 13,
-          fontWeight: 600,
-          cursor: 'pointer',
-          fontFamily: 'var(--font-sans)',
-        }}
-      >
+      <p className="goals-empty-sub">Add your first goal below</p>
+      <button type="button" onClick={onAdd} className="goals-add-btn primary">
         <Plus size={14} />
         Add your first goal
       </button>
@@ -528,11 +181,9 @@ export default function Goals() {
   const [filter, setFilter] = useState<Filter>('All');
   const [panelOpen, setPanelOpen] = useState(false);
   const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
+  const [expandedGoalIds, setExpandedGoalIds] = useState<string[]>([]);
 
-  const quote = useMemo(
-    () => MOTIVATION_QUOTES[Math.floor(Math.random() * MOTIVATION_QUOTES.length)],
-    [],
-  );
+  const quote = useMemo(() => MOTIVATION_QUOTES[Math.floor(Math.random() * MOTIVATION_QUOTES.length)], []);
 
   const stats = useMemo(
     () => ({
@@ -544,369 +195,121 @@ export default function Goals() {
   );
 
   const filteredGoals = useMemo(
-    () =>
-      filter === 'All'
-        ? goals
-        : goals.filter(g => (g.status ?? 'Active') === filter),
+    () => (filter === 'All' ? goals : goals.filter(g => (g.status ?? 'Active') === filter)),
     [goals, filter],
   );
 
-  const openAdd = () => { setEditingGoal(null); setPanelOpen(true); };
-  const openEdit = (goal: Goal) => { setEditingGoal(goal); setPanelOpen(true); };
+  const openAdd = () => {
+    setEditingGoal(null);
+    setPanelOpen(true);
+  };
+
+  const openEdit = (goal: Goal) => {
+    setEditingGoal(goal);
+    setPanelOpen(true);
+  };
+
+  const toggleExpanded = (goalId: string) => {
+    setExpandedGoalIds(prev => (prev.includes(goalId) ? prev.filter(id => id !== goalId) : [...prev, goalId]));
+  };
 
   const handleSave = (data: GoalInput) => {
     if (editingGoal) {
       updateGoal({ ...editingGoal, ...data });
-    } else {
-      addGoal({
-        ...data,
-        id: crypto.randomUUID(),
-        createdAt: new Date().toISOString(),
-      });
+      return;
     }
+
+    addGoal({
+      ...data,
+      id: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+    });
   };
 
   return (
-    <div style={GOAL_THEME}>
-      {/* ── Hero ─────────────────────────────────────────────────────────── */}
-      <div
-        style={{
-          position: 'relative',
-          minHeight: 260,
-          padding: '48px 40px 40px',
-          borderBottom: '1px solid var(--border)',
-          overflow: 'hidden',
-          marginBottom: 28,
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'flex-end',
-        }}
-      >
-        {/* Amber radial wash — left side only */}
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            pointerEvents: 'none',
-            background:
-              'radial-gradient(ellipse at 0% 50%, rgba(255,138,26,0.06) 0%, transparent 60%)',
-          }}
-        />
+    <div className="goals-page">
+      <section className="goals-hero">
+        <p className="goals-eyebrow">Vision Board</p>
+        <h1 className="goals-hero-title">
+          Your <span>why</span> lives here.
+        </h1>
+        <p className="goals-hero-copy">
+          Every funded account, every car, every freedom - set the target, break it into steps, and come back on hard days to remember what all the discipline is actually for.
+        </p>
 
-        {/* Dot grid with right-side fade */}
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            pointerEvents: 'none',
-            backgroundImage:
-              'radial-gradient(rgba(255,255,255,0.025) 1px, transparent 1px)',
-            backgroundSize: '40px 40px',
-            maskImage:
-              'linear-gradient(to right, black 0%, black 60%, transparent 100%)',
-            WebkitMaskImage:
-              'linear-gradient(to right, black 0%, black 60%, transparent 100%)',
-          }}
-        />
-
-        {/* Horizontal hairline at vertical center */}
-        <div
-          style={{
-            position: 'absolute',
-            left: 0,
-            right: 0,
-            top: '50%',
-            height: 1,
-            pointerEvents: 'none',
-            background:
-              'linear-gradient(90deg, transparent 0%, rgba(255,138,26,0.10) 20%, rgba(255,138,26,0.18) 50%, rgba(255,138,26,0.10) 80%, transparent 100%)',
-          }}
-        />
-
-        {/* Content */}
-        <div style={{ position: 'relative', zIndex: 1 }}>
-          <div
-            style={{
-              fontSize: 10,
-              fontWeight: 500,
-              letterSpacing: '0.12em',
-              textTransform: 'uppercase',
-              color: 'var(--txt-3)',
-              marginBottom: 10,
-            }}
-          >
-            Vision Board
+        <div className="goals-stat-chips">
+          <div className="goals-stat-chip">
+            <span className="dot amber" />
+            <strong>{stats.active}</strong>
+            <span>active goals</span>
           </div>
-
-          <h1
-            style={{
-              fontFamily: "'DM Serif Display', Georgia, serif",
-              fontSize: 40,
-              fontWeight: 400,
-              lineHeight: 1.15,
-              color: 'var(--txt)',
-              margin: '0 0 10px',
-            }}
-          >
-            Your{' '}
-            <em style={{ fontStyle: 'italic', color: 'var(--amber)' }}>why</em>{' '}
-            lives here.
-          </h1>
-
-          <p
-            style={{
-              fontFamily: 'var(--font-sans)',
-              fontSize: 13,
-              color: 'var(--txt-2)',
-              maxWidth: 480,
-              lineHeight: 1.65,
-              margin: '0 0 20px',
-            }}
-          >
-            Every funded account, every car, every freedom — set the target,
-            break it into steps, and come back on hard days to remember what all
-            the discipline is actually for.
-          </p>
-
-          {/* Stat chips */}
-          <div
-            style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 20 }}
-          >
-            {[
-              { dot: 'var(--amber)', count: stats.active, label: 'active goals' },
-              { dot: 'var(--green)', count: stats.achieved, label: 'achieved' },
-              { dot: 'var(--cobalt)', count: stats.stepsDone, label: 'steps done' },
-            ].map(chip => (
-              <div
-                key={chip.label}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  background: 'rgba(255,255,255,0.04)',
-                  border: '1px solid var(--border)',
-                  borderRadius: 4,
-                  padding: '6px 12px',
-                }}
-              >
-                <span
-                  style={{
-                    width: 6,
-                    height: 6,
-                    borderRadius: '50%',
-                    background: chip.dot,
-                    flexShrink: 0,
-                    display: 'inline-block',
-                  }}
-                />
-                <span
-                  style={{
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: 14,
-                    fontWeight: 500,
-                    color: 'var(--txt)',
-                  }}
-                >
-                  {chip.count}
-                </span>
-                <span
-                  style={{
-                    fontFamily: 'var(--font-sans)',
-                    fontSize: 11,
-                    color: 'var(--txt-3)',
-                  }}
-                >
-                  {chip.label}
-                </span>
-              </div>
-            ))}
+          <div className="goals-stat-chip">
+            <span className="dot green" />
+            <strong>{stats.achieved}</strong>
+            <span>achieved</span>
           </div>
-
-          {/* CTA row */}
-          <div style={{ display: 'flex', gap: 10 }}>
-            <button
-              type="button"
-              onClick={openAdd}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                background: 'var(--amber)',
-                color: '#0a0909',
-                border: '1px solid transparent',
-                borderRadius: 5,
-                padding: '8px 16px',
-                fontSize: 13,
-                fontWeight: 600,
-                cursor: 'pointer',
-                fontFamily: 'var(--font-sans)',
-              }}
-            >
-              <Plus size={14} />
-              New Goal
-            </button>
-            <button
-              type="button"
-              onClick={() => setFilter('Achieved')}
-              style={{
-                background: 'transparent',
-                border: '1px solid var(--border)',
-                borderRadius: 5,
-                padding: '8px 16px',
-                fontSize: 13,
-                color: 'var(--txt-2)',
-                cursor: 'pointer',
-                fontFamily: 'var(--font-sans)',
-              }}
-            >
-              View achieved
-            </button>
+          <div className="goals-stat-chip">
+            <span className="dot cobalt" />
+            <strong>{stats.stepsDone}</strong>
+            <span>steps done</span>
           </div>
         </div>
-      </div>
 
-      {/* ── Motivation stripe ────────────────────────────────────────────── */}
-      <div
-        style={{
-          position: 'relative',
-          background: 'var(--surface-1)',
-          border: '1px solid var(--border)',
-          borderRadius: 8,
-          padding: '18px 22px 18px 28px',
-          marginBottom: 24,
-          overflow: 'hidden',
-        }}
-      >
-        <div
-          style={{
-            position: 'absolute',
-            left: 0,
-            top: 0,
-            bottom: 0,
-            width: 3,
-            background: 'linear-gradient(to bottom, var(--amber), rgba(255,138,26,0.15))',
-            borderRadius: '0 2px 2px 0',
-          }}
-        />
-        <p
-          style={{
-            fontFamily: "'DM Serif Display', Georgia, serif",
-            fontStyle: 'italic',
-            fontSize: 15,
-            color: 'var(--txt-2)',
-            lineHeight: 1.6,
-            margin: '0 0 5px',
-          }}
-        >
+        <div className="goals-hero-actions">
+          <button type="button" onClick={openAdd} className="goals-add-btn primary">
+            <Plus size={14} />
+            New Goal
+          </button>
+          <button type="button" onClick={() => setFilter('Achieved')} className="goals-add-btn ghost">
+            View achieved
+          </button>
+        </div>
+      </section>
+
+      <section className="goals-quote">
+        <p>
           {quote.pre}
-          <em style={{ fontStyle: 'normal', fontWeight: 600, color: 'var(--amber)' }}>
-            {quote.bold}
-          </em>
+          <strong>{quote.bold}</strong>
           {quote.post}
         </p>
-        <p
-          style={{
-            fontFamily: 'var(--font-sans)',
-            fontSize: 10,
-            color: 'var(--txt-3)',
-            margin: 0,
-          }}
-        >
-          — Flyxa · Daily reminder
-        </p>
-      </div>
+        <small>Flyxa - daily reminder</small>
+      </section>
 
-      {/* ── Filter row ───────────────────────────────────────────────────── */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: 20,
-        }}
-      >
-        <div style={{ display: 'flex', gap: 4 }}>
+      <section className="goals-toolbar">
+        <div className="goals-filters">
           {(['All', 'Active', 'Achieved', 'Paused'] as Filter[]).map(f => (
-            <button
-              key={f}
-              type="button"
-              onClick={() => setFilter(f)}
-              style={{
-                fontSize: 12,
-                padding: '5px 14px',
-                borderRadius: 4,
-                border: filter === f ? '1px solid var(--border)' : '1px solid transparent',
-                background: filter === f ? 'var(--surface-2)' : 'transparent',
-                color: filter === f ? 'var(--txt)' : 'var(--txt-3)',
-                cursor: 'pointer',
-                fontFamily: 'var(--font-sans)',
-                transition: 'color 0.1s',
-              }}
-              onMouseEnter={e => {
-                if (filter !== f)
-                  (e.currentTarget as HTMLButtonElement).style.color = 'var(--txt-2)';
-              }}
-              onMouseLeave={e => {
-                if (filter !== f)
-                  (e.currentTarget as HTMLButtonElement).style.color = 'var(--txt-3)';
-              }}
-            >
+            <button key={f} type="button" className={`goals-filter${filter === f ? ' is-active' : ''}`} onClick={() => setFilter(f)}>
               {f}
             </button>
           ))}
         </div>
-        <button
-          type="button"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 5,
-            background: 'transparent',
-            border: 'none',
-            color: 'var(--txt-3)',
-            fontSize: 12,
-            cursor: 'pointer',
-            fontFamily: 'var(--font-sans)',
-          }}
-        >
-          <SlidersHorizontal size={13} />
+
+        <button type="button" className="goals-sort-btn">
+          <SlidersHorizontal size={14} />
           Sort
         </button>
-      </div>
+      </section>
 
-      {/* ── Goal list ────────────────────────────────────────────────────── */}
       {goals.length === 0 ? (
         <EmptyState onAdd={openAdd} />
       ) : filteredGoals.length === 0 ? (
-        <p
-          style={{
-            fontSize: 13,
-            color: 'var(--txt-3)',
-            paddingTop: 16,
-            fontFamily: 'var(--font-sans)',
-          }}
-        >
-          No {filter.toLowerCase()} goals.
-        </p>
+        <p className="goals-none-msg">No {filter.toLowerCase()} goals.</p>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <section className="goals-grid">
           {filteredGoals.map(goal => (
             <GoalCardView
               key={goal.id}
               goal={goal}
               onToggleStep={toggleStep}
               onEdit={openEdit}
+              expanded={expandedGoalIds.includes(goal.id)}
+              onToggleExpanded={toggleExpanded}
             />
           ))}
-        </div>
+        </section>
       )}
 
-      <AddGoalPanel
-        isOpen={panelOpen}
-        onClose={() => setPanelOpen(false)}
-        editGoal={editingGoal}
-        onSave={handleSave}
-      />
+      <AddGoalPanel isOpen={panelOpen} onClose={() => setPanelOpen(false)} editGoal={editingGoal} onSave={handleSave} />
     </div>
   );
 }

@@ -1,9 +1,4 @@
 import { Trade, ExtractedTradeData } from '../types/index';
-export declare function analyzeChartImage(base64Image: string, mimeType: string, entryDate: string, entryTime: string, focusImages?: Array<{
-    base64Image: string;
-    mimeType: string;
-    label: string;
-}>, scannerContext?: Record<string, unknown>): Promise<ExtractedTradeData>;
 export declare function analyzeIndividualTrade(trade: Trade): Promise<string>;
 export declare function analyzePatterns(trades: Trade[]): Promise<string>;
 export declare function generateWeeklyReport(trades: Trade[], weekStart: string, weekEnd: string): Promise<string>;
@@ -24,15 +19,31 @@ export declare function answerFlyxaQuestion(question: string, history?: Array<{
     role: 'user' | 'assistant';
     content: string;
 }>): Promise<string>;
-export declare function analyzeChartAnalyzerImage(base64Image: string, mimeType: string, contractSize: number): Promise<Array<{
-    symbol?: string;
-    direction?: 'Long' | 'Short' | null;
-    entry_price: number | null;
-    stop_loss: number | null;
-    take_profit: number | null;
-    rr_ratio: string | null;
-    outcome: 'WIN' | 'LOSS' | null;
-    trade_duration: string | null;
-    net_pnl: number | null;
-}>>;
+export interface NewsFilterItem {
+    headline: string;
+    summary: string;
+    impact: 'high' | 'medium' | 'low';
+    category: string;
+    marketImpact: {
+        es: string;
+        nq: string;
+        note?: string;
+    };
+    isBreaking: boolean;
+    source: string;
+    timestamp: string;
+    url?: string;
+}
+export declare function filterNewsItems(headlines: Array<{
+    headline: string;
+    source: string;
+    timestamp: string;
+    summary?: string;
+    url?: string;
+}>): Promise<NewsFilterItem[]>;
+export declare function analyzeChartImage(base64Image: string, mimeType: string, entryDate: string, entryTime: string, focusImages?: Array<{
+    base64Image: string;
+    mimeType: string;
+    label: string;
+}>, scannerContext?: Record<string, unknown>): Promise<ExtractedTradeData>;
 //# sourceMappingURL=claude.d.ts.map

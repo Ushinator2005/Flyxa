@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
-  LayoutDashboard, Scan, Brain, BarChart2, Target,
+  LayoutDashboard, Brain, BarChart2, Target,
   Heart, FileText, Crosshair, Swords, Trophy,
-  Settings, LogOut, ChevronLeft, ChevronRight, Plus, CreditCard,
+  Settings, LogOut, ChevronLeft, ChevronRight, Plus, CreditCard, ScanLine, Newspaper,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext.js';
 import { useAppSettings } from '../../contexts/AppSettingsContext.js';
@@ -20,15 +20,25 @@ const T3         = 'var(--app-text-subtle)';
 const SANS       = 'var(--font-sans)';
 const MONO       = 'var(--font-mono)';
 
+function accountStatusColor(status: string): string {
+  const normalized = status.toLowerCase();
+  if (normalized === 'blown') return '#ef4444';
+  if (normalized === 'eval') return '#3b82f6';
+  if (normalized === 'funded') return '#22c55e';
+  if (normalized === 'live') return '#f59e0b';
+  return T3;
+}
+
 const navItems = [
   { path: '/',           icon: LayoutDashboard, label: 'Dashboard'    },
-  { path: '/scanner',    icon: Scan,            label: 'Trade Journal' },
-  { path: '/flyxa-ai',   icon: Brain,           label: 'Flyxa AI'      },
+  { path: '/scanner',    icon: ScanLine,        label: 'Trade Scanner' },
+  { path: '/journal',      icon: FileText,        label: 'Daily Journal'  },
+  { path: '/market-news', icon: Newspaper,       label: 'Market News'    },
+  { path: '/flyxa-ai',    icon: Brain,           label: 'Flyxa AI'       },
   { path: '/analytics',  icon: BarChart2,        label: 'Analytics'    },
   { path: '/backtest',   icon: Target,           label: 'Backtest'     },
   { path: '/trading-plan', icon: FileText,       label: 'Trading Plan' },
   { path: '/psychology', icon: Heart,            label: 'Psychology'   },
-  { path: '/journal',    icon: FileText,         label: 'Daily Journal' },
   { path: '/goals',      icon: Crosshair,        label: 'Goals'        },
   { path: '/rivals',     icon: Swords,           label: 'Rivals'       },
   { path: '/achievements',icon: Trophy,          label: 'Achievements' },
@@ -40,9 +50,10 @@ function NavItem({
   path: string; icon: typeof LayoutDashboard; label: string; exact?: boolean; onClick?: () => void; collapsed?: boolean;
 }) {
   const location = useLocation();
+  const pathName = path.split('?')[0];
   const isActive = exact
-    ? location.pathname === path
-    : location.pathname === path || location.pathname.startsWith(path + '/');
+    ? location.pathname === pathName
+    : location.pathname === pathName || location.pathname.startsWith(pathName + '/');
 
   const [hov, setHov] = useState(false);
 
@@ -56,7 +67,7 @@ function NavItem({
       style={{
         display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'flex-start', gap: collapsed ? 0 : 10,
         padding: collapsed ? '8px 0' : '8px 12px', borderRadius: 6,
-        fontSize: 13, fontWeight: isActive ? 600 : 400,
+        fontSize: 13, fontWeight: isActive ? 500 : 400,
         textDecoration: 'none', fontFamily: SANS,
         color: isActive ? AMBER : hov ? T1 : T2,
         background: isActive ? AMBER_DIM : hov ? 'rgba(255,255,255,0.04)' : 'transparent',
@@ -64,7 +75,7 @@ function NavItem({
         transition: 'background 0.13s, color 0.13s, border-color 0.13s',
       }}
     >
-      <Icon size={15} />
+      <Icon size={16} strokeWidth={1.5} />
       {!collapsed && <span>{label}</span>}
     </NavLink>
   );
@@ -76,7 +87,7 @@ function SidebarContent({ onNavClick, collapsed }: { onNavClick?: () => void; co
   const { accounts, selectedAccountId, setSelectedAccountId } = useAppSettings();
   const selectedAcct = accounts.find(a => a.id === selectedAccountId);
   const handleAddAccountClick = () => {
-    navigate('/settings#add-account');
+    navigate('/settings#accounts');
     onNavClick?.();
   };
 
@@ -204,7 +215,7 @@ function SidebarContent({ onNavClick, collapsed }: { onNavClick?: () => void; co
                       <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {acct.name}
                       </span>
-                      <span style={{ fontSize: 9, color: T3, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      <span style={{ fontSize: 9, color: accountStatusColor(acct.status), textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                         {acct.status}
                       </span>
                     </button>
@@ -233,7 +244,7 @@ function SidebarContent({ onNavClick, collapsed }: { onNavClick?: () => void; co
         )}
       </nav>
 
-      {/* Settings */}
+      {/* Billing + settings */}
       <div style={{ padding: collapsed ? '8px 6px 0' : '8px 8px 0', borderTop: `1px solid ${BSUB}` }}>
         <NavItem path="/billing" icon={CreditCard} label="Billing" onClick={onNavClick} collapsed={collapsed} />
         <NavItem path="/settings" icon={Settings} label="Settings" onClick={onNavClick} collapsed={collapsed} />
@@ -277,7 +288,7 @@ function SidebarContent({ onNavClick, collapsed }: { onNavClick?: () => void; co
             <div style={{ fontSize: 12, fontWeight: 500, color: T1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {user?.email?.split('@')[0] ?? 'Trader'}
             </div>
-            <div style={{ fontSize: 10, color: T3, textTransform: 'capitalize' }}>
+            <div style={{ fontSize: 10, color: accountStatusColor(selectedAcct?.status ?? ''), textTransform: 'capitalize' }}>
               {selectedAcct?.status?.toLowerCase() ?? 'free plan'}
             </div>
           </div>
@@ -299,12 +310,14 @@ function SidebarContent({ onNavClick, collapsed }: { onNavClick?: () => void; co
 export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(() => {
     if (typeof window === 'undefined') return false;
-    return window.localStorage.getItem('tradewise.sidebar.collapsed') === '1';
+    const next = window.localStorage.getItem('flyxa-ai.sidebar.collapsed');
+    const legacy = window.localStorage.getItem('tradewise.sidebar.collapsed');
+    return (next ?? legacy) === '1';
   });
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    window.localStorage.setItem('tradewise.sidebar.collapsed', collapsed ? '1' : '0');
+    window.localStorage.setItem('flyxa-ai.sidebar.collapsed', collapsed ? '1' : '0');
   }, [collapsed]);
 
   return (
@@ -315,6 +328,7 @@ export default function Sidebar() {
         height: '100vh',
         position: 'sticky',
         top: 0,
+        overflow: 'visible',
         background: S1,
         borderRight: `1px solid ${BORDER}`,
         transition: 'width 0.2s cubic-bezier(.4,0,.2,1)',
@@ -327,19 +341,20 @@ export default function Sidebar() {
         style={{
           position: 'absolute',
           top: 16,
-          right: -9,
-          width: 18,
-          height: 34,
+          right: 0,
+          transform: 'translateX(50%)',
+          width: 24,
+          height: 36,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          background: S1,
+          background: 'var(--app-panel-strong)',
           border: `1px solid ${BORDER}`,
-          borderLeft: 'none',
-          borderRadius: '0 8px 8px 0',
-          color: T3,
+          borderRadius: 8,
+          color: T2,
           cursor: 'pointer',
-          zIndex: 5,
+          boxShadow: '0 6px 16px rgba(0,0,0,0.28)',
+          zIndex: 20,
         }}
       >
         {collapsed ? <ChevronRight size={13} /> : <ChevronLeft size={13} />}

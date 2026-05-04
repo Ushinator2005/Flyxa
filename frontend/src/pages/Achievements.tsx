@@ -1,306 +1,272 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
-  Trophy, Flame, Zap, Crown, Shield, ShieldCheck, Target, Award,
-  TrendingUp, CheckCircle, Star, Calendar, CalendarDays, Lock,
+  Trophy,
+  Flame,
+  Zap,
+  Crown,
+  Shield,
+  ShieldCheck,
+  Target,
+  Award,
+  TrendingUp,
+  CheckCircle,
+  Star,
+  Calendar,
+  CalendarDays,
+  Lock,
   Sparkles,
 } from 'lucide-react';
 import { useAchievements } from '../hooks/useAchievements.js';
+import type { Achievement as AchievementItem } from '../hooks/useAchievements.js';
 import type { AchievementCategory, AchievementRarity } from '../utils/streaks.js';
-
-// ── icon map ────────────────────────────────────────────────────────────────
+import './Achievements.css';
 
 const ICON_MAP: Record<string, LucideIcon> = {
-  Zap, Flame, Crown, Shield, ShieldCheck, Target, Award, TrendingUp,
-  CheckCircle, Star, Calendar, CalendarDays, Trophy,
+  Zap,
+  Flame,
+  Crown,
+  Shield,
+  ShieldCheck,
+  Target,
+  Award,
+  TrendingUp,
+  CheckCircle,
+  Star,
+  Calendar,
+  CalendarDays,
+  Trophy,
 };
 
-function AchievementIcon({ name, size = 26, className = '' }: { name: string; size?: number; className?: string }) {
+const CATEGORIES: Array<{ value: AchievementCategory | 'all'; label: string }> = [
+  { value: 'all', label: 'All' },
+  { value: 'milestone', label: 'Milestone' },
+  { value: 'streak', label: 'Streak' },
+  { value: 'discipline', label: 'Discipline' },
+  { value: 'session', label: 'Session' },
+  { value: 'consistency', label: 'Consistency' },
+];
+
+type Tone = 'green' | 'blue' | 'purple' | 'amber';
+type RarityClass = 'common' | 'rare' | 'epic' | 'legendary';
+
+function AchievementIcon({ name, size = 20 }: { name: string; size?: number }) {
   const Icon = ICON_MAP[name] ?? Trophy;
-  return <Icon size={size} className={className} />;
+  return <Icon size={size} strokeWidth={1.8} />;
 }
 
-// ── rarity config ────────────────────────────────────────────────────────────
+function formatUnlockedDate(unlockedAt?: string | null): string | null {
+  if (!unlockedAt) return null;
+  return new Date(unlockedAt).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
 
-const RARITY: Record<AchievementRarity, {
-  border: string; bg: string; iconColor: string; glow: string; badge: string; label: string;
-}> = {
-  common: {
-    border: 'border-slate-600/60',
-    bg: 'bg-slate-800/60',
-    iconColor: 'text-slate-300',
-    glow: '',
-    badge: 'bg-slate-700 text-slate-300',
-    label: 'Common',
-  },
-  rare: {
-    border: 'border-blue-500/50',
-    bg: 'bg-blue-950/30',
-    iconColor: 'text-blue-300',
-    glow: 'shadow-[0_0_18px_rgba(59,130,246,0.18)]',
-    badge: 'bg-blue-500/20 text-blue-300',
-    label: 'Rare',
-  },
-  epic: {
-    border: 'border-purple-500/50',
-    bg: 'bg-purple-950/30',
-    iconColor: 'text-purple-300',
-    glow: 'shadow-[0_0_18px_rgba(168,85,247,0.18)]',
-    badge: 'bg-purple-500/20 text-purple-300',
-    label: 'Epic',
-  },
-  legendary: {
-    border: 'border-amber-500/50',
-    bg: 'bg-amber-950/20',
-    iconColor: 'text-amber-300',
-    glow: 'shadow-[0_0_22px_rgba(245,158,11,0.22)]',
-    badge: 'bg-amber-500/20 text-amber-300',
-    label: 'Legendary',
-  },
-};
-
-// ── streak card ──────────────────────────────────────────────────────────────
+function getRarityClass(rarity?: AchievementRarity): RarityClass {
+  if (rarity === 'rare' || rarity === 'epic' || rarity === 'legendary') return rarity;
+  return 'common';
+}
 
 function StreakCard({
-  label, value, best, icon, color,
+  label,
+  value,
+  best,
+  icon,
+  tone,
 }: {
   label: string;
   value: number;
   best: number;
-  icon: React.ReactNode;
-  color: 'emerald' | 'blue' | 'purple' | 'amber';
+  icon: ReactNode;
+  tone: Tone;
 }) {
-  const colors = {
-    emerald: { num: 'text-emerald-300', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20', glow: value > 0 ? 'shadow-[0_0_24px_rgba(16,185,129,0.15)]' : '' },
-    blue:    { num: 'text-blue-300',    bg: 'bg-blue-500/10',    border: 'border-blue-500/20',    glow: value > 0 ? 'shadow-[0_0_24px_rgba(59,130,246,0.15)]'  : '' },
-    purple:  { num: 'text-purple-300',  bg: 'bg-purple-500/10',  border: 'border-purple-500/20',  glow: value > 0 ? 'shadow-[0_0_24px_rgba(168,85,247,0.15)]'  : '' },
-    amber:   { num: 'text-amber-300',   bg: 'bg-amber-500/10',   border: 'border-amber-500/20',   glow: value > 0 ? 'shadow-[0_0_24px_rgba(245,158,11,0.15)]'  : '' },
-  }[color];
-
   return (
-    <div className={`rounded-2xl border p-5 flex flex-col gap-3 ${colors.border} ${colors.bg} ${colors.glow}`}>
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">{label}</span>
-        <span className={`${colors.num} opacity-70`}>{icon}</span>
-      </div>
-      <div className={`text-5xl font-bold tracking-tight ${colors.num}`}>
-        {value}
-      </div>
-      <p className="text-xs text-slate-500">
-        Best ever: <span className="text-slate-400 font-medium">{best}</span>
+    <article className={`achv-streak-card achv-tone-${tone}`}>
+      <header className="achv-streak-head">
+        <span className="achv-streak-label">{label}</span>
+        <span className="achv-streak-icon">{icon}</span>
+      </header>
+      <p className="achv-streak-value">{value}</p>
+      <p className="achv-streak-meta">
+        Best ever: <span>{best}</span>
       </p>
-    </div>
+    </article>
   );
 }
 
-// ── achievement badge ────────────────────────────────────────────────────────
-
-function AchievementBadge({ achievement }: {
-  achievement: {
-    key: string; label: string; description: string; icon: string;
-    rarity: string; unlocked: boolean; unlockedAt: string | null;
-  };
-}) {
-  const r = RARITY[achievement.rarity as AchievementRarity] ?? RARITY.common;
-
-  const formattedDate = achievement.unlockedAt
-    ? new Date(achievement.unlockedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-    : null;
+function AchievementBadge({ achievement }: { achievement: AchievementItem }) {
+  const rarityClass = getRarityClass(achievement.rarity as AchievementRarity);
+  const unlockedDate = formatUnlockedDate(achievement.unlockedAt);
 
   if (!achievement.unlocked) {
     return (
-      <div className="rounded-2xl border border-slate-700/40 bg-slate-800/30 p-5 flex flex-col items-center text-center gap-3 relative overflow-hidden">
-        <div className="w-14 h-14 rounded-2xl bg-slate-700/40 flex items-center justify-center">
-          <Lock size={22} className="text-slate-600" />
+      <article className="achv-badge achv-badge-locked">
+        <div className="achv-badge-icon-wrap">
+          <Lock size={18} />
         </div>
-        <div>
-          <p className="text-sm font-semibold text-slate-600">{achievement.label}</p>
-          <p className="text-xs text-slate-700 mt-0.5 leading-relaxed">{achievement.description}</p>
-        </div>
-        <span className={`text-[10px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded-full ${r.badge} opacity-50`}>
-          {r.label}
-        </span>
-      </div>
+        <h3 className="achv-badge-title">{achievement.label}</h3>
+        <p className="achv-badge-desc">{achievement.description}</p>
+      </article>
     );
   }
 
   return (
-    <div className={`rounded-2xl border p-5 flex flex-col items-center text-center gap-3 relative overflow-hidden transition-all ${r.border} ${r.bg} ${r.glow}`}>
-      {/* Subtle shimmer top */}
-      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
-
-      <div className={`w-14 h-14 rounded-2xl border flex items-center justify-center ${r.border} ${r.bg}`}>
-        <AchievementIcon name={achievement.icon} size={26} className={r.iconColor} />
+    <article className={`achv-badge achv-rarity-${rarityClass}`}>
+      <div className="achv-badge-icon-wrap">
+        <AchievementIcon name={achievement.icon} />
       </div>
-
-      <div>
-        <p className="text-sm font-bold text-white">{achievement.label}</p>
-        <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">{achievement.description}</p>
-      </div>
-
-      <span className={`text-[10px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded-full ${r.badge}`}>
-        {r.label}
-      </span>
-
-      {formattedDate && (
-        <p className="text-[10px] text-slate-600">Unlocked {formattedDate}</p>
-      )}
-    </div>
+      <h3 className="achv-badge-title">{achievement.label}</h3>
+      <p className="achv-badge-desc">{achievement.description}</p>
+      <footer className="achv-badge-foot">
+        <span className="achv-rarity-pill">{rarityClass}</span>
+        {unlockedDate ? <span className="achv-unlocked-date">Unlocked {unlockedDate}</span> : null}
+      </footer>
+    </article>
   );
 }
-
-// ── category labels ──────────────────────────────────────────────────────────
-
-const CATEGORIES: { value: AchievementCategory | 'all'; label: string }[] = [
-  { value: 'all',         label: 'All'         },
-  { value: 'milestone',   label: 'Milestone'   },
-  { value: 'streak',      label: 'Streak'      },
-  { value: 'discipline',  label: 'Discipline'  },
-  { value: 'session',     label: 'Session'     },
-  { value: 'consistency', label: 'Consistency' },
-];
-
-// ── page ─────────────────────────────────────────────────────────────────────
 
 export default function Achievements() {
   const { stats, achievements, unlockedCount, totalCount, loading } = useAchievements();
   const [category, setCategory] = useState<AchievementCategory | 'all'>('all');
   const [showLocked, setShowLocked] = useState(true);
 
-  const filtered = achievements.filter(a => {
-    if (category !== 'all' && a.category !== category) return false;
-    if (!showLocked && !a.unlocked) return false;
-    return true;
-  });
+  const visibleAchievements = useMemo(() => {
+    const filtered = achievements.filter(achievement => {
+      if (category !== 'all' && achievement.category !== category) return false;
+      if (!showLocked && !achievement.unlocked) return false;
+      return true;
+    });
+
+    return [
+      ...filtered.filter(achievement => achievement.unlocked),
+      ...filtered.filter(achievement => !achievement.unlocked),
+    ];
+  }, [achievements, category, showLocked]);
 
   const progress = totalCount > 0 ? (unlockedCount / totalCount) * 100 : 0;
+  const progressLabel = `${Math.round(progress)}%`;
 
   return (
-    <div className="space-y-8 animate-fade-in">
-
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4">
+    <div className="achv-page animate-fade-in">
+      <header className="achv-header">
         <div>
-          <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-            <Trophy size={28} className="text-amber-400" />
-            Streaks & Achievements
+          <h1 className="achv-title">
+            <Trophy size={26} />
+            Streaks &amp; Achievements
           </h1>
-          <p className="text-slate-400 text-base mt-1">Track your consistency, discipline, and milestones.</p>
+          <p className="achv-subtitle">
+            Track your consistency, discipline, and milestones.
+          </p>
         </div>
-        <div className="text-right shrink-0">
-          <p className="text-2xl font-bold text-white">{unlockedCount}<span className="text-slate-500 text-lg font-normal">/{totalCount}</span></p>
-          <p className="text-xs text-slate-500 mt-0.5">achievements unlocked</p>
+        <div className="achv-count">
+          <p className="achv-count-value">
+            {unlockedCount}
+            <span>/{totalCount}</span>
+          </p>
+          <p className="achv-count-label">Achievements unlocked</p>
         </div>
-      </div>
+      </header>
 
-      {/* Progress bar */}
-      <div className="rounded-2xl border border-slate-700/60 bg-slate-900/60 p-4">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 flex items-center gap-1.5">
-            <Sparkles size={11} /> Overall Progress
+      <section className="achv-progress-card" aria-label="Overall progress">
+        <div className="achv-progress-head">
+          <span>
+            <Sparkles size={12} />
+            Overall Progress
           </span>
-          <span className="text-xs font-semibold text-slate-400">{Math.round(progress)}%</span>
+          <strong>{progressLabel}</strong>
         </div>
-        <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
-          <div
-            className="h-full rounded-full bg-gradient-to-r from-blue-500 via-purple-500 to-amber-400 transition-all duration-700"
-            style={{ width: `${progress}%` }}
-          />
+        <div className="achv-progress-track">
+          <div className="achv-progress-fill" style={{ width: `${progress}%` }} />
         </div>
-      </div>
+      </section>
 
-      {/* Streak cards */}
-      <div>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 mb-3">Live Streaks</p>
+      <section className="achv-section">
+        <h2 className="achv-section-title">Live Streaks</h2>
         {loading ? (
-          <div className="h-32 rounded-2xl border border-slate-700/40 bg-slate-800/30 animate-pulse" />
+          <div className="achv-streak-grid achv-streak-grid-loading">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <div key={index} className="achv-skeleton" />
+            ))}
+          </div>
         ) : (
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div className="achv-streak-grid">
             <StreakCard
               label="Win Streak"
               value={stats.currentWinStreak}
               best={stats.bestWinStreak}
-              icon={<Flame size={18} />}
-              color="emerald"
+              icon={<Flame size={14} />}
+              tone="green"
             />
             <StreakCard
               label="Best Win Streak"
               value={stats.bestWinStreak}
               best={stats.bestWinStreak}
-              icon={<Zap size={18} />}
-              color="blue"
+              icon={<Zap size={14} />}
+              tone="blue"
             />
             <StreakCard
               label="Discipline Streak"
               value={stats.currentDisciplineStreak}
               best={stats.bestDisciplineStreak}
-              icon={<ShieldCheck size={18} />}
-              color="purple"
+              icon={<ShieldCheck size={14} />}
+              tone="purple"
             />
             <StreakCard
               label="Green Day Streak"
               value={stats.currentGreenDayStreak}
               best={stats.bestGreenDayStreak}
-              icon={<TrendingUp size={18} />}
-              color="amber"
+              icon={<TrendingUp size={14} />}
+              tone="amber"
             />
           </div>
         )}
-      </div>
+      </section>
 
-      {/* Achievements */}
-      <div>
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-          {/* Category tabs */}
-          <div className="flex flex-wrap gap-1.5">
-            {CATEGORIES.map(c => (
+      <section className="achv-section">
+        <div className="achv-toolbar">
+          <div className="achv-filters">
+            {CATEGORIES.map(option => (
               <button
-                key={c.value}
-                onClick={() => setCategory(c.value)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                  category === c.value
-                    ? 'bg-blue-600/30 border border-blue-500/40 text-blue-300'
-                    : 'bg-slate-800 border border-slate-700/60 text-slate-400 hover:text-slate-300 hover:border-slate-600'
-                }`}
+                key={option.value}
+                type="button"
+                className={`achv-chip ${category === option.value ? 'is-active' : ''}`}
+                onClick={() => setCategory(option.value)}
               >
-                {c.label}
+                {option.label}
               </button>
             ))}
           </div>
-
-          {/* Show locked toggle */}
           <button
-            onClick={() => setShowLocked(v => !v)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
-              showLocked
-                ? 'bg-slate-800 border-slate-700/60 text-slate-400 hover:text-slate-300'
-                : 'bg-slate-700/60 border-slate-600 text-slate-200'
-            }`}
+            type="button"
+            className="achv-chip"
+            onClick={() => setShowLocked(value => !value)}
           >
             {showLocked ? 'Hide Locked' : 'Show Locked'}
           </button>
         </div>
 
         {loading ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-            {Array.from({ length: 10 }).map((_, i) => (
-              <div key={i} className="h-44 rounded-2xl bg-slate-800/40 animate-pulse" />
+          <div className="achv-grid">
+            {Array.from({ length: 10 }).map((_, index) => (
+              <div key={index} className="achv-skeleton achv-skeleton-badge" />
             ))}
           </div>
-        ) : filtered.length === 0 ? (
-          <div className="rounded-2xl border border-slate-700/40 bg-slate-800/20 py-16 text-center">
-            <Trophy size={32} className="text-slate-700 mx-auto mb-3" />
-            <p className="text-slate-500 text-sm">No achievements in this category yet.</p>
+        ) : visibleAchievements.length === 0 ? (
+          <div className="achv-empty">
+            <Trophy size={28} />
+            <p>No achievements in this category yet.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-            {/* Unlocked first, then locked */}
-            {[...filtered.filter(a => a.unlocked), ...filtered.filter(a => !a.unlocked)].map(a => (
-              <AchievementBadge key={a.key} achievement={a} />
+          <div className="achv-grid">
+            {visibleAchievements.map(achievement => (
+              <AchievementBadge key={achievement.key} achievement={achievement} />
             ))}
           </div>
         )}
-      </div>
+      </section>
     </div>
   );
 }

@@ -208,13 +208,6 @@ function etDateLabel(now: Date) {
   });
 }
 
-function etIsoDate(now: Date) {
-  const et = getEtParts(now);
-  const month = String(et.month).padStart(2, '0');
-  const day = String(et.day).padStart(2, '0');
-  return `${et.year}-${month}-${day}`;
-}
-
 function confidenceSorted(patterns: PatternItem[]) {
   return [...patterns].sort((a, b) => b.confidence - a.confidence);
 }
@@ -427,7 +420,7 @@ export default function FlyxaAIPreSession() {
     if (typeof window !== 'undefined') {
       window.localStorage.setItem('presession.startedAt', new Date().toISOString());
     }
-    navigate(`/journal?date=${etIsoDate(now)}`);
+    navigate('/');
   };
 
   if (loading) {
@@ -669,11 +662,11 @@ export default function FlyxaAIPreSession() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => navigate('/journal')}
+                      onClick={() => navigate('/')}
                       className="rounded-[6px] border px-4 py-2 text-[12px] font-semibold"
                       style={{ borderColor: C.b1, backgroundColor: 'transparent', color: C.t1 }}
                     >
-                      Skip brief and go to journal
+                      Skip brief and go to dashboard
                     </button>
                   </div>
                 </section>

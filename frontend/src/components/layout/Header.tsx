@@ -5,17 +5,16 @@ import { ALL_ACCOUNTS_ID, useAppSettings } from '../../contexts/AppSettingsConte
 
 const pageNames: Record<string, string> = {
   '/': 'Dashboard',
-  '/scanner': 'Trade Journal',
   '/coach': 'Flyxa AI',
   '/flyxa-ai': 'Flyxa AI',
   '/flyxa-ai/patterns': 'Pattern library',
   '/flyxa-ai/pre-session': 'Pre-session brief',
   '/analytics': 'Analytics',
+  '/journal': 'Daily Journal',
   '/chart': 'Backtest',
   '/backtest': 'Backtest',
   '/trading-plan': 'Trading Plan',
   '/psychology': 'Psychology Tracker',
-  '/journal': 'Daily Journal',
   '/goals': 'Goals',
   '/billing': 'Billing',
   '/settings': 'Settings',

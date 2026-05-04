@@ -1,4 +1,4 @@
-# TradeWise — Professional Futures Trading Journal
+# Flyxa AI — Professional Futures Trading Journal
 
 A professional-grade futures trading journal built for serious traders. Features AI-powered trade analysis, chart screenshot scanning, risk management, psychology tracking, and deep analytics.
 
@@ -165,7 +165,7 @@ In Supabase → Authentication → URL Configuration:
 ## Project Structure
 
 ```
-tradewise/
+flyxa-ai/
 ├── backend/
 │   ├── src/
 │   │   ├── index.ts              # Express app entry

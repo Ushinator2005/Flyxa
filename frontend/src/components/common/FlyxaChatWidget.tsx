@@ -1,6 +1,9 @@
 import React, { useMemo, useState } from 'react';
-import { Bot, MessageSquare, Send, X } from 'lucide-react';
+import { Bot, MessageSquare, Send, Sparkles, X } from 'lucide-react';
 import { aiApi } from '../../services/api.js';
+import useFlyxaStore from '../../store/flyxaStore.js';
+import { useActiveAccountEntries, useAllTrades, useDashboardStats } from '../../store/selectors.js';
+import './FlyxaChatWidget.css';
 
 type ChatMessage = {
   id: string;
@@ -14,11 +17,31 @@ const initialMessage: ChatMessage = {
   content: 'Ask anything about Flyxa. I can help with features, workflows, and where to find things.',
 };
 
+const QUICK_PROMPTS = [
+  'Where should I log my daily routine?',
+  'How do I review my tilt patterns?',
+  'Show me where to edit risk rules.',
+] as const;
+
+function formatCurrency(value: number): string {
+  return value.toLocaleString('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+  });
+}
+
 export default function FlyxaChatWidget() {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([initialMessage]);
+  const allTrades = useAllTrades();
+  const entries = useActiveAccountEntries();
+  const stats = useDashboardStats();
+  const riskRules = useFlyxaStore(state => state.riskRules);
+  const activeAccountId = useFlyxaStore(state => state.activeAccountId);
+  const account = useFlyxaStore(state => state.accounts.find(item => item.id === state.activeAccountId) ?? state.accounts[0]);
 
   const canSend = input.trim() !== '' && !loading;
 
@@ -30,8 +53,49 @@ export default function FlyxaChatWidget() {
     [messages]
   );
 
-  const sendMessage = async () => {
-    const question = input.trim();
+  const activeConversation = messages.filter(message => message.id !== initialMessage.id);
+
+  const aiContext = useMemo(() => {
+    const recent = [...allTrades].sort((a, b) => `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`)).slice(-20);
+    const psych = [...entries].sort((a, b) => a.date.localeCompare(b.date)).slice(-7);
+
+    return `
+You are Flyxa AI, a personal trading coach for this specific trader.
+
+TRADER DATA (last 30 days):
+  Net P&L: ${formatCurrency(stats.netPnL)}
+  Win Rate: ${stats.winRate.toFixed(1)}%
+  Avg R:R: ${stats.avgRR.toFixed(2)}R
+  Total Trades: ${stats.totalTrades}
+  Account: ${account?.name ?? 'Unknown'} (${account?.type ?? 'unknown'})
+  Daily Loss Limit: ${formatCurrency(account?.dailyLossLimit ?? 0)}
+  Active Account ID: ${activeAccountId ?? 'all'}
+
+RECENT TRADES (last 20):
+${recent.map(trade =>
+`  ${trade.date} ${trade.symbol} ${trade.direction} | Entry ${trade.entry} |
+   SL ${trade.sl} | TP ${trade.tp} | Exit ${trade.exit ?? 'OPEN'} |
+   P&L ${formatCurrency(trade.pnl)} | R:R ${trade.rr.toFixed(2)} | ${trade.result.toUpperCase()}`
+).join('\n')}
+
+PSYCHOLOGY TREND (last 7 days):
+${psych.map(entry =>
+`  ${entry.date}: Discipline ${entry.psychology.discipline}/5,
+   Setup Quality ${entry.psychology.setupQuality}/5,
+   Execution ${entry.psychology.execution}/5`
+).join('\n')}
+
+CURRENT TRADING RULES:
+${riskRules.map(rule => `  ${rule.label}: ${rule.value} ${rule.unit}`).join('\n')}
+
+Use this data to give specific, personalised coaching advice.
+Reference actual trades by date and symbol when relevant.
+Do not give generic advice - be specific to this trader's patterns.
+`.trim();
+  }, [account?.dailyLossLimit, account?.name, account?.type, activeAccountId, allTrades, entries, riskRules, stats.avgRR, stats.netPnL, stats.totalTrades, stats.winRate]);
+
+  const sendMessage = async (rawInput?: string) => {
+    const question = (rawInput ?? input).trim();
     if (!question || loading) return;
 
     const userMessage: ChatMessage = {
@@ -45,7 +109,7 @@ export default function FlyxaChatWidget() {
     setLoading(true);
 
     try {
-      const response = await aiApi.flyxaChat(question, history);
+      const response = await aiApi.flyxaChat(question, history, aiContext);
       setMessages(current => [
         ...current,
         {
@@ -75,59 +139,82 @@ export default function FlyxaChatWidget() {
     await sendMessage();
   };
 
+  const sendQuickPrompt = async (prompt: string) => {
+    await sendMessage(prompt);
+  };
+
   return (
-    <div className="fixed bottom-5 right-5 z-[120] flex flex-col items-end gap-3">
+    <div className="flyxa-chat-shell">
       {open && (
-        <div className="w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-slate-700/80 bg-slate-950/96 shadow-[0_24px_70px_rgba(2,6,23,0.42)] backdrop-blur-md">
-          <div className="flex items-center justify-between border-b border-slate-800/80 px-4 py-3">
-            <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-500/15 text-blue-300">
+        <div className="flyxa-chat-card">
+          <div className="flyxa-chat-card-topline" />
+          <div className="flyxa-chat-header">
+            <div className="flyxa-chat-title-wrap">
+              <div className="flyxa-chat-bot-badge">
                 <Bot size={17} />
               </div>
               <div>
-                <p className="text-sm font-semibold text-white">Ask Flyxa</p>
-                <p className="text-xs text-slate-500">Product help and quick answers</p>
+                <p className="flyxa-chat-title">Ask Flyxa</p>
+                <p className="flyxa-chat-sub">Product help, workflows, and shortcuts across Flyxa</p>
               </div>
             </div>
+            <span className="flyxa-chat-live">
+              <span className="dot" />
+              Live assistant
+            </span>
             <button
               type="button"
               onClick={() => setOpen(false)}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-900 hover:text-white"
+              className="flyxa-chat-close"
               aria-label="Close chat"
             >
               <X size={17} />
             </button>
           </div>
 
-          <div className="max-h-[24rem] space-y-3 overflow-y-auto px-4 py-4">
+          <div className="flyxa-chat-body">
+            {activeConversation.length === 0 && (
+              <div className="flyxa-chat-prompts">
+                <p>
+                  <Sparkles size={13} />
+                  Try one of these:
+                </p>
+                <div>
+                  {QUICK_PROMPTS.map(prompt => (
+                    <button key={prompt} type="button" onClick={() => sendQuickPrompt(prompt)}>
+                      {prompt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {messages.map(message => (
               <div
                 key={message.id}
-                className={message.role === 'user' ? 'flex justify-end' : 'flex justify-start'}
+                className={`flyxa-chat-row ${message.role === 'user' ? 'user' : 'assistant'}`}
               >
-                <div
-                  className={`max-w-[85%] rounded-2xl px-3.5 py-3 text-sm leading-6 ${
-                    message.role === 'user'
-                      ? 'bg-blue-500 text-white'
-                      : 'border border-slate-800 bg-slate-900/85 text-slate-200'
-                  }`}
-                >
+                {message.role === 'assistant' && <span className="flyxa-msg-avatar"><Bot size={12} /></span>}
+                <div className={`flyxa-msg ${message.role === 'user' ? 'user' : 'assistant'}`}>
                   {message.content}
                 </div>
               </div>
             ))}
 
             {loading && (
-              <div className="flex justify-start">
-                <div className="rounded-2xl border border-slate-800 bg-slate-900/85 px-3.5 py-3 text-sm text-slate-400">
-                  Thinking...
+              <div className="flyxa-chat-row assistant">
+                <span className="flyxa-msg-avatar"><Bot size={12} /></span>
+                <div className="flyxa-msg assistant thinking">
+                  <span />
+                  <span />
+                  <span />
                 </div>
               </div>
             )}
           </div>
 
-          <form onSubmit={handleSubmit} className="border-t border-slate-800/80 p-3">
-            <div className="flex items-end gap-2">
+          <form onSubmit={handleSubmit} className="flyxa-chat-input-wrap">
+            <div className="flyxa-chat-input-row">
               <textarea
                 value={input}
                 onChange={event => setInput(event.target.value)}
@@ -138,17 +225,22 @@ export default function FlyxaChatWidget() {
                   }
                 }}
                 rows={1}
+                maxLength={240}
                 placeholder="Ask about Flyxa..."
-                className="min-h-[46px] flex-1 resize-none rounded-xl border border-slate-800 bg-slate-900 px-3 py-2.5 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-blue-400/70"
+                className="flyxa-chat-input"
               />
               <button
                 type="submit"
                 disabled={!canSend}
-                className="inline-flex h-[46px] w-[46px] items-center justify-center rounded-xl bg-blue-500 text-white transition-colors hover:bg-blue-400 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-500"
+                className="flyxa-chat-send"
                 aria-label="Send message"
               >
                 <Send size={16} />
               </button>
+            </div>
+            <div className="flyxa-chat-hint">
+              <span>Enter to send</span>
+              <span>{input.length}/240</span>
             </div>
           </form>
         </div>
@@ -157,9 +249,11 @@ export default function FlyxaChatWidget() {
       <button
         type="button"
         onClick={() => setOpen(current => !current)}
-        className="inline-flex items-center gap-2 rounded-full border border-slate-700/80 bg-slate-950/96 px-4 py-3 text-sm font-medium text-slate-100 shadow-[0_16px_40px_rgba(2,6,23,0.36)] transition-colors hover:border-slate-600 hover:bg-slate-900"
+        className="flyxa-chat-trigger"
       >
-        <MessageSquare size={17} />
+        <span className="icon-wrap">
+          <MessageSquare size={16} />
+        </span>
         Ask Flyxa
       </button>
     </div>

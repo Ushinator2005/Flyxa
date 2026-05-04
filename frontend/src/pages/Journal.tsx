@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef, type ChangeEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
+  Download,
   Leaf,
   Moon,
   PenLine,
@@ -10,18 +11,22 @@ import {
   ShieldCheck,
   Target,
   Trash2,
+  Upload,
   type LucideIcon,
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { journalApi } from '../services/api.js';
-import { JournalEntry } from '../types/index.js';
+import { JournalBackupPayload, JournalEntry } from '../types/index.js';
 import Modal from '../components/common/Modal.js';
 import LoadingSpinner from '../components/common/LoadingSpinner.js';
+import { useAuth } from '../contexts/AuthContext.js';
 
 // constants
 
 const JOURNAL_MOOD_STORAGE_KEY = 'tw-journal-moods';
 const JOURNAL_TITLE_STORAGE_KEY = 'tw-journal-titles';
+const JOURNAL_BACKUP_STORAGE_PREFIX = 'tw-journal-backup:';
+const JOURNAL_BACKUP_VERSION = 1;
 const JOURNAL_MOODS = ['Calm', 'Focused', 'Confident', 'Tired', 'Frustrated'] as const;
 const MOOD_ICONS: Record<(typeof JOURNAL_MOODS)[number], LucideIcon> = {
   Calm: Leaf,
@@ -212,6 +217,57 @@ function formatEntryDate(date: string, pattern: string) {
   return Number.isNaN(parsed.getTime()) ? (date || 'Unknown date') : format(parsed, pattern);
 }
 
+function normalizeBackupDate(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const match = value.trim().match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : null;
+}
+
+function normalizeBackupEntries(value: unknown): Array<Pick<JournalEntry, 'date' | 'content' | 'screenshots'>> {
+  if (!Array.isArray(value)) return [];
+  const output: Array<Pick<JournalEntry, 'date' | 'content' | 'screenshots'>> = [];
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue;
+    const record = item as Record<string, unknown>;
+    const date = normalizeBackupDate(record.date);
+    if (!date) continue;
+    output.push({
+      date,
+      content: typeof record.content === 'string' ? record.content : '',
+      screenshots: Array.isArray(record.screenshots)
+        ? record.screenshots.filter((s): s is string => typeof s === 'string')
+        : [],
+    });
+  }
+  return output;
+}
+
+function normalizeStringMap(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object') return {};
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string'
+    )
+  );
+}
+
+function buildBackupFilename(date = new Date()) {
+  const stamp = format(date, 'yyyy-MM-dd_HH-mm');
+  return `flyxa-ai-journal-backup-${stamp}.json`;
+}
+
+function downloadBackupPayload(payload: JournalBackupPayload) {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = buildBackupFilename();
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(url);
+}
+
 // EntryItem
 
 function EntryItem({
@@ -308,6 +364,7 @@ function EntryItem({
 // Journal page
 
 export default function Journal() {
+  const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [selected, setSelected] = useState<JournalEntry | null>(null);
@@ -327,7 +384,13 @@ export default function Journal() {
   });
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const titleSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const backupInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [backupBusy, setBackupBusy] = useState<'export' | 'import' | null>(null);
+  const backupStorageKey = useMemo(
+    () => `${JOURNAL_BACKUP_STORAGE_PREFIX}${user?.id ?? 'anonymous'}`,
+    [user?.id]
+  );
 
   const fetchEntries = useCallback(async () => {
     try {
@@ -348,6 +411,27 @@ export default function Journal() {
       if (titleSaveTimer.current) clearTimeout(titleSaveTimer.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const payload: JournalBackupPayload = {
+      version: JOURNAL_BACKUP_VERSION,
+      exported_at: new Date().toISOString(),
+      user_id: user?.id ?? null,
+      entries: entries.map((entry) => ({
+        date: entry.date,
+        content: typeof entry.content === 'string' ? entry.content : '',
+        screenshots: Array.isArray(entry.screenshots) ? entry.screenshots.filter((s): s is string => typeof s === 'string') : [],
+      })),
+      moods: moodByEntryId,
+      titles: titleByEntryId,
+    };
+    try {
+      window.localStorage.setItem(backupStorageKey, JSON.stringify(payload));
+    } catch {
+      // Ignore storage quota errors.
+    }
+  }, [backupStorageKey, entries, moodByEntryId, titleByEntryId, user?.id]);
 
   function updateEntryMood(entryId: string, mood: string) {
     setMoodByEntryId(current => {
@@ -506,6 +590,90 @@ export default function Journal() {
     setDeleteTarget(null);
   }
 
+  async function exportBackup() {
+    setBackupBusy('export');
+    try {
+      const serverPayload = await journalApi.exportBackup();
+      const payload: JournalBackupPayload = {
+        version: JOURNAL_BACKUP_VERSION,
+        exported_at: new Date().toISOString(),
+        user_id: user?.id ?? null,
+        entries: normalizeBackupEntries(serverPayload.entries),
+        moods: moodByEntryId,
+        titles: titleByEntryId,
+      };
+      downloadBackupPayload(payload);
+    } catch (error) {
+      console.error(error);
+      const fallbackPayload: JournalBackupPayload = {
+        version: JOURNAL_BACKUP_VERSION,
+        exported_at: new Date().toISOString(),
+        user_id: user?.id ?? null,
+        entries: entries.map((entry) => ({
+          date: entry.date,
+          content: entry.content ?? '',
+          screenshots: Array.isArray(entry.screenshots) ? entry.screenshots : [],
+        })),
+        moods: moodByEntryId,
+        titles: titleByEntryId,
+      };
+      downloadBackupPayload(fallbackPayload);
+    } finally {
+      setBackupBusy(null);
+    }
+  }
+
+  function triggerBackupImport() {
+    backupInputRef.current?.click();
+  }
+
+  async function handleBackupImport(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setBackupBusy('import');
+    try {
+      const raw = await file.text();
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      const normalizedEntries = normalizeBackupEntries(parsed.entries);
+      const normalizedMoods = normalizeStringMap(parsed.moods);
+      const normalizedTitles = normalizeStringMap(parsed.titles);
+
+      if (normalizedEntries.length === 0) {
+        window.alert('This backup file has no valid journal entries.');
+        return;
+      }
+
+      const restoreResult = await journalApi.restoreBackup(normalizedEntries);
+      if (Object.keys(normalizedMoods).length > 0) {
+        setMoodByEntryId((current) => {
+          const next = { ...current, ...normalizedMoods };
+          saveJournalMoods(next);
+          return next;
+        });
+      }
+      if (Object.keys(normalizedTitles).length > 0) {
+        setTitleByEntryId((current) => {
+          const next = { ...current, ...normalizedTitles };
+          saveJournalTitles(next);
+          return next;
+        });
+      }
+
+      await fetchEntries();
+
+      window.alert(
+        `Backup restored. Created ${restoreResult.created}, updated ${restoreResult.updated}, skipped ${restoreResult.skipped}, failed ${restoreResult.failed}.`
+      );
+    } catch (error) {
+      console.error(error);
+      window.alert('Import failed. Please verify this is a valid Flyxa AI journal backup JSON file.');
+    } finally {
+      setBackupBusy(null);
+      event.target.value = '';
+    }
+  }
+
   const filtered = useMemo(
     () => entries.filter(
       entry =>
@@ -574,7 +742,56 @@ export default function Journal() {
           )}
           <button
             type="button"
+            onClick={() => { void exportBackup(); }}
+            disabled={backupBusy !== null}
+            style={{
+              height: '32px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              background: S2,
+              border: `1px solid ${BORDER}`,
+              borderRadius: '5px',
+              padding: '0 10px',
+              color: T2,
+              fontSize: '12px',
+              fontWeight: 600,
+              cursor: backupBusy !== null ? 'not-allowed' : 'pointer',
+              opacity: backupBusy !== null ? 0.7 : 1,
+              flexShrink: 0,
+            }}
+          >
+            <Download size={13} />
+            {backupBusy === 'export' ? 'Exporting...' : 'Export backup'}
+          </button>
+          <button
+            type="button"
+            onClick={triggerBackupImport}
+            disabled={backupBusy !== null}
+            style={{
+              height: '32px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              background: S2,
+              border: `1px solid ${BORDER}`,
+              borderRadius: '5px',
+              padding: '0 10px',
+              color: T2,
+              fontSize: '12px',
+              fontWeight: 600,
+              cursor: backupBusy !== null ? 'not-allowed' : 'pointer',
+              opacity: backupBusy !== null ? 0.7 : 1,
+              flexShrink: 0,
+            }}
+          >
+            <Upload size={13} />
+            {backupBusy === 'import' ? 'Importing...' : 'Import backup'}
+          </button>
+          <button
+            type="button"
             onClick={createEntry}
+            disabled={backupBusy !== null}
             style={{
               height: '32px',
               display: 'inline-flex',
@@ -587,7 +804,8 @@ export default function Journal() {
               color: '#000',
               fontSize: '12px',
               fontWeight: 600,
-              cursor: 'pointer',
+              cursor: backupBusy !== null ? 'not-allowed' : 'pointer',
+              opacity: backupBusy !== null ? 0.7 : 1,
               flexShrink: 0,
               transition: 'opacity 0.15s',
             }}
@@ -597,6 +815,13 @@ export default function Journal() {
             <Plus size={13} />
             New entry
           </button>
+          <input
+            ref={backupInputRef}
+            type="file"
+            accept="application/json,.json"
+            onChange={(event) => { void handleBackupImport(event); }}
+            style={{ display: 'none' }}
+          />
         </div>
       </div>
 

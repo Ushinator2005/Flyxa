@@ -1115,10 +1115,10 @@ export default function Chart() {
                     ))}
                     <button
                       type="button"
-                      onClick={() => navigate('/journal')}
+                      onClick={() => navigate('/')}
                       className="inline-flex h-10 w-full items-center justify-center rounded-xl bg-[#d97706] px-4 text-sm font-medium text-white transition-colors hover:bg-[#b45309]"
                     >
-                      Open Journal
+                      Open Dashboard
                     </button>
                   </div>
                 </div>
@@ -1175,10 +1175,10 @@ export default function Chart() {
                 active: railPanel === 'goto',
               },
               {
-                id: 'journal',
-                label: 'Journal',
+                id: 'dashboard',
+                label: 'Dashboard',
                 icon: <BookOpen size={16} />,
-                onClick: () => navigate('/journal'),
+                onClick: () => navigate('/'),
                 active: false,
               },
             ].map(item => (

@@ -1,26 +1,27 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
+  BarChart3,
+  Building2,
   Check,
-  CheckSquare,
+  CheckCircle2,
   ChevronDown,
-  Clock,
-  Construction,
+  ClipboardList,
+  Clock3,
   Download,
   FileText,
-  Grid2x2,
-  LineChart,
-  Pencil,
-  Plus,
+  ListChecks,
+  PenLine,
+  RefreshCw,
+  Save,
+  ShieldAlert,
+  Sparkles,
+  Target,
 } from 'lucide-react';
+import useFlyxaStore from '../store/flyxaStore.js';
+import './TradingPlan.css';
 
-type TradingPlanTab =
-  | 'trading-plan'
-  | 'risk-rules'
-  | 'playbook'
-  | 'prop-firm-rules'
-  | 'pre-session-checklist';
-
+type TradingPlanTab = 'trading-plan' | 'risk-rules' | 'playbook' | 'prop-firm-rules' | 'pre-session-checklist';
 type ColorTone = 'amber' | 'cobalt' | 'green' | 'red' | 'neutral';
 
 interface PlanBlock {
@@ -85,21 +86,21 @@ interface TradingPlanPersistedState {
 
 const LOCAL_STORAGE_KEY = 'flyxa_trading_plan_state_v1';
 
-const PLAN_BLOCK_ICONS = {
-  market: Clock,
-  edge: LineChart,
-  entry: CheckSquare,
-  avoid: AlertCircle,
-  windows: Grid2x2,
-} as const;
-
-const TAB_ITEMS: Array<{ id: TradingPlanTab; label: string }> = [
-  { id: 'trading-plan', label: 'Trading Plan' },
-  { id: 'risk-rules', label: 'Risk Rules' },
-  { id: 'playbook', label: 'Playbook' },
-  { id: 'prop-firm-rules', label: 'Prop Firm Rules' },
-  { id: 'pre-session-checklist', label: 'Pre-session Checklist' },
+const TAB_ITEMS: Array<{ id: TradingPlanTab; label: string; icon: typeof FileText }> = [
+  { id: 'trading-plan', label: 'Trading Plan', icon: FileText },
+  { id: 'risk-rules', label: 'Risk Rules', icon: ShieldAlert },
+  { id: 'playbook', label: 'Playbook', icon: Target },
+  { id: 'prop-firm-rules', label: 'Prop Firms', icon: Building2 },
+  { id: 'pre-session-checklist', label: 'Pre-session', icon: ListChecks },
 ];
+
+const PLAN_BLOCK_ICONS = {
+  market: Clock3,
+  edge: BarChart3,
+  entry: CheckCircle2,
+  avoid: AlertCircle,
+  windows: ClipboardList,
+} as const;
 
 const INITIAL_PLAN_BLOCKS: PlanBlock[] = [
   {
@@ -107,7 +108,7 @@ const INITIAL_PLAN_BLOCKS: PlanBlock[] = [
     name: 'What markets I trade and why',
     iconColor: 'amber',
     content: '',
-    placeholder: 'Which instruments, why these and not others, what you understand about them...',
+    placeholder: 'Which instruments, why these and not others, and what behavior you understand best...',
     isOpen: true,
   },
   {
@@ -115,7 +116,7 @@ const INITIAL_PLAN_BLOCKS: PlanBlock[] = [
     name: 'My edge and why it works',
     iconColor: 'cobalt',
     content: '',
-    placeholder: 'The specific setup or condition that gives you a statistical advantage...',
+    placeholder: 'The setup pattern that gives you repeatable probability...',
     isOpen: true,
   },
   {
@@ -123,7 +124,7 @@ const INITIAL_PLAN_BLOCKS: PlanBlock[] = [
     name: 'What a valid entry looks like',
     iconColor: 'green',
     content: '',
-    placeholder: 'Step by step - every condition that must be true before you press the button...',
+    placeholder: 'List every condition that must be true before execution...',
     isOpen: true,
   },
   {
@@ -131,7 +132,7 @@ const INITIAL_PLAN_BLOCKS: PlanBlock[] = [
     name: 'What I do NOT trade',
     iconColor: 'red',
     content: '',
-    placeholder: 'News windows, time restrictions, conditions that invalidate a setup...',
+    placeholder: 'No-trade filters: volatility, timing, structure, news windows...',
     isOpen: true,
   },
   {
@@ -139,7 +140,7 @@ const INITIAL_PLAN_BLOCKS: PlanBlock[] = [
     name: 'Time windows I trade',
     iconColor: 'neutral',
     content: '',
-    placeholder: 'Session times, when you are active, when you are flat...',
+    placeholder: 'Sessions, kill-zones, and when you are flat by rule...',
     isOpen: true,
   },
 ];
@@ -148,7 +149,7 @@ const INITIAL_RISK_RULES: RiskRule[] = [
   { id: 'daily-loss', label: 'Daily loss limit', value: '$500', unit: '/ day', color: 'red' },
   { id: 'max-trades', label: 'Max trades per day', value: '3', unit: 'trades', color: 'amber' },
   { id: 'max-contracts', label: 'Max contracts per trade', value: '2', unit: 'contracts', color: 'default' },
-  { id: 'min-rr', label: 'Minimum R:R to take a trade', value: '2.0R', unit: '', color: 'green' },
+  { id: 'min-rr', label: 'Minimum R:R to take a trade', value: '1:2.0 RR', unit: '', color: 'green' },
   { id: 'max-losses', label: 'Max consecutive losses before stopping', value: '2', unit: 'in a row', color: 'red' },
   { id: 'risk-per-trade', label: 'Risk per trade (% of account)', value: '0.5%', unit: '', color: 'default' },
 ];
@@ -161,7 +162,7 @@ const INITIAL_SETUPS: Setup[] = [
     description: 'Strong reclaim through prior session level with pullback hold and momentum confirmation.',
     timeframe: '5m',
     market: 'NQ',
-    avgRR: '2.8R',
+    avgRR: '1:2.8 RR',
     confluences: [
       'Reclaim above prior session high with volume expansion',
       'Pullback respects VWAP and prior breakout level',
@@ -176,7 +177,7 @@ const INITIAL_SETUPS: Setup[] = [
     description: 'Liquidity sweep into key zone followed by fast reclaim and trapped continuation.',
     timeframe: '15m',
     market: 'ES',
-    avgRR: '2.2R',
+    avgRR: '1:2.2 RR',
     confluences: [
       'Liquidity sweep into pre-marked demand or supply',
       'Fast reclaim through invalidation level',
@@ -191,7 +192,7 @@ const INITIAL_SETUPS: Setup[] = [
     description: 'Fade the edge of a clean intraday range only when breadth and timing align.',
     timeframe: '5m',
     market: 'MNQ',
-    avgRR: '1.7R',
+    avgRR: '1:1.7 RR',
     confluences: [
       'Range boundaries tested at least twice with rejection',
       'No immediate high-impact news risk',
@@ -242,43 +243,16 @@ const INITIAL_CHECKLIST: ChecklistItem[] = [
   { id: 'alerts', text: 'Set daily loss limit alert on platform', done: false },
 ];
 
-const TOKEN_SCOPE_STYLE: CSSProperties = {
-  '--bg': 'var(--app-bg)',
-  '--surface-1': 'var(--surface-1)',
-  '--surface-2': 'var(--surface-2)',
-  '--surface-3': 'var(--surface-3)',
-  '--border': 'var(--app-border)',
-  '--border-sub': 'var(--border-sub)',
-  '--txt': 'var(--txt)',
-  '--txt-2': 'var(--txt-2)',
-  '--txt-3': 'var(--txt-3)',
-  '--amber': 'var(--amber)',
-  '--amber-dim': 'var(--amber-dim)',
-  '--amber-border': 'var(--amber-border)',
-  '--cobalt': 'var(--cobalt)',
-  '--cobalt-dim': 'var(--cobalt-dim)',
-  '--cobalt-border': 'var(--cobalt-border)',
-  '--green': 'var(--green)',
-  '--green-dim': 'var(--green-dim)',
-  '--green-border': 'var(--green-border)',
-  '--red': 'var(--red)',
-  '--red-dim': 'var(--red-dim)',
-  '--red-border': 'var(--red-border)',
-} as CSSProperties;
-
 function formatLastSaved(lastSaved: Date | null, now: number): string {
-  if (!lastSaved) {
-    return 'Last saved just now';
-  }
-
+  if (!lastSaved) return 'Not saved yet';
   const delta = Math.max(0, now - lastSaved.getTime());
   const minutes = Math.floor(delta / 60000);
-  if (minutes < 1) return 'Last saved just now';
-  if (minutes === 1) return 'Last saved 1 min ago';
-  if (minutes < 60) return `Last saved ${minutes} min ago`;
+  if (minutes < 1) return 'Saved just now';
+  if (minutes === 1) return 'Saved 1 min ago';
+  if (minutes < 60) return `Saved ${minutes} min ago`;
   const hours = Math.floor(minutes / 60);
-  if (hours === 1) return 'Last saved 1 hr ago';
-  return `Last saved ${hours} hr ago`;
+  if (hours === 1) return 'Saved 1 hr ago';
+  return `Saved ${hours} hr ago`;
 }
 
 function loadPersistedState(): TradingPlanPersistedState | null {
@@ -292,14 +266,31 @@ function loadPersistedState(): TradingPlanPersistedState | null {
   }
 }
 
+function ruleColorClass(color: RiskRule['color']): string {
+  if (color === 'red') return 'tp-rule-value-red';
+  if (color === 'amber') return 'tp-rule-value-amber';
+  if (color === 'green') return 'tp-rule-value-green';
+  return '';
+}
+
+function toneClass(tone: ColorTone): string {
+  if (tone === 'amber') return 'tp-tone-amber';
+  if (tone === 'cobalt') return 'tp-tone-cobalt';
+  if (tone === 'green') return 'tp-tone-green';
+  if (tone === 'red') return 'tp-tone-red';
+  return 'tp-tone-neutral';
+}
+
 export default function TradingPlan() {
+  const hydrateSharedData = useFlyxaStore(state => state.hydrateSharedData);
   const persistedState = useMemo(() => loadPersistedState(), []);
+
   const [activeTab, setActiveTab] = useState<TradingPlanTab>('trading-plan');
   const [planBlocks, setPlanBlocks] = useState<PlanBlock[]>(() => {
     if (!persistedState?.planBlocks) return INITIAL_PLAN_BLOCKS;
-    const map = new Map(persistedState.planBlocks.map(block => [block.id, block]));
+    const persistedMap = new Map(persistedState.planBlocks.map(block => [block.id, block]));
     return INITIAL_PLAN_BLOCKS.map(block => {
-      const persisted = map.get(block.id);
+      const persisted = persistedMap.get(block.id);
       if (!persisted) return block;
       return {
         ...block,
@@ -308,35 +299,38 @@ export default function TradingPlan() {
       };
     });
   });
-  const [riskRules] = useState<RiskRule[]>(INITIAL_RISK_RULES);
+
   const [setups, setSetups] = useState<Setup[]>(() => {
     if (!persistedState?.setups) return INITIAL_SETUPS;
-    const map = new Map(persistedState.setups.map(setup => [setup.id, setup]));
+    const persistedMap = new Map(persistedState.setups.map(setup => [setup.id, setup]));
     return INITIAL_SETUPS.map(setup => {
-      const persisted = map.get(setup.id);
+      const persisted = persistedMap.get(setup.id);
       if (!persisted) return setup;
-      return {
-        ...setup,
-        isExpanded: typeof persisted.isExpanded === 'boolean' ? persisted.isExpanded : setup.isExpanded,
-      };
+      return { ...setup, isExpanded: typeof persisted.isExpanded === 'boolean' ? persisted.isExpanded : setup.isExpanded };
     });
   });
-  const [propFirms] = useState<PropFirm[]>(INITIAL_PROP_FIRMS);
+
   const [checklist, setChecklist] = useState<ChecklistItem[]>(() => {
     if (!persistedState?.checklist) return INITIAL_CHECKLIST;
-    const doneById = new Map(persistedState.checklist.map(item => [item.id, item.done]));
+    const doneMap = new Map(persistedState.checklist.map(item => [item.id, item.done]));
     return INITIAL_CHECKLIST.map(item => ({
       ...item,
-      done: typeof doneById.get(item.id) === 'boolean' ? Boolean(doneById.get(item.id)) : item.done,
+      done: typeof doneMap.get(item.id) === 'boolean' ? Boolean(doneMap.get(item.id)) : item.done,
     }));
   });
+
   const [lastSaved, setLastSaved] = useState<Date | null>(() => {
     if (!persistedState?.lastSaved) return null;
     const parsed = new Date(persistedState.lastSaved);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   });
   const [now, setNow] = useState(() => Date.now());
-  const blurSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const riskRules = INITIAL_RISK_RULES;
+  const propFirms = INITIAL_PROP_FIRMS;
+
+  const firstMountRef = useRef(true);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 30000);
@@ -345,9 +339,7 @@ export default function TradingPlan() {
 
   useEffect(() => {
     return () => {
-      if (blurSaveTimerRef.current) {
-        clearTimeout(blurSaveTimerRef.current);
-      }
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
   }, []);
 
@@ -355,616 +347,417 @@ export default function TradingPlan() {
     const savedAt = new Date();
     if (typeof window !== 'undefined') {
       const payload: TradingPlanPersistedState = {
-        planBlocks: planBlocks.map(block => ({
-          id: block.id,
-          content: block.content,
-          isOpen: block.isOpen,
-        })),
-        checklist: checklist.map(item => ({
-          id: item.id,
-          done: item.done,
-        })),
-        setups: setups.map(setup => ({
-          id: setup.id,
-          isExpanded: setup.isExpanded,
-        })),
+        planBlocks: planBlocks.map(block => ({ id: block.id, content: block.content, isOpen: block.isOpen })),
+        checklist: checklist.map(item => ({ id: item.id, done: item.done })),
+        setups: setups.map(setup => ({ id: setup.id, isExpanded: setup.isExpanded })),
         lastSaved: savedAt.toISOString(),
       };
       window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(payload));
+      window.localStorage.setItem('flyxa_checklist', JSON.stringify(checklist.map(item => item.text)));
     }
+    hydrateSharedData({
+      planBlocks: planBlocks as any,
+      checklist: checklist as any,
+      setupPlaybook: setups as any,
+      riskRules: riskRules as any,
+    });
     setLastSaved(savedAt);
     setNow(savedAt.getTime());
-  }, [checklist, planBlocks, setups]);
+  }, [checklist, hydrateSharedData, planBlocks, riskRules, setups]);
 
-  const scheduleBlurSave = useCallback(() => {
-    if (blurSaveTimerRef.current) {
-      clearTimeout(blurSaveTimerRef.current);
+  useEffect(() => {
+    if (firstMountRef.current) {
+      firstMountRef.current = false;
+      return;
     }
-    blurSaveTimerRef.current = setTimeout(() => persistState(), 300);
-  }, [persistState]);
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => persistState(), 650);
+  }, [persistState, checklist, planBlocks, setups]);
 
   const lastSavedLabel = useMemo(() => formatLastSaved(lastSaved, now), [lastSaved, now]);
+  const completedBlocks = useMemo(() => planBlocks.filter(block => block.content.trim().length > 0).length, [planBlocks]);
+  const strategyCoverage = useMemo(
+    () => Math.round((completedBlocks / Math.max(1, planBlocks.length)) * 100),
+    [completedBlocks, planBlocks.length]
+  );
+  const checklistDoneCount = useMemo(() => checklist.filter(item => item.done).length, [checklist]);
+  const checklistPercent = useMemo(
+    () => Math.round((checklistDoneCount / Math.max(1, checklist.length)) * 100),
+    [checklistDoneCount, checklist.length]
+  );
+  const highGradeSetups = useMemo(() => setups.filter(setup => setup.rank !== 'B').length, [setups]);
+  const strictRiskRules = useMemo(
+    () => riskRules.filter(rule => rule.color === 'amber' || rule.color === 'red').length,
+    [riskRules]
+  );
+  const checklistRemaining = Math.max(0, checklist.length - checklistDoneCount);
 
   const togglePlanBlock = (id: string) => {
-    setPlanBlocks(current =>
-      current.map(block => (
-        block.id === id
-          ? { ...block, isOpen: !block.isOpen }
-          : block
-      ))
-    );
+    setPlanBlocks(current => current.map(block => (block.id === id ? { ...block, isOpen: !block.isOpen } : block)));
   };
 
   const updatePlanBlockContent = (id: string, content: string) => {
-    setPlanBlocks(current =>
-      current.map(block => (
-        block.id === id
-          ? { ...block, content }
-          : block
-      ))
-    );
+    setPlanBlocks(current => current.map(block => (block.id === id ? { ...block, content } : block)));
   };
 
   const toggleSetup = (id: string) => {
-    setSetups(current => current.map(setup => (
-      setup.id === id
-        ? { ...setup, isExpanded: !setup.isExpanded }
-        : setup
-    )));
+    setSetups(current => current.map(setup => (setup.id === id ? { ...setup, isExpanded: !setup.isExpanded } : setup)));
   };
 
   const toggleChecklist = (id: string) => {
-    setChecklist(current => current.map(item => (
-      item.id === id
-        ? { ...item, done: !item.done }
-        : item
-    )));
+    setChecklist(current => current.map(item => (item.id === id ? { ...item, done: !item.done } : item)));
   };
 
-  const getRuleValueColor = (color: RiskRule['color']) => {
-    if (color === 'red') return 'var(--red)';
-    if (color === 'amber') return 'var(--amber)';
-    if (color === 'green') return 'var(--green)';
-    return 'var(--txt)';
+  const completeChecklist = () => {
+    setChecklist(current => current.map(item => ({ ...item, done: true })));
+  };
+
+  const resetChecklist = () => {
+    setChecklist(current => current.map(item => ({ ...item, done: false })));
+  };
+
+  const resetPlan = () => {
+    setPlanBlocks(INITIAL_PLAN_BLOCKS);
+    setSetups(INITIAL_SETUPS);
+    setChecklist(INITIAL_CHECKLIST);
+  };
+
+  const exportPlan = () => {
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      planBlocks: planBlocks.map(block => ({ title: block.name, content: block.content })),
+      riskRules,
+      setups,
+      checklist,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `trading-plan-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
   };
 
   return (
-    <div style={{ ...TOKEN_SCOPE_STYLE, height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg)' }}>
-      <style>
-        {`
-          .trading-plan-scroll {
-            scrollbar-width: thin;
-            scrollbar-color: var(--border) transparent;
-          }
-          .trading-plan-scroll::-webkit-scrollbar {
-            width: 3px;
-            height: 3px;
-          }
-          .trading-plan-scroll::-webkit-scrollbar-track {
-            background: transparent;
-          }
-          .trading-plan-scroll::-webkit-scrollbar-thumb {
-            background: var(--border);
-            border-radius: 2px;
-          }
-          .trading-plan-rule-row:hover {
-            border-color: var(--amber-border);
-          }
-          .trading-plan-add-setup:hover {
-            border-color: var(--amber-border);
-            color: var(--amber);
-          }
-          .trading-plan-check-row:hover {
-            border-color: var(--amber-border);
-          }
-          .trading-plan-tab:hover {
-            color: var(--txt-2);
-          }
-          @media (max-width: 1100px) {
-            .trading-plan-content-grid {
-              grid-template-columns: minmax(0, 1fr) !important;
-            }
-            .trading-plan-right-col {
-              border-top: 1px solid var(--border);
-              padding-top: 20px !important;
-            }
-            .trading-plan-left-col {
-              border-right: none !important;
-            }
-          }
-        `}
-      </style>
-
-      <header
-        style={{
-          position: 'sticky',
-          top: 0,
-          zIndex: 10,
-          padding: '18px 28px 0',
-          borderBottom: '1px solid var(--border)',
-          background: 'var(--bg)',
-          flexShrink: 0,
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
+    <div className="tp-page">
+      <header className="tp-header">
+        <div className="tp-header-main">
           <div>
-            <h1 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: 'var(--txt)' }}>Trading Plan</h1>
-            <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--txt-2)' }}>
-              Your strategy, rules, and playbook - the document you built when thinking clearly
+            <p className="tp-eyebrow">Strategy Operating System</p>
+            <h1 className="tp-title">Trading Plan</h1>
+            <p className="tp-subtitle">
+              Clear structure, hard limits, and repeatable setups. This is the document you execute, not improvise.
             </p>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--txt-3)' }}>{lastSavedLabel}</span>
-            <button
-              type="button"
-              style={{
-                height: 30,
-                borderRadius: 5,
-                border: '1px solid var(--border)',
-                background: 'var(--surface-1)',
-                color: 'var(--txt-2)',
-                fontSize: 12,
-                fontWeight: 500,
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '0 10px',
-                cursor: 'pointer',
-              }}
-            >
+          <div className="tp-actions">
+            <span className="tp-saved">{lastSavedLabel}</span>
+            <button type="button" className="tp-btn tp-btn-muted" onClick={exportPlan}>
               <Download size={13} />
-              Export PDF
+              Export
             </button>
-            <button
-              type="button"
-              onClick={persistState}
-              style={{
-                height: 30,
-                borderRadius: 5,
-                border: 'none',
-                background: 'var(--amber)',
-                color: 'var(--bg)',
-                fontSize: 13,
-                fontWeight: 600,
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '0 12px',
-                cursor: 'pointer',
-              }}
-            >
-              <Check size={13} />
+            <button type="button" className="tp-btn tp-btn-muted" onClick={resetPlan}>
+              <RefreshCw size={13} />
+              Reset
+            </button>
+            <button type="button" className="tp-btn tp-btn-primary" onClick={persistState}>
+              <Save size={13} />
               Save Plan
             </button>
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
+        <div className="tp-kpi-grid">
+          <article className="tp-kpi tp-kpi-amber">
+            <p className="tp-kpi-label">Strategy Coverage</p>
+            <p className="tp-kpi-value num">{strategyCoverage}%</p>
+            <p className="tp-kpi-sub">{completedBlocks}/{planBlocks.length} core blocks documented</p>
+          </article>
+          <article className="tp-kpi tp-kpi-green">
+            <p className="tp-kpi-label">Checklist Ready</p>
+            <p className="tp-kpi-value num">{checklistPercent}%</p>
+            <p className="tp-kpi-sub">{checklistDoneCount} complete, {checklistRemaining} pending</p>
+          </article>
+          <article className="tp-kpi tp-kpi-cobalt">
+            <p className="tp-kpi-label">Playbook Quality</p>
+            <p className="tp-kpi-value num">{highGradeSetups}</p>
+            <p className="tp-kpi-sub">A-grade setups in active rotation</p>
+          </article>
+          <article className="tp-kpi tp-kpi-red">
+            <p className="tp-kpi-label">Guardrails</p>
+            <p className="tp-kpi-value num">{strictRiskRules}</p>
+            <p className="tp-kpi-sub">Hard stop rules with strict enforcement</p>
+          </article>
+        </div>
+
+        <nav className="tp-tabs">
           {TAB_ITEMS.map(tab => {
+            const Icon = tab.icon;
             const active = activeTab === tab.id;
             return (
               <button
                 key={tab.id}
                 type="button"
-                className="trading-plan-tab"
+                className={`tp-tab ${active ? 'active' : ''}`}
                 onClick={() => setActiveTab(tab.id)}
-                style={{
-                  border: 'none',
-                  borderBottom: `2px solid ${active ? 'var(--amber)' : 'transparent'}`,
-                  background: 'transparent',
-                  color: active ? 'var(--amber)' : 'var(--txt-3)',
-                  fontSize: 13,
-                  padding: '10px 18px',
-                  marginBottom: -1,
-                  cursor: 'pointer',
-                }}
               >
+                <Icon size={13} />
                 {tab.label}
               </button>
             );
           })}
-        </div>
+        </nav>
       </header>
 
-      {activeTab !== 'trading-plan' ? (
-        <div style={{ flex: 1, display: 'grid', placeItems: 'center', overflow: 'hidden' }}>
-          <div style={{ textAlign: 'center', color: 'var(--txt-2)' }}>
-            <Construction size={32} style={{ margin: '0 auto 10px', color: 'var(--txt-3)' }} />
-            <p style={{ margin: 0, fontSize: 13 }}>Full editor coming soon</p>
-          </div>
-        </div>
-      ) : (
-        <div className="trading-plan-content-grid" style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 300px' }}>
-          <section className="trading-plan-left-col trading-plan-scroll" style={{ borderRight: '1px solid var(--border)', overflowY: 'auto', padding: '24px 28px 48px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
-              <span style={{ fontSize: 11, letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--txt-3)' }}>Your Strategy</span>
-            </div>
+      <main className="tp-content trading-plan-scroll">
+        {activeTab === 'trading-plan' && (
+          <section className="tp-main-grid">
+            <div className="tp-panel">
+              <div className="tp-section-head">
+                <h2>Core Strategy Blocks</h2>
+                <p>Build your process from market selection through execution filters.</p>
+              </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {planBlocks.map(block => {
-                const Icon = PLAN_BLOCK_ICONS[block.id as keyof typeof PLAN_BLOCK_ICONS];
-                const toneStyles: Record<ColorTone, { badgeBg: string; badgeBorder: string; badgeColor: string }> = {
-                  amber: { badgeBg: 'var(--amber-dim)', badgeBorder: 'var(--amber-border)', badgeColor: 'var(--amber)' },
-                  cobalt: { badgeBg: 'var(--cobalt-dim)', badgeBorder: 'var(--cobalt-border)', badgeColor: 'var(--cobalt)' },
-                  green: { badgeBg: 'var(--green-dim)', badgeBorder: 'var(--green-border)', badgeColor: 'var(--green)' },
-                  red: { badgeBg: 'var(--red-dim)', badgeBorder: 'var(--red-border)', badgeColor: 'var(--red)' },
-                  neutral: { badgeBg: 'var(--surface-2)', badgeBorder: 'var(--border)', badgeColor: 'var(--txt-3)' },
-                };
-                const tone = toneStyles[block.iconColor];
-
-                return (
-                  <article key={block.id} style={{ background: 'var(--surface-1)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
-                    <button
-                      type="button"
-                      onClick={() => togglePlanBlock(block.id)}
-                      style={{
-                        width: '100%',
-                        border: 'none',
-                        borderBottom: block.isOpen ? '1px solid var(--border)' : 'none',
-                        background: 'transparent',
-                        padding: '12px 16px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                      }}
-                    >
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
-                        <span
-                          style={{
-                            width: 28,
-                            height: 28,
-                            borderRadius: 5,
-                            border: `1px solid ${tone.badgeBorder}`,
-                            background: tone.badgeBg,
-                            color: tone.badgeColor,
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            flexShrink: 0,
-                          }}
-                        >
-                          {Icon ? <Icon size={13} /> : <FileText size={13} />}
+              <div className="tp-stack">
+                {planBlocks.map(block => {
+                  const Icon = PLAN_BLOCK_ICONS[block.id as keyof typeof PLAN_BLOCK_ICONS];
+                  return (
+                    <article key={block.id} className="tp-card">
+                      <button type="button" className="tp-card-head" onClick={() => togglePlanBlock(block.id)}>
+                        <span className="tp-card-title-wrap">
+                          <span className={`tp-tone ${toneClass(block.iconColor)}`}>
+                            {Icon ? <Icon size={13} /> : <FileText size={13} />}
+                          </span>
+                          <span className="tp-card-title">{block.name}</span>
                         </span>
-                        <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--txt)' }}>{block.name}</span>
-                      </span>
-                      <ChevronDown
-                        size={13}
-                        style={{
-                          color: 'var(--txt-3)',
-                          transform: block.isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-                          transition: 'transform 0.2s ease',
-                        }}
-                      />
-                    </button>
-
-                    {block.isOpen && (
-                      <div style={{ padding: 16 }}>
-                        <textarea
-                          value={block.content}
-                          onChange={event => updatePlanBlockContent(block.id, event.target.value)}
-                          onBlur={scheduleBlurSave}
-                          placeholder={block.placeholder}
-                          style={{
-                            width: '100%',
-                            minHeight: 80,
-                            background: 'transparent',
-                            border: 'none',
-                            outline: 'none',
-                            resize: 'none',
-                            color: 'var(--txt)',
-                            fontSize: 13,
-                            lineHeight: 1.75,
-                            fontFamily: 'var(--font-sans)',
-                          }}
-                        />
-                      </div>
-                    )}
-                  </article>
-                );
-              })}
+                        <ChevronDown size={14} className={block.isOpen ? 'tp-chevron open' : 'tp-chevron'} />
+                      </button>
+                      {block.isOpen && (
+                        <div className="tp-card-body">
+                          <textarea
+                            value={block.content}
+                            onChange={event => updatePlanBlockContent(block.id, event.target.value)}
+                            placeholder={block.placeholder}
+                          />
+                        </div>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
             </div>
 
-            <div style={{ marginTop: 28, marginBottom: 12 }}>
-              <span style={{ fontSize: 11, letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--txt-3)' }}>Hard Risk Rules</span>
-            </div>
+            <aside className="tp-side">
+              <article className="tp-quote">
+                <Sparkles size={14} />
+                <p>The plan is written by your best self. Follow it when emotions get loud.</p>
+              </article>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {riskRules.map(rule => (
-                <div
-                  key={rule.id}
-                  className="trading-plan-rule-row"
-                  style={{
-                    background: 'var(--surface-1)',
-                    border: '1px solid var(--border)',
-                    borderRadius: 6,
-                    padding: '12px 16px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 14,
-                    transition: 'border-color 0.14s ease',
-                  }}
-                >
-                  <span style={{ fontSize: 12, color: 'var(--txt-2)', flex: 1 }}>{rule.label}</span>
-                  <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 500, color: getRuleValueColor(rule.color), fontVariantNumeric: 'tabular-nums' }}>
-                      {rule.value}
-                    </span>
-                    <span style={{ fontSize: 11, color: 'var(--txt-3)' }}>{rule.unit}</span>
-                    <button
-                      type="button"
-                      style={{ border: 'none', background: 'transparent', color: 'var(--txt-3)', cursor: 'pointer', padding: 0, display: 'inline-flex', alignItems: 'center' }}
-                      onMouseEnter={event => { event.currentTarget.style.color = 'var(--txt-2)'; }}
-                      onMouseLeave={event => { event.currentTarget.style.color = 'var(--txt-3)'; }}
-                    >
-                      <Pencil size={13} />
-                    </button>
-                  </span>
+              <article className="tp-card">
+                <div className="tp-side-head">
+                  <h3>Pre-session Readiness</h3>
+                  <span className="num">{checklistPercent}%</span>
                 </div>
+                <div className="tp-side-meta">
+                  <span>{checklistDoneCount}/{checklist.length} complete</span>
+                  <span>{checklistRemaining} left</span>
+                </div>
+                <div className="tp-progress tp-progress-side">
+                  <div style={{ width: `${checklistPercent}%` }} />
+                </div>
+                <div className="tp-side-list tp-side-list-spacious">
+                  {checklist.slice(0, 4).map(item => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className={`tp-check tp-check-preview ${item.done ? 'done' : ''}`}
+                      onClick={() => toggleChecklist(item.id)}
+                    >
+                      <span className="tp-check-box">{item.done ? <Check size={10} /> : null}</span>
+                      <span>{item.text}</span>
+                    </button>
+                  ))}
+                </div>
+                <button type="button" className="tp-inline-link" onClick={() => setActiveTab('pre-session-checklist')}>
+                  Open full checklist
+                </button>
+              </article>
+
+              <article className="tp-card">
+                <div className="tp-side-head">
+                  <h3>Hard Stops</h3>
+                </div>
+                <div className="tp-side-list">
+                  {riskRules.slice(0, 3).map(rule => (
+                    <div key={rule.id} className="tp-mini-rule">
+                      <span className="tp-mini-rule-label">{rule.label}</span>
+                      <span className="tp-mini-rule-value-wrap">
+                        <span className={`num ${ruleColorClass(rule.color)}`}>{rule.value}</span>
+                        {rule.unit ? <span className="tp-mini-rule-unit">{rule.unit}</span> : null}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </article>
+            </aside>
+          </section>
+        )}
+
+        {activeTab === 'risk-rules' && (
+          <section className="tp-panel">
+            <div className="tp-section-head">
+              <h2>Risk Rule Framework</h2>
+              <p>These are non-negotiable constraints designed to protect your account and decision quality.</p>
+            </div>
+
+            <div className="tp-rule-grid">
+              {riskRules.map(rule => (
+                <article key={rule.id} className="tp-rule-card">
+                  <p className="tp-rule-label">{rule.label}</p>
+                  <p className={`tp-rule-value num ${ruleColorClass(rule.color)}`}>{rule.value}</p>
+                  <p className="tp-rule-unit">{rule.unit}</p>
+                  <button type="button" className="tp-rule-edit">
+                    <PenLine size={12} />
+                    Edit
+                  </button>
+                </article>
               ))}
             </div>
 
-            <div style={{ marginTop: 8, background: 'var(--red-dim)', border: '1px solid var(--red-border)', borderRadius: 6, padding: '14px 16px' }}>
-              <p style={{ margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 500, color: 'var(--red)' }}>
-                <AlertCircle size={13} />
-                If I hit the daily limit - I stop. Full stop.
-              </p>
-              <p style={{ margin: 0, fontSize: 12, color: 'var(--txt-2)', lineHeight: 1.6 }}>
-                No "one more trade." No "I will make it back." Platform closes, I step away. This is the rule that protects the account above all others.
-              </p>
-            </div>
-
-            <div style={{ marginTop: 28, marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 11, letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--txt-3)' }}>Setup Playbook</span>
-              <button type="button" style={{ border: 'none', background: 'transparent', color: 'var(--cobalt)', fontSize: 12, cursor: 'pointer', padding: 0 }}>
-                View all
-              </button>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {setups.map(setup => {
-                const rankStyle =
-                  setup.rank === 'A+'
-                    ? { color: 'var(--amber)', border: 'var(--amber-border)', background: 'var(--amber-dim)' }
-                    : setup.rank === 'A'
-                      ? { color: 'var(--amber)', border: 'var(--amber-border)', background: 'var(--amber-dim)' }
-                      : { color: 'var(--cobalt)', border: 'var(--cobalt-border)', background: 'var(--cobalt-dim)' };
-
-                return (
-                  <article
-                    key={setup.id}
-                    style={{ background: 'var(--surface-1)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', transition: 'border-color 0.12s ease' }}
-                    onMouseEnter={event => { event.currentTarget.style.borderColor = 'var(--amber-border)'; }}
-                    onMouseLeave={event => { event.currentTarget.style.borderColor = 'var(--border)'; }}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => toggleSetup(setup.id)}
-                      style={{
-                        width: '100%',
-                        border: 'none',
-                        background: 'transparent',
-                        padding: '14px 16px',
-                        display: 'flex',
-                        alignItems: 'flex-start',
-                        gap: 12,
-                        textAlign: 'left',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <span
-                        style={{
-                          width: 20,
-                          height: 20,
-                          borderRadius: 3,
-                          border: `1px solid ${rankStyle.border}`,
-                          background: rankStyle.background,
-                          color: rankStyle.color,
-                          fontSize: 10,
-                          fontWeight: 500,
-                          fontFamily: 'var(--font-mono)',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          flexShrink: 0,
-                        }}
-                      >
-                        {setup.rank}
-                      </span>
-                      <span style={{ flex: 1 }}>
-                        <span style={{ display: 'block', fontSize: 13, fontWeight: 500, color: 'var(--txt)', marginBottom: 3 }}>{setup.name}</span>
-                        <span style={{ display: 'block', fontSize: 12, color: 'var(--txt-2)', lineHeight: 1.5 }}>{setup.description}</span>
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: 10, fontWeight: 500, fontFamily: 'var(--font-mono)', borderRadius: 3, background: 'var(--surface-2)', border: '1px solid var(--border)', color: 'var(--txt-2)', padding: '2px 7px' }}>
-                            {setup.timeframe}
-                          </span>
-                          <span style={{ fontSize: 10, fontWeight: 500, fontFamily: 'var(--font-mono)', borderRadius: 3, background: 'var(--surface-2)', border: '1px solid var(--border)', color: 'var(--txt-2)', padding: '2px 7px' }}>
-                            {setup.market}
-                          </span>
-                          <span style={{ fontSize: 10, fontWeight: 500, fontFamily: 'var(--font-mono)', borderRadius: 3, background: 'var(--green-dim)', border: '1px solid var(--green-border)', color: 'var(--green)', padding: '2px 7px' }}>
-                            Avg {setup.avgRR}
-                          </span>
-                        </span>
-                      </span>
-                      <span style={{ border: 'none', background: 'transparent', color: 'var(--txt-3)', padding: 0 }}>
-                        <Pencil size={13} />
-                      </span>
-                    </button>
-
-                    {setup.isExpanded && (
-                      <div style={{ padding: '0 16px 14px', marginLeft: 32 }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                          {setup.confluences.map(confluence => (
-                            <div key={`${setup.id}-${confluence}`} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--txt-2)' }}>
-                              <span style={{ width: 4, height: 4, borderRadius: '50%', background: 'var(--amber)', flexShrink: 0 }} />
-                              <span>{confluence}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </article>
-                );
-              })}
-
-              <button
-                type="button"
-                className="trading-plan-add-setup"
-                style={{
-                  background: 'var(--surface-1)',
-                  border: '1px dashed var(--border)',
-                  borderRadius: 8,
-                  padding: 14,
-                  color: 'var(--txt-3)',
-                  fontSize: 12,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 7,
-                  cursor: 'pointer',
-                  transition: 'border-color 0.14s ease, color 0.14s ease',
-                }}
-              >
-                <Plus size={14} />
-                Add setup
-              </button>
+            <div className="tp-warning">
+              <AlertCircle size={14} />
+              <div>
+                <p>If daily loss limit is hit, the session is over.</p>
+                <span>No recovery trades. No exceptions. Protect the account first.</span>
+              </div>
             </div>
           </section>
+        )}
 
-          <aside className="trading-plan-right-col trading-plan-scroll" style={{ overflowY: 'auto', padding: '24px 20px 48px' }}>
-            <div style={{ position: 'relative', background: 'var(--surface-1)', border: '1px solid var(--border)', borderRadius: 6, padding: '14px 16px', marginBottom: 24, overflow: 'hidden' }}>
-              <span
-                aria-hidden="true"
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  width: 3,
-                  height: '100%',
-                  background: 'linear-gradient(to bottom, var(--amber), var(--amber-dim))',
-                }}
-              />
-              <p style={{ margin: 0, paddingLeft: 4, fontFamily: 'var(--font-serif-display)', fontStyle: 'italic', fontSize: 13, color: 'var(--txt-2)', lineHeight: 1.65 }}>
-                The trading plan is written by the trader who is thinking clearly. Follow it when you are not.
-              </p>
-              <p style={{ margin: '8px 0 0', paddingLeft: 4, fontSize: 10, color: 'var(--txt-3)' }}>- pinned to your plan</p>
+        {activeTab === 'playbook' && (
+          <section className="tp-panel">
+            <div className="tp-section-head">
+              <h2>Setup Playbook</h2>
+              <p>Only execute setups that are already defined here with clear confluence criteria.</p>
             </div>
 
-            <div style={{ marginBottom: 10 }}>
-              <span style={{ fontSize: 10, letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--txt-3)' }}>Prop Firm Parameters</span>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {propFirms.map(firm => (
-                <article key={firm.id} style={{ background: 'var(--surface-1)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
-                  <header style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-                    <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--txt)' }}>{firm.name}</span>
-                    <span
-                      style={{
-                        borderRadius: 3,
-                        fontSize: 10,
-                        fontWeight: 600,
-                        padding: '2px 7px',
-                        background: firm.phase === 'Eval' ? 'var(--amber-dim)' : 'var(--green-dim)',
-                        color: firm.phase === 'Eval' ? 'var(--amber)' : 'var(--green)',
-                      }}
-                    >
-                      {firm.phase}
+            <div className="tp-stack">
+              {setups.map(setup => (
+                <article key={setup.id} className="tp-card">
+                  <button type="button" className="tp-card-head" onClick={() => toggleSetup(setup.id)}>
+                    <span className="tp-card-title-wrap">
+                      <span className={`tp-rank ${setup.rank === 'B' ? 'b' : 'a'}`}>{setup.rank}</span>
+                      <span>
+                        <span className="tp-card-title">{setup.name}</span>
+                        <span className="tp-card-sub">{setup.description}</span>
+                      </span>
                     </span>
-                  </header>
+                    <ChevronDown size={14} className={setup.isExpanded ? 'tp-chevron open' : 'tp-chevron'} />
+                  </button>
 
-                  <div style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div className="tp-setup-meta">
+                    <span className="num">{setup.timeframe}</span>
+                    <span className="num">{setup.market}</span>
+                    <span className="num tp-rr-pill">Avg {setup.avgRR}</span>
+                  </div>
+
+                  {setup.isExpanded && (
+                    <div className="tp-card-body tp-confluence-list">
+                      {setup.confluences.map(confluence => (
+                        <p key={`${setup.id}-${confluence}`}>{confluence}</p>
+                      ))}
+                    </div>
+                  )}
+                </article>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {activeTab === 'prop-firm-rules' && (
+          <section className="tp-panel">
+            <div className="tp-section-head">
+              <h2>Prop Firm Rulebook</h2>
+              <p>Track each firm context separately to avoid accidental rule violations.</p>
+            </div>
+
+            <div className="tp-firm-grid">
+              {propFirms.map(firm => (
+                <article key={firm.id} className="tp-card">
+                  <div className="tp-firm-head">
+                    <h3>{firm.name}</h3>
+                    <span className={`tp-phase ${firm.phase === 'Eval' ? 'eval' : 'funded'}`}>{firm.phase}</span>
+                  </div>
+                  <div className="tp-side-list">
                     {firm.params.map(param => (
-                      <div key={`${firm.id}-${param.label}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                        <span style={{ fontSize: 11, color: 'var(--txt-3)' }}>{param.label}</span>
-                        <span
-                          style={{
-                            fontFamily: 'var(--font-mono)',
-                            fontSize: 12,
-                            fontWeight: 500,
-                            color: param.color === 'amber' ? 'var(--amber)' : param.color === 'green' ? 'var(--green)' : 'var(--txt)',
-                            fontVariantNumeric: 'tabular-nums',
-                          }}
-                        >
+                      <div key={`${firm.id}-${param.label}`} className="tp-mini-rule">
+                        <span>{param.label}</span>
+                        <span className={`num ${param.color === 'amber' ? 'tp-rule-value-amber' : param.color === 'green' ? 'tp-rule-value-green' : ''}`}>
                           {param.value}
                         </span>
                       </div>
                     ))}
                   </div>
-
                   {firm.progress && (
-                    <div style={{ padding: '10px 14px', borderTop: '1px solid var(--border)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5, fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--txt-3)' }}>
-                        <span>{firm.progress.currentLabel}</span>
-                        <span>{firm.progress.targetLabel}</span>
+                    <div className="tp-firm-progress">
+                      <div className="tp-firm-progress-labels">
+                        <span className="num">{firm.progress.currentLabel}</span>
+                        <span className="num">{firm.progress.targetLabel}</span>
                       </div>
-                      <div style={{ height: 3, borderRadius: 2, background: 'var(--surface-3)', overflow: 'hidden' }}>
-                        <div style={{ width: `${firm.progress.percent}%`, height: '100%', background: 'var(--amber)' }} />
+                      <div className="tp-progress">
+                        <div style={{ width: `${firm.progress.percent}%` }} />
                       </div>
                     </div>
                   )}
                 </article>
               ))}
             </div>
+          </section>
+        )}
 
-            <div style={{ marginTop: 24, marginBottom: 10 }}>
-              <span style={{ fontSize: 10, letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--txt-3)' }}>Pre-session Checklist</span>
+        {activeTab === 'pre-session-checklist' && (
+          <section className="tp-panel">
+            <div className="tp-section-head">
+              <h2>Pre-session Checklist</h2>
+              <p>Run this checklist before every session. Consistency here protects your execution quality.</p>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div className="tp-checklist-tools">
+              <button type="button" className="tp-btn tp-btn-muted" onClick={completeChecklist}>
+                <Check size={12} />
+                Complete all
+              </button>
+              <button type="button" className="tp-btn tp-btn-muted" onClick={resetChecklist}>
+                <RefreshCw size={12} />
+                Clear all
+              </button>
+              <span className="tp-saved">
+                {checklistDoneCount}/{checklist.length} complete
+              </span>
+            </div>
+
+            <div className="tp-progress">
+              <div style={{ width: `${checklistPercent}%` }} />
+            </div>
+
+            <div className="tp-stack">
               {checklist.map(item => (
                 <button
                   key={item.id}
                   type="button"
-                  className="trading-plan-check-row"
+                  className={`tp-check tp-check-row ${item.done ? 'done' : ''}`}
                   onClick={() => toggleChecklist(item.id)}
-                  style={{
-                    width: '100%',
-                    background: 'var(--surface-1)',
-                    border: '1px solid var(--border)',
-                    borderRadius: 5,
-                    padding: '9px 12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 10,
-                    textAlign: 'left',
-                    cursor: 'pointer',
-                    transition: 'border-color 0.14s ease',
-                  }}
                 >
-                  <span
-                    style={{
-                      width: 16,
-                      height: 16,
-                      borderRadius: 3,
-                      border: `1px solid ${item.done ? 'var(--green-border)' : 'var(--border)'}`,
-                      background: item.done ? 'var(--green-dim)' : 'transparent',
-                      color: item.done ? 'var(--green)' : 'transparent',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0,
-                    }}
-                  >
-                    <Check size={9} />
-                  </span>
-                  <span
-                    style={{
-                      fontSize: 12,
-                      color: item.done ? 'var(--txt-3)' : 'var(--txt-2)',
-                      textDecoration: item.done ? 'line-through' : 'none',
-                      textDecorationColor: 'var(--border-sub)',
-                    }}
-                  >
-                    {item.text}
-                  </span>
+                  <span className="tp-check-box">{item.done ? <Check size={10} /> : null}</span>
+                  <span>{item.text}</span>
                 </button>
               ))}
             </div>
-          </aside>
-        </div>
-      )}
+          </section>
+        )}
+      </main>
     </div>
   );
 }

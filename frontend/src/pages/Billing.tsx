@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import {
   CreditCard,
   Flame,
@@ -10,6 +10,8 @@ import {
   X,
 } from 'lucide-react';
 import { billingApi, type BillingLivePricesResponse } from '../services/api.js';
+import useFlyxaStore from '../store/flyxaStore.js';
+import type { BillingAccount as StoreBillingAccount } from '../store/types.js';
 
 type AccountStatus = 'Active' | 'Passed' | 'Blown' | 'Reset';
 
@@ -38,6 +40,7 @@ interface BillingFormState {
 }
 
 const LOCAL_STORAGE_KEY = 'flyxa_billing_accounts';
+const ACTIVE_ACCOUNT_KEY = 'flyxa_active_account';
 
 const STATUS_OPTIONS: AccountStatus[] = ['Active', 'Passed', 'Blown', 'Reset'];
 
@@ -209,7 +212,14 @@ function createId() {
 }
 
 export default function Billing() {
-  const [accounts, setAccounts] = useState<BillingAccount[]>(() => loadAccounts());
+  const storeBillingAccounts = useFlyxaStore(state => state.billingAccounts);
+  const hydrateSharedData = useFlyxaStore(state => state.hydrateSharedData);
+  const [accounts, setAccounts] = useState<BillingAccount[]>(() => {
+    if (storeBillingAccounts.length > 0) {
+      return storeBillingAccounts as unknown as BillingAccount[];
+    }
+    return loadAccounts();
+  });
   const [firmFilter, setFirmFilter] = useState<string>('All');
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -218,6 +228,10 @@ export default function Billing() {
   const [livePricesByFirm, setLivePricesByFirm] = useState<Record<string, BillingLivePricesResponse>>({});
   const [livePricingLoadingFirm, setLivePricingLoadingFirm] = useState<string | null>(null);
   const [livePricingError, setLivePricingError] = useState<string | null>(null);
+
+  useEffect(() => {
+    hydrateSharedData({ billingAccounts: accounts as unknown as StoreBillingAccount[] });
+  }, [accounts, hydrateSharedData]);
 
   const getPreferredListPrice = (
     firm: string,
@@ -430,6 +444,12 @@ export default function Billing() {
         ? current.map(row => (row.id === editingId ? next : row))
         : [next, ...current];
       saveAccounts(updated);
+      if (typeof window !== 'undefined') {
+        const active = window.localStorage.getItem(ACTIVE_ACCOUNT_KEY);
+        if (!active || active === editingId) {
+          window.localStorage.setItem(ACTIVE_ACCOUNT_KEY, next.id);
+        }
+      }
       return updated;
     });
     closeModal();
@@ -443,6 +463,16 @@ export default function Billing() {
     setAccounts(current => {
       const updated = current.filter(account => account.id !== id);
       saveAccounts(updated);
+      if (typeof window !== 'undefined') {
+        const active = window.localStorage.getItem(ACTIVE_ACCOUNT_KEY);
+        if (active === id) {
+          if (updated[0]) {
+            window.localStorage.setItem(ACTIVE_ACCOUNT_KEY, updated[0].id);
+          } else {
+            window.localStorage.removeItem(ACTIVE_ACCOUNT_KEY);
+          }
+        }
+      }
       return updated;
     });
   };

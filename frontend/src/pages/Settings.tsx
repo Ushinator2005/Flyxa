@@ -1,9 +1,10 @@
 ﻿import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Check, ChevronDown, Monitor, Palette, Plus, Trash2, Wallet, X } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
+import { AlertTriangle, Check, ChevronDown, Monitor, Palette, Plus, Scan, Trash2, Wallet, X } from 'lucide-react';
+import ColorPickerField from '../components/common/ColorPicker.js';
 import { useTheme } from '../contexts/ThemeContext.js';
 import { DEFAULT_ACCOUNT_ID, useAppSettings } from '../contexts/AppSettingsContext.js';
 import { TradingAccountStatus, TradingAccountType } from '../types/index.js';
-import ChartScannerColorSettings from '../components/settings/ChartScannerColorSettings.js';
 
 const ACCOUNT_TYPES: TradingAccountType[] = ['Futures', 'Forex', 'Stocks'];
 const DEFAULT_ACCOUNT_COLOR = '#3b82f6';
@@ -102,7 +103,7 @@ const formatTimezoneOptionLabel = (timezone: string) => {
 };
 
 const SESSION_COLORS: Record<SessionTimeKey, string> = {
-  asia: '#f5a623',
+  asia: '#ef4444',
   london: '#4f8ef7',
   preMarket: '#a78bfa',
   newYork: '#34d399',
@@ -485,6 +486,7 @@ function SectionCard({
 // â”€â”€â”€ main page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export default function Settings() {
+  const location = useLocation();
   const { theme, setTheme } = useTheme();
   const {
     accounts,
@@ -507,6 +509,7 @@ export default function Settings() {
   const [showSavedToast, setShowSavedToast] = useState(false);
   const generalRef = useRef<HTMLElement>(null);
   const displayRef = useRef<HTMLElement>(null);
+  const scannerRef = useRef<HTMLElement>(null);
   const accountsRef = useRef<HTMLElement>(null);
   const saveDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -526,6 +529,13 @@ export default function Settings() {
       description: 'Chart defaults for new views.',
       icon: <Monitor size={16} />,
       ref: displayRef,
+    },
+    {
+      key: 'scanner',
+      title: 'Scanner',
+      description: 'AI chart scanner zone colors.',
+      icon: <Scan size={16} />,
+      ref: scannerRef,
     },
     {
       key: 'accounts',
@@ -601,6 +611,7 @@ export default function Settings() {
     const sectionEntries = [
       { key: 'general', ref: generalRef },
       { key: 'display', ref: displayRef },
+      { key: 'scanner', ref: scannerRef },
       { key: 'accounts', ref: accountsRef },
     ];
 
@@ -623,7 +634,26 @@ export default function Settings() {
 
     return () => window.removeEventListener('scroll', updateActiveSectionFromScroll);
   }, []);
+  useEffect(() => {
+    const rawHash = location.hash.replace('#', '').trim().toLowerCase();
+    if (!rawHash) return;
 
+    const sectionKey = rawHash === 'add-account' ? 'accounts' : rawHash;
+    const sectionRef =
+      sectionKey === 'general' ? generalRef
+      : sectionKey === 'display' ? displayRef
+      : sectionKey === 'scanner' ? scannerRef
+      : sectionKey === 'accounts' ? accountsRef
+      : null;
+
+    if (!sectionRef) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      scrollToSection(sectionKey, sectionRef);
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [location.hash]);
   useEffect(() => {
     if (!autoSaveToastReadyRef.current) {
       autoSaveToastReadyRef.current = true;
@@ -679,7 +709,7 @@ export default function Settings() {
           top: '8px',
           zIndex: 25,
           display: 'grid',
-          gridTemplateColumns: 'repeat(3, 1fr)',
+          gridTemplateColumns: 'repeat(4, 1fr)',
           gap: '12px',
           padding: '8px',
           borderRadius: '8px',
@@ -938,7 +968,7 @@ export default function Settings() {
                           marginTop: '6px',
                         }}
                       >
-                        {['12A', '6A', '12P', '6P', '12A'].map(tick => (
+                        {['12AM', '6AM', '12PM', '6PM', '12AM'].map(tick => (
                           <span
                             key={`${session.key}-${tick}`}
                             style={{
@@ -1012,9 +1042,44 @@ export default function Settings() {
             </label>
           </div>
         </SectionCard>
-        <div style={{ marginTop: '12px' }}>
-          <ChartScannerColorSettings />
-        </div>
+      </section>
+
+      {/* Scanner section */}
+      <section ref={scannerRef} style={{ scrollMarginTop: '140px' }}>
+        <SectionDivider label="Scanner" />
+        <SectionCard
+          title="Chart zone colors"
+          subtitle="Match these colors to the zone boxes drawn on your TradingView chart so the AI can identify each level correctly."
+        >
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
+            {([
+              { key: 'entry' as const, label: 'Entry zone', hint: 'Color of the entry price zone box on your chart' },
+              { key: 'stopLoss' as const, label: 'Stop Loss zone', hint: 'Color of the stop loss zone box on your chart' },
+              { key: 'takeProfit' as const, label: 'Take Profit zone', hint: 'Color of the take profit zone box on your chart' },
+            ]).map(({ key, label, hint }) => {
+              const hex = preferences.scannerColors?.[key] ?? (key === 'entry' ? '#E67E22' : key === 'stopLoss' ? '#C0392B' : '#1A6B5A');
+              return (
+                <div key={key}>
+                  <FieldLabel>{label}</FieldLabel>
+                  <ColorPickerField
+                    label={label}
+                    hint={hint}
+                    value={hex}
+                    onChange={color => updatePreferences({
+                      scannerColors: {
+                        ...preferences.scannerColors,
+                        [key]: color,
+                      },
+                    })}
+                  />
+                </div>
+              );
+            })}
+          </div>
+          <p style={{ marginTop: '12px', fontSize: '11px', color: T3, lineHeight: 1.6 }}>
+            Click a swatch to open the color picker and match it to the zone color on your TradingView chart.
+          </p>
+        </SectionCard>
       </section>
 
       {/* Accounts section */}
@@ -1468,5 +1533,7 @@ export default function Settings() {
     </div>
   );
 }
+
+
 
 

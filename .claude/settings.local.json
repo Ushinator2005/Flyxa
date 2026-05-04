@@ -6,7 +6,8 @@
       "Skill(claude-api:*)",
       "Bash(claude mcp:*)",
       "Bash(unzip \"C:/Users/Ushnish/tradewise/ui-ux-pro-max-skill-main.zip\" \"ui-ux-pro-max-skill-main/.claude/skills/ui-ux-pro-max/SKILL.md\" -d /tmp)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(taskkill //PID 25784 //F)"
     ]
   }
 }

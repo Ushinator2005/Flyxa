@@ -1,179 +1,191 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
+import { Trade as ApiTrade } from '../types/index.js';
+import useFlyxaStore, { createEmptyJournalEntry, DEFAULT_ACCOUNT_ID } from '../store/flyxaStore.js';
+import type { Trade as StoreTrade } from '../store/types.js';
 import { tradesApi } from '../services/api.js';
-import { Trade } from '../types/index.js';
-import { useAuth } from './useAuth.js';
-import { useAppSettings } from '../contexts/AppSettingsContext.js';
+import { loadDeletedTradeIds, persistDeletedTradeId } from '../utils/deletedTrades.js';
 
-function getTradesCacheKey(userId: string) {
-  return `tw_trades_cache_${userId}`;
+function toStoreTrade(data: Partial<ApiTrade>, entryId: string, accountId: string): StoreTrade {
+  const direction = data.direction === 'Short' ? 'SHORT' : 'LONG';
+  const entry = typeof data.entry_price === 'number' ? data.entry_price : 0;
+  const sl = typeof data.sl_price === 'number' ? data.sl_price : entry;
+  const tp = typeof data.tp_price === 'number' ? data.tp_price : entry;
+  const exit = typeof data.exit_price === 'number' ? data.exit_price : null;
+
+  return {
+    id: data.id ?? crypto.randomUUID(),
+    entryId,
+    date: data.trade_date ?? new Date().toISOString().slice(0, 10),
+    symbol: data.symbol ?? 'NQ',
+    direction,
+    entry,
+    sl,
+    tp,
+    exit,
+    contracts: typeof data.contract_size === 'number' && data.contract_size > 0 ? data.contract_size : 1,
+    rr: 0,
+    pnl: typeof data.pnl === 'number' ? data.pnl : 0,
+    result: 'open',
+    time: (data.trade_time ?? '09:30').slice(0, 5),
+    exitTime: typeof data.close_time === 'string' ? data.close_time.slice(0, 5) : (data.trade_time ?? '09:30').slice(0, 5),
+    duration: typeof data.trade_length_seconds === 'number' ? Math.round(data.trade_length_seconds / 60) : null,
+    screenshots: data.screenshot_url ? [data.screenshot_url] : [],
+    scannedImageUrl: data.screenshot_url ?? null,
+    reflection: {
+      thesis: data.pre_trade_notes ?? '',
+      execution: data.post_trade_notes ?? '',
+      adjustment: '',
+      processGrade: 0,
+      followedPlan: typeof data.followed_plan === 'boolean' ? data.followed_plan : null,
+    },
+    account: data.accountId ?? data.account_id ?? accountId,
+    createdAt: data.created_at ?? new Date().toISOString(),
+  };
 }
 
-function getTradeScreenshotsKey(userId: string) {
-  return `tw_trade_screenshots_${userId}`;
+function toApiTrade(trade: StoreTrade): ApiTrade {
+  const session = getSession(trade.time);
+  return {
+    id: trade.id,
+    user_id: 'local',
+    symbol: trade.symbol,
+    screenshot_url: trade.scannedImageUrl ?? trade.screenshots[0],
+    accountId: trade.account,
+    account_id: trade.account,
+    direction: trade.direction === 'SHORT' ? 'Short' : 'Long',
+    entry_price: trade.entry,
+    exit_price: trade.exit ?? trade.entry,
+    sl_price: trade.sl,
+    tp_price: trade.tp,
+    exit_reason: trade.result === 'win' ? 'TP' : trade.result === 'loss' ? 'SL' : 'BE',
+    pnl: trade.pnl,
+    contract_size: trade.contracts,
+    point_value: 1,
+    trade_date: trade.date,
+    trade_time: trade.time,
+    close_time: trade.exitTime,
+    trade_length_seconds: trade.duration ? trade.duration * 60 : 0,
+    candle_count: 0,
+    timeframe_minutes: 0,
+    emotional_state: 'Calm',
+    confidence_level: trade.reflection.processGrade,
+    pre_trade_notes: trade.reflection.thesis,
+    post_trade_notes: trade.reflection.execution,
+    confluences: [],
+    followed_plan: trade.reflection.followedPlan ?? true,
+    session,
+    created_at: trade.createdAt,
+  };
 }
 
-function loadTradeScreenshots(userId: string): Record<string, string> {
-  if (typeof window === 'undefined') return {};
-
-  try {
-    const raw = window.localStorage.getItem(getTradeScreenshotsKey(userId));
-    if (!raw) return {};
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    return Object.fromEntries(
-      Object.entries(parsed).filter((entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1].trim() !== '')
-    );
-  } catch {
-    return {};
-  }
+function getSession(time: string): ApiTrade['session'] {
+  const [hoursText] = time.split(':');
+  const hours = Number(hoursText);
+  if (!Number.isFinite(hours)) return 'Other';
+  if (hours >= 0 && hours < 8) return 'Asia';
+  if (hours >= 8 && hours < 13) return 'London';
+  if (hours >= 13 && hours < 21) return 'New York';
+  return 'Other';
 }
 
-function saveTradeScreenshots(userId: string, screenshots: Record<string, string>) {
-  if (typeof window === 'undefined') return;
-  window.localStorage.setItem(getTradeScreenshotsKey(userId), JSON.stringify(screenshots));
-}
-
-function mergeTradeScreenshots(trades: Trade[], screenshots: Record<string, string>): Trade[] {
-  return trades.map(trade => {
-    const cachedScreenshot = screenshots[trade.id];
-    if (trade.screenshot_url || !cachedScreenshot) {
-      return trade;
-    }
-
-    return {
-      ...trade,
-      screenshot_url: cachedScreenshot,
-    };
-  });
-}
-
-function upsertTradeScreenshot(userId: string, tradeId: string, screenshotUrl: string | undefined) {
-  if (!screenshotUrl) return;
-  const screenshots = loadTradeScreenshots(userId);
-  screenshots[tradeId] = screenshotUrl;
-  saveTradeScreenshots(userId, screenshots);
-}
-
-function removeTradeScreenshot(userId: string, tradeId: string) {
-  const screenshots = loadTradeScreenshots(userId);
-  delete screenshots[tradeId];
-  saveTradeScreenshots(userId, screenshots);
-}
-
-function loadTradesCache(userId: string): Trade[] {
-  if (typeof window === 'undefined') return [];
-
-  try {
-    const raw = window.localStorage.getItem(getTradesCacheKey(userId));
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as unknown;
-    return Array.isArray(parsed) ? (parsed as Trade[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveTradesCache(userId: string, trades: Trade[]) {
-  if (typeof window === 'undefined') return;
-  window.localStorage.setItem(getTradesCacheKey(userId), JSON.stringify(trades));
+export function evictTradeFromCache(_userId: string, _tradeId: string) {
+  // Cache layer removed in favor of unified flyxa-store.
 }
 
 export function useTrades() {
-  const { user } = useAuth();
-  const { decorateTrades, persistTradeAccount, removeTradeAccount } = useAppSettings();
-  const [trades, setTrades] = useState<Trade[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const userId = user?.id ?? null;
+  const entries = useFlyxaStore((state) => state.entries);
+  const activeAccountId = useFlyxaStore((state) => state.activeAccountId);
+  const addEntry = useFlyxaStore((state) => state.addEntry);
+  const addTrade = useFlyxaStore((state) => state.addTrade);
+  const updateTradeInStore = useFlyxaStore((state) => state.updateTrade);
+  const deleteTradeInStore = useFlyxaStore((state) => state.deleteTrade);
 
-  useEffect(() => {
-    if (!user) {
-      setTrades([]);
-      setError(null);
-      return;
-    }
-
-    const cached = decorateTrades(mergeTradeScreenshots(loadTradesCache(user.id), loadTradeScreenshots(user.id)));
-    if (cached.length > 0) {
-      setTrades(cached);
-    }
-  }, [decorateTrades, user]);
-
-  useEffect(() => {
-    setTrades(current => decorateTrades(current));
-  }, [decorateTrades]);
+  const trades = useMemo(() => {
+    const deletedTradeIds = loadDeletedTradeIds();
+    const allTrades = entries
+      .flatMap((entry) => entry.trades.map(toApiTrade))
+      .filter((trade) => !deletedTradeIds.has(trade.id));
+    if (!activeAccountId) return allTrades;
+    return allTrades.filter((trade) => (trade.accountId ?? trade.account_id ?? DEFAULT_ACCOUNT_ID) === activeAccountId);
+  }, [activeAccountId, entries]);
 
   const fetchTrades = useCallback(async () => {
-    if (!user) return;
-    setLoading(true);
-    setError(null);
+    return;
+  }, []);
+
+  const createTrade = useCallback(async (data: Partial<ApiTrade>): Promise<ApiTrade> => {
+    const tradeDate = data.trade_date ?? new Date().toISOString().slice(0, 10);
+    const accountId = data.accountId ?? data.account_id ?? activeAccountId ?? DEFAULT_ACCOUNT_ID;
+    let entry = entries.find((candidate) => candidate.date === tradeDate && candidate.account === accountId);
+
+    if (!entry) {
+      entry = createEmptyJournalEntry(tradeDate, accountId);
+      addEntry(entry);
+    }
+
+    const trade = toStoreTrade(data, entry.id, accountId);
+    addTrade(entry.id, trade);
+    return toApiTrade(trade);
+  }, [activeAccountId, addEntry, addTrade, entries]);
+
+  const updateTrade = useCallback(async (id: string, data: Partial<ApiTrade>): Promise<ApiTrade> => {
+    const entry = entries.find((candidate) => candidate.trades.some((trade) => trade.id === id));
+    if (!entry) {
+      throw new Error('Trade not found');
+    }
+
+    const patch: Partial<StoreTrade> = {
+      symbol: data.symbol,
+      direction: data.direction === 'Short' ? 'SHORT' : data.direction === 'Long' ? 'LONG' : undefined,
+      entry: data.entry_price,
+      sl: data.sl_price,
+      tp: data.tp_price,
+      exit: data.exit_price,
+      contracts: data.contract_size,
+      time: data.trade_time,
+      exitTime: typeof data.close_time === 'string' ? data.close_time : undefined,
+      duration: typeof data.trade_length_seconds === 'number' ? Math.round(data.trade_length_seconds / 60) : undefined,
+      account: data.accountId ?? data.account_id,
+      scannedImageUrl: data.screenshot_url,
+      reflection: {
+        thesis: data.pre_trade_notes ?? '',
+        execution: data.post_trade_notes ?? '',
+        adjustment: '',
+        processGrade: 0,
+        followedPlan: typeof data.followed_plan === 'boolean' ? data.followed_plan : null,
+      },
+    };
+
+    updateTradeInStore(entry.id, id, patch);
+    const updatedEntry = useFlyxaStore.getState().entries.find((candidate) => candidate.id === entry.id);
+    const updatedTrade = updatedEntry?.trades.find((trade) => trade.id === id);
+    if (!updatedTrade) {
+      throw new Error('Trade update failed');
+    }
+    return toApiTrade(updatedTrade);
+  }, [entries, updateTradeInStore]);
+
+  const deleteTrade = useCallback(async (id: string): Promise<void> => {
+    const entry = entries.find((candidate) => candidate.trades.some((trade) => trade.id === id));
+    if (!entry) return;
+
+    persistDeletedTradeId(id);
+    deleteTradeInStore(entry.id, id);
+
     try {
-      const merged = decorateTrades(mergeTradeScreenshots(await tradesApi.getAll(), loadTradeScreenshots(user.id)));
-      setTrades(merged);
-      saveTradesCache(user.id, merged);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch trades');
-    } finally {
-      setLoading(false);
+      await tradesApi.delete(id);
+    } catch {
+      // Best effort cleanup for legacy backend rows.
     }
-  }, [decorateTrades, user]);
+  }, [deleteTradeInStore, entries]);
 
-  useEffect(() => {
-    if (!userId) return;
-    fetchTrades();
-  }, [userId]);
-
-  const createTrade = async (data: Partial<Trade>): Promise<Trade> => {
-    const newTrade = await tradesApi.create(data);
-    const hydratedTrade = {
-      ...newTrade,
-      accountId: newTrade.accountId || newTrade.account_id || data.accountId,
-      screenshot_url: newTrade.screenshot_url || data.screenshot_url,
-    };
-    const decoratedTrade = decorateTrades([hydratedTrade])[0];
-    if (user) {
-      upsertTradeScreenshot(user.id, decoratedTrade.id, decoratedTrade.screenshot_url);
-      persistTradeAccount(decoratedTrade.id, decoratedTrade.accountId);
-    }
-    setTrades(prev => {
-      const next = [decoratedTrade, ...prev];
-      if (user) saveTradesCache(user.id, next);
-      return next;
-    });
-    return decoratedTrade;
+  return {
+    trades,
+    loading: false,
+    error: null,
+    fetchTrades,
+    createTrade,
+    updateTrade,
+    deleteTrade,
   };
-
-  const updateTrade = async (id: string, data: Partial<Trade>): Promise<Trade> => {
-    const updated = await tradesApi.update(id, data);
-    const hydratedTrade = {
-      ...updated,
-      accountId: updated.accountId || updated.account_id || data.accountId,
-      screenshot_url: updated.screenshot_url || data.screenshot_url,
-    };
-    const decoratedTrade = decorateTrades([hydratedTrade])[0];
-    if (user) {
-      upsertTradeScreenshot(user.id, decoratedTrade.id, decoratedTrade.screenshot_url);
-      persistTradeAccount(decoratedTrade.id, decoratedTrade.accountId);
-    }
-    setTrades(prev => {
-      const next = prev.map(t => t.id === id ? decoratedTrade : t);
-      if (user) saveTradesCache(user.id, next);
-      return next;
-    });
-    return decoratedTrade;
-  };
-
-  const deleteTrade = async (id: string): Promise<void> => {
-    await tradesApi.delete(id);
-    setTrades(prev => {
-      const next = prev.filter(t => t.id !== id);
-      if (user) {
-        saveTradesCache(user.id, next);
-        removeTradeScreenshot(user.id, id);
-        removeTradeAccount(id);
-      }
-      return next;
-    });
-  };
-
-  return { trades, loading, error, fetchTrades, createTrade, updateTrade, deleteTrade };
 }
