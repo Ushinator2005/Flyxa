@@ -1,9 +1,10 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { AppPreferences, Trade, TradingAccount, TradingAccountStatus } from '../types/index.js';
 import { useAuth } from './AuthContext.js';
 import { deriveTradeSessionLabel } from '../utils/sessionTimes.js';
 import useFlyxaStore from '../store/flyxaStore.js';
 import type { Account } from '../store/types.js';
+import { supabase } from '../services/api.js';
 
 export const ALL_ACCOUNTS_ID = 'all';
 export const DEFAULT_ACCOUNT_ID = 'default-account';
@@ -275,6 +276,7 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
   const [confluenceOptions, setConfluenceOptions] = useState<string[]>([...DEFAULT_CONFLUENCE_OPTIONS]);
   const [selectedAccountId, setSelectedAccountIdState] = useState<string>(ALL_ACCOUNTS_ID);
   const [tradeAccounts, setTradeAccounts] = useState<Record<string, string>>({});
+  const accountSyncedRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!user) {
@@ -283,6 +285,7 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
       setConfluenceOptions([...DEFAULT_CONFLUENCE_OPTIONS]);
       setSelectedAccountIdState(ALL_ACCOUNTS_ID);
       setTradeAccounts({});
+      accountSyncedRef.current = null;
       return;
     }
 
@@ -296,6 +299,75 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
     const isValidSelection = storedSelection === ALL_ACCOUNTS_ID || nextAccounts.some(account => account.id === storedSelection);
     setSelectedAccountIdState(isValidSelection ? storedSelection : ALL_ACCOUNTS_ID);
   }, [user]);
+
+  // Supabase sync: pull remote accounts on login, push any local-only accounts up
+  useEffect(() => {
+    if (!user || accountSyncedRef.current === user.id) return;
+    accountSyncedRef.current = user.id;
+
+    supabase
+      .from('trading_accounts')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: true })
+      .then(({ data, error }) => {
+        if (error) { console.error('[Accounts] Supabase fetch error:', error.message); return; }
+
+        const remoteAccounts: TradingAccount[] = (data ?? []).map((row: Record<string, unknown>) => ({
+          id: row.id as string,
+          name: row.name as string,
+          broker: (row.broker as string) || '',
+          credentials: (row.credentials as string) || '',
+          type: (row.type as TradingAccount['type']) || 'Futures',
+          status: (row.status as TradingAccount['status']) || 'Eval',
+          color: (row.color as string) || '#3b82f6',
+          createdAt: row.created_at as string,
+        }));
+
+        if (remoteAccounts.length === 0) {
+          // No remote accounts yet — push local ones (excluding default)
+          setAccounts(current => {
+            const toUpload = current.filter(a => a.id !== DEFAULT_ACCOUNT_ID);
+            if (toUpload.length > 0) {
+              supabase.from('trading_accounts').upsert(
+                toUpload.map(a => ({
+                  id: a.id, user_id: user.id, name: a.name,
+                  broker: a.broker || null, credentials: a.credentials || null,
+                  type: a.type, status: a.status, color: a.color,
+                }))
+              ).then(({ error: e }) => {
+                if (e) console.error('[Accounts] Failed to push local accounts:', e.message);
+              });
+            }
+            return current;
+          });
+          return;
+        }
+
+        // Merge: remote wins for matching IDs, keep local-only accounts too
+        setAccounts(current => {
+          const remoteIds = new Set(remoteAccounts.map(a => a.id));
+          const localOnly = current.filter(a => a.id !== DEFAULT_ACCOUNT_ID && !remoteIds.has(a.id));
+
+          // Push local-only up
+          if (localOnly.length > 0) {
+            supabase.from('trading_accounts').upsert(
+              localOnly.map(a => ({
+                id: a.id, user_id: user.id, name: a.name,
+                broker: a.broker || null, credentials: a.credentials || null,
+                type: a.type, status: a.status, color: a.color,
+              }))
+            ).then(({ error: e }) => {
+              if (e) console.error('[Accounts] Failed to push local-only accounts:', e.message);
+            });
+          }
+
+          const merged = ensureDefaultAccount([...remoteAccounts, ...localOnly]);
+          window.localStorage.setItem(getAccountsKey(user.id), JSON.stringify(merged));
+          return merged;
+        });
+      });
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!user) return;
@@ -422,7 +494,16 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
       ...account,
     };
     setAccounts(current => ensureDefaultAccount([...current, nextAccount]));
-  }, []);
+    if (user) {
+      supabase.from('trading_accounts').insert({
+        id: nextAccount.id, user_id: user.id, name: nextAccount.name,
+        broker: nextAccount.broker || null, credentials: nextAccount.credentials || null,
+        type: nextAccount.type, status: nextAccount.status, color: nextAccount.color,
+      }).then(({ error }) => {
+        if (error) console.error('[Accounts] Failed to save new account:', error.message);
+      });
+    }
+  }, [user]);
 
   const updateAccount = useCallback((accountId: string, updates: Partial<Omit<TradingAccount, 'id' | 'createdAt'>>) => {
     setAccounts(current => current.map(account => (
@@ -430,7 +511,20 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
         ? { ...account, ...updates }
         : account
     )));
-  }, []);
+    if (user && accountId !== DEFAULT_ACCOUNT_ID) {
+      supabase.from('trading_accounts').update({
+        ...('name' in updates ? { name: updates.name } : {}),
+        ...('broker' in updates ? { broker: updates.broker || null } : {}),
+        ...('credentials' in updates ? { credentials: updates.credentials || null } : {}),
+        ...('type' in updates ? { type: updates.type } : {}),
+        ...('status' in updates ? { status: updates.status } : {}),
+        ...('color' in updates ? { color: updates.color } : {}),
+        updated_at: new Date().toISOString(),
+      }).eq('id', accountId).eq('user_id', user.id).then(({ error }) => {
+        if (error) console.error('[Accounts] Failed to update account:', error.message);
+      });
+    }
+  }, [user]);
 
   const deleteAccount = useCallback((accountId: string) => {
     if (accountId === DEFAULT_ACCOUNT_ID) return;
@@ -443,7 +537,14 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
       ])
     ));
     setSelectedAccountIdState(current => current === accountId ? ALL_ACCOUNTS_ID : current);
-  }, []);
+    if (user) {
+      supabase.from('trading_accounts').delete()
+        .eq('id', accountId).eq('user_id', user.id)
+        .then(({ error }) => {
+          if (error) console.error('[Accounts] Failed to delete account:', error.message);
+        });
+    }
+  }, [user]);
 
   const updatePreferences = useCallback((updates: Partial<AppPreferences>) => {
     setPreferences(current => ({ ...current, ...updates }));
