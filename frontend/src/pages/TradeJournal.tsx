@@ -1017,7 +1017,8 @@ export default function TradeJournal() {
       return;
     }
     if (!selectedEntryId || !entries.some(entry => entry.id === selectedEntryId)) {
-      setSelectedEntryId(entries[0].id);
+      const mostRecent = [...entries].sort((a, b) => b.date.localeCompare(a.date))[0];
+      setSelectedEntryId(mostRecent.id);
     }
   }, [entries, selectedEntryId]);
 
