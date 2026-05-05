@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   TrendingUp, Target, BarChart2,
-  ArrowUpRight, ArrowDownRight, Filter, ChevronLeft, ChevronRight, Trash2,
+  ArrowUpRight, ArrowDownRight, Eye, Filter, ChevronLeft, ChevronRight, Trash2,
 } from 'lucide-react';
 import {
   PieChart, Pie, Cell,
@@ -258,6 +258,13 @@ export default function Dashboard() {
 
   const displayTrades = recentTrades;
 
+  function goToTradeInJournal(trade: Trade) {
+    const params = new URLSearchParams();
+    if (trade.trade_date) params.set('date', trade.trade_date);
+    params.set('tradeId', trade.id);
+    navigate(`/trade-scanner?${params.toString()}`);
+  }
+
   if (loading) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', background: 'var(--app-bg)' }}>
@@ -443,6 +450,16 @@ export default function Dashboard() {
                             <td style={{ padding: '9px 14px', textAlign: 'right' }}>
                               <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                                 <ResultBadge trade={trade} />
+                                <button
+                                  type="button"
+                                  title="View in Journal"
+                                  onClick={() => goToTradeInJournal(trade)}
+                                  style={{ border: 'none', background: 'transparent', padding: 2, color: T3, display: 'inline-flex', alignItems: 'center', cursor: 'pointer', lineHeight: 0 }}
+                                  onMouseEnter={e => { e.currentTarget.style.color = COBALT; }}
+                                  onMouseLeave={e => { e.currentTarget.style.color = T3; }}
+                                >
+                                  <Eye size={13} />
+                                </button>
                                 {pendingDeleteId === trade.id ? (
                                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                                     <button

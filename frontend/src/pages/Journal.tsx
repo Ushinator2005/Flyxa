@@ -21,6 +21,7 @@ import Modal from '../components/common/Modal.js';
 import LoadingSpinner from '../components/common/LoadingSpinner.js';
 import { useAuth } from '../contexts/AuthContext.js';
 import useFlyxaStore from '../store/flyxaStore.js';
+import { flushSupabaseStoreNow } from '../store/supabaseStorage.js';
 
 // constants
 
@@ -403,6 +404,19 @@ export default function Journal() {
 
   function updateEntryMood(entryId: string, mood: string) {
     setJournalMoodAction(entryId, mood);
+    setSaving(true);
+    setSaved(false);
+    void flushSupabaseStoreNow()
+      .then(() => {
+        setSaved(true);
+        window.setTimeout(() => setSaved(false), 1200);
+      })
+      .catch((error) => {
+        console.error(error);
+      })
+      .finally(() => {
+        setSaving(false);
+      });
   }
 
   useEffect(() => {

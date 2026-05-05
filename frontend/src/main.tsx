@@ -6,7 +6,6 @@ import { AuthProvider } from './contexts/AuthContext.js';
 import { AppSettingsProvider } from './contexts/AppSettingsContext.js';
 import { RiskProvider } from './contexts/RiskContext.js';
 import { ThemeProvider } from './contexts/ThemeContext.js';
-import { OnboardingProvider } from './contexts/OnboardingContext.js';
 import './index.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
@@ -14,13 +13,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <BrowserRouter>
       <ThemeProvider>
         <AuthProvider>
-          <OnboardingProvider>
-            <AppSettingsProvider>
-              <RiskProvider>
-                <App />
-              </RiskProvider>
-            </AppSettingsProvider>
-          </OnboardingProvider>
+          <AppSettingsProvider>
+            <RiskProvider>
+              <App />
+            </RiskProvider>
+          </AppSettingsProvider>
         </AuthProvider>
       </ThemeProvider>
     </BrowserRouter>

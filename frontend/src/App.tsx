@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react';
-import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
+import { Navigate, Outlet, Route, Routes } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext.js';
-import { useOnboarding } from './contexts/OnboardingContext.js';
 import Layout from './components/layout/Layout.js';
 import Auth from './pages/Auth.js';
 import Dashboard from './pages/Dashboard.js';
@@ -23,17 +22,10 @@ import MarketNews from './pages/MarketNews.js';
 import TradeScanner from './pages/TradeScanner.js';
 import LoadingSpinner from './components/common/LoadingSpinner.js';
 import LandingPage from './lumis/pages/LandingPage.js';
-import Onboarding from './pages/Onboarding.js';
 import ToastStack from './components/common/Toast.js';
 import useFlyxaStore from './store/flyxaStore.js';
 import { useDailyLossUsed } from './store/selectors.js';
 import { pushToast } from './store/toastStore.js';
-
-function shouldSkipOnboarding() {
-  if (typeof window === 'undefined') return false;
-  const value = window.localStorage.getItem('tw_skip_onboarding');
-  return value === '1' || value?.toLowerCase() === 'true';
-}
 
 function ProtectedRoute() {
   const { user, loading } = useAuth();
@@ -51,42 +43,7 @@ function ProtectedRoute() {
 }
 
 function ProtectedLayout() {
-  const location = useLocation();
-  const { loading, completed } = useOnboarding();
-  const skipOnboarding = shouldSkipOnboarding();
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <LoadingSpinner size="lg" label="Loading onboarding..." />
-      </div>
-    );
-  }
-
-  if (!completed && !skipOnboarding && location.pathname !== '/onboarding') {
-    return <Navigate to="/onboarding" replace />;
-  }
-
   return <Layout />;
-}
-
-function OnboardingRoute() {
-  const { loading, completed } = useOnboarding();
-  const skipOnboarding = shouldSkipOnboarding();
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <LoadingSpinner size="lg" label="Loading onboarding..." />
-      </div>
-    );
-  }
-
-  if (completed || skipOnboarding) {
-    return <Navigate to="/" replace />;
-  }
-
-  return <Onboarding />;
 }
 
 export default function App() {
@@ -228,8 +185,6 @@ export default function App() {
         <Route path="/landing" element={<LandingPage />} />
 
         <Route element={<ProtectedRoute />}>
-          <Route path="/onboarding" element={<OnboardingRoute />} />
-
           <Route element={<ProtectedLayout />}>
             <Route path="/" element={<Dashboard />} />
             <Route path="/scanner" element={<TradeScanner />} />

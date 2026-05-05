@@ -1,7 +1,6 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  Check,
   ChevronLeft,
   ChevronRight,
 
@@ -16,6 +15,7 @@ import {
   X,
 } from 'lucide-react';
 import { useAppSettings } from '../contexts/AppSettingsContext.js';
+import { useAuth } from '../contexts/AuthContext.js';
 import useFlyxaStore from '../store/flyxaStore.js';
 import type { JournalEntry as StoreJournalEntry } from '../store/types.js';
 import { pushToast } from '../store/toastStore.js';
@@ -23,6 +23,7 @@ import { useTrades } from '../hooks/useTrades.js';
 import { lookupContract } from '../constants/futuresContracts.js';
 import { buildScannerAssets, inferSymbolFromFileName, normalizeResolvedSymbol } from '../utils/tradeScannerPipeline.js';
 import { scanChart } from '../utils/scanChart.js';
+import { uploadScreenshot } from '../utils/uploadScreenshot.js';
 import './TradeJournal.css';
 
 type RuleState = 'ok' | 'fail' | 'unchecked';
@@ -246,12 +247,6 @@ function inMonth(dateValue: string, monthValue: Date) {
   return parsed.getFullYear() === monthValue.getFullYear() && parsed.getMonth() === monthValue.getMonth();
 }
 
-function cycleRuleState(state: RuleState): RuleState {
-  if (state === 'unchecked') return 'ok';
-  if (state === 'ok') return 'fail';
-  return 'unchecked';
-}
-
 function cycleEmotionState(state: EmotionState): EmotionState {
   if (state === 'neutral') return 'green';
   if (state === 'green') return 'amber';
@@ -292,6 +287,15 @@ function createEmptyEntry(date: string, rulesTemplate: string[]): JournalEntry {
     },
     emotions: TAGS.map(label => ({ label, state: 'neutral' })),
   };
+}
+
+function processGradeToLetter(grade: number): string {
+  if (grade >= 5) return 'A+';
+  if (grade >= 4) return 'A';
+  if (grade >= 3) return 'B';
+  if (grade >= 2) return 'C';
+  if (grade >= 1) return 'D';
+  return '—';
 }
 
 function computeEntryStats(entry: JournalEntry) {
@@ -715,6 +719,16 @@ function PriceLevelsBlock({ trade, onMutate }: PriceLevelsBlockProps) {
   })();
 
   const sourceText = trade.priceLevelsEdited ? 'Manually set' : trade.priceLevelsSource === 'ai' ? 'AI extracted' : 'Manually set';
+  const renderPointsDiff = (delta: number | null, mode: 'pos' | 'neg' | 'auto') => {
+    if (delta === null) return '-';
+    const isPositive = mode === 'pos' || (mode === 'auto' && delta >= 0);
+    const sign = isPositive ? '+' : '-';
+    return (
+      <span className={`tj-pl-points ${isPositive ? 'pos' : 'neg'}`}>
+        {`${sign}${Math.abs(delta).toFixed(2)} pts`}
+      </span>
+    );
+  };
 
   return (
     <div className="tj-pl-card">
@@ -734,7 +748,7 @@ function PriceLevelsBlock({ trade, onMutate }: PriceLevelsBlockProps) {
             onBlur={event => commit('entry', event.target.value)}
             placeholder="-"
           />
-          <div className="tj-pl-diff">Reference</div>
+          <div className="tj-pl-diff" aria-hidden="true">&nbsp;</div>
         </div>
         <div className="tj-pl-cell">
           <div className="tj-pl-label">STOP LOSS</div>
@@ -747,7 +761,7 @@ function PriceLevelsBlock({ trade, onMutate }: PriceLevelsBlockProps) {
             onBlur={event => commit('sl', event.target.value)}
             placeholder="-"
           />
-          <div className="tj-pl-diff neg">{stopDelta === null ? '-' : `-${stopDelta.toFixed(2)} pts`}</div>
+          <div className="tj-pl-diff">{renderPointsDiff(stopDelta, 'neg')}</div>
         </div>
         <div className="tj-pl-cell">
           <div className="tj-pl-label">TAKE PROFIT</div>
@@ -760,7 +774,7 @@ function PriceLevelsBlock({ trade, onMutate }: PriceLevelsBlockProps) {
             onBlur={event => commit('tp', event.target.value)}
             placeholder="-"
           />
-          <div className="tj-pl-diff pos">{tpDelta === null ? '-' : `+${tpDelta.toFixed(2)} pts`}</div>
+          <div className="tj-pl-diff">{renderPointsDiff(tpDelta, 'pos')}</div>
         </div>
         <div className="tj-pl-cell">
           <div className="tj-pl-label">EXIT</div>
@@ -773,8 +787,8 @@ function PriceLevelsBlock({ trade, onMutate }: PriceLevelsBlockProps) {
             onBlur={event => commit('exit', event.target.value)}
             placeholder="-"
           />
-          <div className={`tj-pl-diff ${exitDelta !== null && exitDelta >= 0 ? 'pos' : exitDelta !== null ? 'neg' : ''}`}>
-            {exitDelta === null ? '-' : `${exitDelta >= 0 ? '+' : '-'}${Math.abs(exitDelta).toFixed(2)} pts`}
+          <div className="tj-pl-diff">
+            {renderPointsDiff(exitDelta, 'auto')}
           </div>
         </div>
       </div>
@@ -955,6 +969,7 @@ export default function TradeJournal() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const { preferences } = useAppSettings();
+  const { user } = useAuth();
   const { deleteTrade: deleteTradeEverywhere } = useTrades();
   const persistedEntries = useFlyxaStore(state => state.entries);
   const setEntriesInStore = useFlyxaStore(state => state.setEntries);
@@ -1225,6 +1240,10 @@ export default function TradeJournal() {
       const durationFromTimeRange = minutesBetweenTimes(entryTime, closeTime);
       const durationMinutes = durationFromSeconds ?? durationFromTimeRange;
 
+      const screenshotUrl = user
+        ? await uploadScreenshot(fileDataUrl, user.id)
+        : fileDataUrl;
+
       const trade: JournalTrade = {
         id: crypto.randomUUID(),
         symbol: normalizedSymbol,
@@ -1244,10 +1263,10 @@ export default function TradeJournal() {
         rr: 0,
         pnl: 0,
         result: 'open',
-        screenshotUrl: fileDataUrl,
+        screenshotUrl,
       };
 
-      applyScannedTrade(fileDataUrl, withTradeDerivedValues(trade), tradeDate);
+      applyScannedTrade(screenshotUrl, withTradeDerivedValues(trade), tradeDate);
       scanSucceeded = true;
       pushToast({ tone: 'green', durationMs: 3000, message: 'Trade scanned and saved' });
     } catch (error) {
@@ -1343,14 +1362,15 @@ export default function TradeJournal() {
       reader.onerror = () => reject(new Error('Could not read screenshot.'));
       reader.readAsDataURL(file);
     });
+    const url = user ? await uploadScreenshot(dataUrl, user.id) : dataUrl;
     mutateEntries(prev => prev.map(entry => {
       if (entry.id !== selectedEntry.id) return entry;
       const nextScreenshots = [...entry.screenshots];
-      nextScreenshots[slot] = dataUrl;
+      nextScreenshots[slot] = url;
       return { ...entry, screenshots: nextScreenshots };
     }));
     screenshotSlotRef.current = null;
-  }, [mutateEntries, selectedEntry]);
+  }, [mutateEntries, selectedEntry, user]);
 
   const primaryScreenshot = selectedEntry
     ? (activeTrade?.screenshotUrl || selectedEntry.screenshots[0] || selectedEntry.scannedImageUrl || '')
@@ -1602,6 +1622,9 @@ export default function TradeJournal() {
                     </div>
                   ) : (
                     <div key={trade.id} className={`tj-trade-card ${trade.result}${activeTradeId === trade.id ? ' active' : ''}`} onClick={() => setActiveTradeId(trade.id)}>
+                      <span className={`tj-trade-grade g-${processGradeToLetter(trade.reflection?.processGrade ?? 0).replace('+', 'plus')}`}>
+                        {processGradeToLetter(trade.reflection?.processGrade ?? 0)}
+                      </span>
                       <span className="tj-symbol">{trade.symbol}</span>
                       <span className={`tj-tc-badge ${trade.direction === 'LONG' ? 'b-long' : 'b-short'}`}>{trade.direction === 'LONG' ? 'LONG' : 'SHORT'}</span>
                       <button type="button" className="tj-trash-btn" onClick={e => { e.stopPropagation(); setDeleteTradeId(trade.id); }}>
@@ -1668,32 +1691,6 @@ export default function TradeJournal() {
                     placeholder="What did you learn? What would you do differently?"
                   />
                 </div>
-              </div>
-
-              <div className="tj-section-head">
-                <span className="tj-section-title">Rule Checklist</span>
-              </div>
-              <div className="tj-card">
-                {selectedEntry.rules.map((rule, index) => (
-                  <div
-                    key={`${rule.text}-${index}`}
-                    className="tj-rule-row"
-                    onClick={() => {
-                      mutateEntries(prev => prev.map(entry => {
-                        if (entry.id !== selectedEntry.id) return entry;
-                        const nextRules = [...entry.rules];
-                        nextRules[index] = { ...nextRules[index], state: cycleRuleState(nextRules[index].state) };
-                        return { ...entry, rules: nextRules };
-                      }));
-                    }}
-                  >
-                    <span className={`tj-rule-box ${rule.state === 'ok' ? 'ok' : rule.state === 'fail' ? 'fail' : ''}`}>
-                      {rule.state === 'ok' && <Check size={10} />}
-                      {rule.state === 'fail' && <X size={10} />}
-                    </span>
-                    <span className={`tj-rule-text ${rule.state === 'ok' ? 'ok' : rule.state === 'fail' ? 'fail' : ''}`}>{rule.text}</span>
-                  </div>
-                ))}
               </div>
 
               {activeTrade && (

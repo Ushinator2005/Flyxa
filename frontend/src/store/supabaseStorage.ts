@@ -45,6 +45,22 @@ async function flushSave(userId: string, value: string): Promise<void> {
   }
 }
 
+export async function flushSupabaseStoreNow(): Promise<void> {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+
+  const userId = await getUserId();
+  if (!userId) return;
+
+  const value = pendingValue ?? (typeof window !== 'undefined' ? localStorage.getItem('flyxa-store') : null);
+  if (!value) return;
+
+  pendingValue = null;
+  await flushSave(userId, value);
+}
+
 // On page close/refresh, fire a keepalive fetch so the save completes even if
 // the tab is being destroyed. Regular async calls are abandoned mid-flight on unload.
 if (typeof window !== 'undefined') {

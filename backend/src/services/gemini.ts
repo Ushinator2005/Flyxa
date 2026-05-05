@@ -108,6 +108,38 @@ function parseTimeToken(value: unknown): string | null {
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
 }
 
+function hexToColorName(hex: string): string {
+  const h = hex.replace('#', '').toLowerCase();
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const lightness = (max + min) / 2 / 255;
+  const saturation = max === min ? 0 : (max - min) / (lightness < 0.5 ? max + min : 510 - max - min);
+  if (saturation < 0.12) {
+    if (lightness > 0.85) return 'white';
+    if (lightness > 0.6) return 'light grey';
+    if (lightness > 0.35) return 'grey';
+    return 'dark grey / near black';
+  }
+  const hue = max === min ? 0
+    : max === r ? ((g - b) / (max - min) + (g < b ? 6 : 0)) / 6
+    : max === g ? ((b - r) / (max - min) + 2) / 6
+    : ((r - g) / (max - min) + 4) / 6;
+  const deg = hue * 360;
+  if (deg < 20 || deg >= 340) return 'red';
+  if (deg < 40) return 'orange-red';
+  if (deg < 65) return 'orange / amber';
+  if (deg < 80) return 'yellow';
+  if (deg < 155) return 'green';
+  if (deg < 185) return 'teal / cyan';
+  if (deg < 255) return 'blue';
+  if (deg < 290) return 'purple / violet';
+  if (deg < 340) return 'pink / magenta';
+  return 'red';
+}
+
 export async function readTradeChart(
   base64Image: string,
   mimeType: string,
@@ -136,26 +168,39 @@ export async function readTradeChart(
   warnings: string[];
 }> {
   const colorSection = userColors
-    ? `
-USER COLOR SETTINGS (these are the exact colors the user has configured):
-- Entry zone color: ${userColors.entry}
-- Stop Loss zone color: ${userColors.stopLoss}
-- Take Profit zone color: ${userColors.takeProfit}
+    ? (() => {
+        const entryName = hexToColorName(userColors.entry);
+        const slName    = hexToColorName(userColors.stopLoss);
+        const tpName    = hexToColorName(userColors.takeProfit);
+        return `
+PRICE LEVEL IDENTIFICATION — FOLLOW THESE STEPS EXACTLY:
 
-CRITICAL COLOR MATCHING RULES:
-1. On the right-hand price axis there are colored pill/box labels
-2. Match each pill label color to the closest user color above
-3. The pill matching entry color = entry_price
-4. The pill matching stop loss color = sl_price
-5. The pill matching take profit color = tp_price
-6. IGNORE every other number, label, or price on the chart that does not match one of these three colors
-7. Do NOT use position (top/bottom) to guess which is SL or TP — use COLOR ONLY to identify each level
-`
+Step 1. Look at the right-hand price axis of the chart. You will see small rectangular pill-shaped labels, each with a colored background and a price number printed inside.
+
+Step 2. The user has set these three zone colors in their settings:
+  • Entry zone color   = ${entryName} (${userColors.entry})
+  • Stop Loss color    = ${slName} (${userColors.stopLoss})
+  • Take Profit color  = ${tpName} (${userColors.takeProfit})
+
+Step 3. Find the pill on the right axis whose background color visually matches each setting color above:
+  • Pill with ${entryName} background  → that price number is entry_price
+  • Pill with ${slName} background     → that price number is sl_price
+  • Pill with ${tpName} background     → that price number is tp_price
+
+Step 4. IGNORE everything else on the chart completely:
+  • Horizontal lines (black, white, or any color) drawn across the chart = key levels, NOT trade prices
+  • The live floating price label on the far right (the highlight showing current price) = ignore
+  • Any price label whose background color does NOT match one of the three setting colors above = ignore
+  • Do not infer or estimate a price from where boxes or lines appear — only read the pill whose background color matches a setting color
+`;
+      })()
     : `
-DEFAULT COLOR RULES (user has not configured custom colors):
-- GREY pill label at boundary between two zones = entry_price
-- RED/PINK pill label at far edge of the risk zone = sl_price
-- TEAL/GREEN pill label at far edge of the profit zone = tp_price
+PRICE LEVEL IDENTIFICATION:
+Look at the right-hand price axis. Find the three colored pill labels:
+  • Grey background pill = entry_price
+  • Red or pink background pill = sl_price
+  • Teal or green background pill = tp_price
+Ignore all horizontal lines across the chart and any other price labels.
 `;
 
   const systemPrompt = `You are a TradingView futures chart reader. Your ONLY job is to extract exact trade data from a P&L card screenshot.
@@ -169,7 +214,7 @@ Read the ticker symbol. Examples:
 Always return the ROOT ticker only (NQ not NQM26, MNQ not MNQM26).
 Valid roots: NQ, MNQ, ES, MES, YM, MYM, RTY, M2K, CL, MCL, GC, MGC, SI, 6E, 6B, BTC, MBT
 
-STEP 2 — IDENTIFY PRICE LEVELS FROM COLORED LABELS:
+STEP 2 — IDENTIFY entry_price, sl_price, tp_price:
 ${colorSection}
 
 STEP 3 — DETERMINE DIRECTION:
