@@ -29,6 +29,7 @@ import { marketDataApi } from '../services/api.js';
 import { Trade } from '../types/index.js';
 import { formatCurrency, formatDuration, getSession } from '../utils/calculations.js';
 import { formatRiskRewardRatio } from '../utils/riskReward.js';
+import useFlyxaStore from '../store/flyxaStore.js';
 
 declare global {
   interface Window {
@@ -183,7 +184,6 @@ interface SavedSession {
 
 const CHART_SCRIPT_SRC = 'https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js';
 const BACKTEST_PREFILL_KEY = 'tw_backtest_trade_prefill';
-const SESSIONS_KEY = 'tw_backtest_sessions';
 
 const BACKTEST_LIBRARY_THEME = {
   '--bg': 'var(--app-bg)',
@@ -453,7 +453,8 @@ export default function Backtest() {
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
 
   // Session library state
-  const [savedSessions, setSavedSessions] = useState<SavedSession[]>([]);
+  const savedSessions = useFlyxaStore(state => state.backtestSessions) as SavedSession[];
+  const setBacktestSessionsAction = useFlyxaStore(state => state.setBacktestSessions);
   const [showNewSessionForm, setShowNewSessionForm] = useState(false);
   const [sessionSearch, setSessionSearch] = useState('');
   const [startingBalance, setStartingBalance] = useState('25000');
@@ -654,37 +655,10 @@ export default function Backtest() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [revealedCount, selectedDrawingId, session]);
 
-  // Load / persist saved sessions
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(SESSIONS_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as Array<Partial<SavedSession>>;
-      if (!Array.isArray(parsed)) return;
-      const normalized = parsed
-        .filter(item => typeof item?.id === 'string' && typeof item?.symbol === 'string')
-        .map(item => ({
-          id: item.id as string,
-          symbol: item.symbol as string,
-          timeframe: (item.timeframe as ReplayTimeframe) ?? '5m',
-          range: (item.range as ReplayRange) ?? '5D',
-          startDate: typeof item.startDate === 'string' ? item.startDate : '',
-          endDate: typeof item.endDate === 'string' ? item.endDate : '',
-          balance: Number.isFinite(item.balance) ? Number(item.balance) : 25000,
-          openedAt: typeof item.openedAt === 'string' ? item.openedAt : new Date().toISOString(),
-          isActive: Boolean(item.isActive),
-        }));
-      setSavedSessions(normalized);
-    } catch { /* ignore */ }
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem(SESSIONS_KEY, JSON.stringify(savedSessions));
-  }, [savedSessions]);
 
   const handleDeleteSession = (id: string) => {
     if (!window.confirm('Remove this session from the library?')) return;
-    setSavedSessions(prev => prev.filter(s => s.id !== id));
+    setBacktestSessionsAction(savedSessions.filter(s => s.id !== id));
   };
 
   const handleOpenSession = async (sess: SavedSession) => {
@@ -693,7 +667,7 @@ export default function Backtest() {
     setRange(sess.range);
     setShowNewSessionForm(false);
     const openedAt = new Date().toISOString();
-    setSavedSessions(prev => prev.map(item => (
+    setBacktestSessionsAction(savedSessions.map(item => (
       item.id === sess.id
         ? { ...item, openedAt, isActive: true }
         : { ...item, isActive: false }
@@ -756,9 +730,9 @@ export default function Backtest() {
         openedAt: new Date().toISOString(),
         isActive: true,
       };
-      setSavedSessions(prev => [
+      setBacktestSessionsAction([
         newSaved,
-        ...prev
+        ...savedSessions
           .filter(s => !(s.symbol === symbol && s.timeframe === timeframe && s.range === range))
           .map(s => ({ ...s, isActive: false }))
           .slice(0, 49),

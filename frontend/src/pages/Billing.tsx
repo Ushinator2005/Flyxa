@@ -39,8 +39,6 @@ interface BillingFormState {
   payoutReceived: number;
 }
 
-const LOCAL_STORAGE_KEY = 'flyxa_billing_accounts';
-const ACTIVE_ACCOUNT_KEY = 'flyxa_active_account';
 
 const STATUS_OPTIONS: AccountStatus[] = ['Active', 'Passed', 'Blown', 'Reset'];
 
@@ -158,51 +156,6 @@ function getDefaultFormState(): BillingFormState {
   };
 }
 
-function loadAccounts(): BillingAccount[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = window.localStorage.getItem(LOCAL_STORAGE_KEY);
-    if (!raw) return [];
-
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-
-    return parsed
-      .map(item => {
-        if (!item || typeof item !== 'object') return null;
-        const row = item as Partial<BillingAccount>;
-        const status = STATUS_OPTIONS.includes(row.status as AccountStatus)
-          ? (row.status as AccountStatus)
-          : 'Active';
-
-        const listPrice = Math.max(0, toNumber(row.listPrice, 0));
-        const discountPct = clampPercentage(toNumber(row.discountPct, 0));
-        const actualPrice = computeActualPrice(listPrice, discountPct);
-        const payoutReceived = Math.max(0, toNumber(row.payoutReceived, 0));
-
-        return {
-          id: typeof row.id === 'string' && row.id.trim().length > 0 ? row.id : crypto.randomUUID(),
-          firm: typeof row.firm === 'string' && row.firm.trim().length > 0 ? row.firm : 'Other',
-          size: typeof row.size === 'string' && row.size.trim().length > 0 ? row.size : 'Custom',
-          listPrice,
-          discountCode: typeof row.discountCode === 'string' ? row.discountCode.toUpperCase().trim() : '',
-          discountPct,
-          actualPrice,
-          purchaseDate: typeof row.purchaseDate === 'string' && row.purchaseDate ? row.purchaseDate : getTodayInputDate(),
-          status,
-          payoutReceived: status === 'Passed' ? payoutReceived : 0,
-        } satisfies BillingAccount;
-      })
-      .filter((item): item is BillingAccount => Boolean(item));
-  } catch {
-    return [];
-  }
-}
-
-function saveAccounts(accounts: BillingAccount[]) {
-  if (typeof window === 'undefined') return;
-  window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(accounts));
-}
 
 function createId() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -214,12 +167,9 @@ function createId() {
 export default function Billing() {
   const storeBillingAccounts = useFlyxaStore(state => state.billingAccounts);
   const hydrateSharedData = useFlyxaStore(state => state.hydrateSharedData);
-  const [accounts, setAccounts] = useState<BillingAccount[]>(() => {
-    if (storeBillingAccounts.length > 0) {
-      return storeBillingAccounts as unknown as BillingAccount[];
-    }
-    return loadAccounts();
-  });
+  const [accounts, setAccounts] = useState<BillingAccount[]>(
+    () => storeBillingAccounts as unknown as BillingAccount[]
+  );
   const [firmFilter, setFirmFilter] = useState<string>('All');
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -439,19 +389,9 @@ export default function Billing() {
       payoutReceived,
     };
 
-    setAccounts(current => {
-      const updated = editingId
-        ? current.map(row => (row.id === editingId ? next : row))
-        : [next, ...current];
-      saveAccounts(updated);
-      if (typeof window !== 'undefined') {
-        const active = window.localStorage.getItem(ACTIVE_ACCOUNT_KEY);
-        if (!active || active === editingId) {
-          window.localStorage.setItem(ACTIVE_ACCOUNT_KEY, next.id);
-        }
-      }
-      return updated;
-    });
+    setAccounts(current => editingId
+      ? current.map(row => (row.id === editingId ? next : row))
+      : [next, ...current]);
     closeModal();
   };
 
@@ -460,21 +400,7 @@ export default function Billing() {
     if (!target) return;
     const confirmed = window.confirm(`Delete billing entry for ${target.firm} ${target.size}?`);
     if (!confirmed) return;
-    setAccounts(current => {
-      const updated = current.filter(account => account.id !== id);
-      saveAccounts(updated);
-      if (typeof window !== 'undefined') {
-        const active = window.localStorage.getItem(ACTIVE_ACCOUNT_KEY);
-        if (active === id) {
-          if (updated[0]) {
-            window.localStorage.setItem(ACTIVE_ACCOUNT_KEY, updated[0].id);
-          } else {
-            window.localStorage.removeItem(ACTIVE_ACCOUNT_KEY);
-          }
-        }
-      }
-      return updated;
-    });
+    setAccounts(current => current.filter(account => account.id !== id));
   };
 
   const setFormField = <K extends keyof BillingFormState>(key: K, value: BillingFormState[K]) => {

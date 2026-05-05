@@ -160,3 +160,57 @@ export interface ScannerColors {
   stopLoss: string;
   takeProfit: string;
 }
+
+export interface BacktestSession {
+  id: string;
+  symbol: string;
+  timeframe: string;
+  range: string;
+  startDate: string;
+  endDate: string;
+  balance: number;
+  openedAt: string;
+  isActive: boolean;
+}
+
+export interface OnboardingState {
+  completed: boolean;
+  completedAt?: string;
+  survey: Record<string, unknown>;
+}
+
+export interface PreSessionData {
+  emotion: string;
+  note: string;
+  bias: unknown;
+  checklistState: unknown;
+  startedAt: string | null;
+}
+
+export interface ChartHistoryRecord {
+  sessionId: string;
+  symbolDisplay: string;
+  widgetSymbol: string;
+  timeframe: string;
+  accountBalance: number;
+  startDate: string;
+  endDate: string;
+  speed: number;
+  createdAt: string;
+  lastOpenedAt: string;
+}
+
+export interface StoredRival {
+  id: string;
+  username: string;
+  displayName: string;
+  avatarInitials: string;
+  avatarColor: string;
+  mascot: {
+    stage: string;
+    name: string;
+    streakDays: number;
+    stats: { discipline: number; psychology: number; consistency: number; backtestHours: number };
+    xp: number;
+  };
+}

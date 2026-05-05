@@ -7,15 +7,20 @@ import { pushToast } from './toastStore.js';
 import type {
   Account,
   Achievement,
+  BacktestSession,
   BillingAccount,
+  ChartHistoryRecord,
   ChecklistItem,
   Goal,
   JournalEntry,
+  OnboardingState,
   PlanBlock,
+  PreSessionData,
   PropFirm,
   RiskRule,
   ScannerColors,
   Setup,
+  StoredRival,
   Trade,
   TradeResult,
 } from './types.js';
@@ -105,6 +110,14 @@ interface FlyxaStateData {
   billingAccounts: BillingAccount[];
   scannerColors: ScannerColors;
   newsSources: Record<string, boolean>;
+  journalMoods: Record<string, string>;
+  journalTitles: Record<string, string>;
+  rivals: StoredRival[];
+  deletedTradeIds: string[];
+  backtestSessions: BacktestSession[];
+  onboarding: OnboardingState | null;
+  preSession: PreSessionData | null;
+  chartHistory: ChartHistoryRecord[];
 }
 
 export interface FlyxaStore extends FlyxaStateData {
@@ -132,6 +145,14 @@ export interface FlyxaStore extends FlyxaStateData {
   deleteBillingAccount: (id: string) => void;
   setEntries: (entries: JournalEntry[]) => void;
   hydrateSharedData: (payload: Partial<FlyxaStateData>) => void;
+  setJournalMood: (entryId: string, mood: string) => void;
+  setJournalTitle: (entryId: string, title: string) => void;
+  setRivals: (rivals: StoredRival[]) => void;
+  addDeletedTradeId: (id: string) => void;
+  setBacktestSessions: (sessions: BacktestSession[]) => void;
+  setOnboarding: (state: OnboardingState) => void;
+  setPreSession: (data: PreSessionData | null) => void;
+  setChartHistory: (records: ChartHistoryRecord[]) => void;
 }
 
 function todayIso(): string {
@@ -377,6 +398,14 @@ function getInitialState(): FlyxaStateData {
     billingAccounts: [],
     scannerColors: DEFAULT_SCANNER_COLORS,
     newsSources: DEFAULT_NEWS_SOURCES,
+    journalMoods: {},
+    journalTitles: {},
+    rivals: [],
+    deletedTradeIds: [],
+    backtestSessions: [],
+    onboarding: null,
+    preSession: null,
+    chartHistory: [],
   };
 }
 
@@ -575,6 +604,28 @@ const useFlyxaStore = create<FlyxaStore>()(
         billingAccounts: state.billingAccounts.filter((account) => account.id !== id),
       })),
 
+      setJournalMood: (entryId, mood) => set((state) => ({
+        journalMoods: { ...state.journalMoods, [entryId]: mood },
+      })),
+
+      setJournalTitle: (entryId, title) => set((state) => ({
+        journalTitles: { ...state.journalTitles, [entryId]: title },
+      })),
+
+      setRivals: (rivals) => set(() => ({ rivals })),
+
+      addDeletedTradeId: (id) => set((state) => ({
+        deletedTradeIds: state.deletedTradeIds.includes(id) ? state.deletedTradeIds : [...state.deletedTradeIds, id],
+      })),
+
+      setBacktestSessions: (sessions) => set(() => ({ backtestSessions: sessions })),
+
+      setOnboarding: (state) => set(() => ({ onboarding: state })),
+
+      setPreSession: (data) => set(() => ({ preSession: data })),
+
+      setChartHistory: (records) => set(() => ({ chartHistory: records })),
+
       setEntries: (entries) => {
         set((state) => syncAchievements({
           ...state,
@@ -610,6 +661,14 @@ const useFlyxaStore = create<FlyxaStore>()(
             billingAccounts,
             scannerColors: payload.scannerColors ?? state.scannerColors,
             newsSources: payload.newsSources ?? state.newsSources,
+            journalMoods: payload.journalMoods ?? state.journalMoods,
+            journalTitles: payload.journalTitles ?? state.journalTitles,
+            rivals: payload.rivals ?? state.rivals,
+            deletedTradeIds: payload.deletedTradeIds ?? state.deletedTradeIds,
+            backtestSessions: payload.backtestSessions ?? state.backtestSessions,
+            onboarding: payload.onboarding ?? state.onboarding,
+            preSession: payload.preSession ?? state.preSession,
+            chartHistory: payload.chartHistory ?? state.chartHistory,
           };
           return syncAchievements(merged);
         });
@@ -675,6 +734,14 @@ const useFlyxaStore = create<FlyxaStore>()(
         billingAccounts: state.billingAccounts,
         scannerColors: state.scannerColors,
         newsSources: state.newsSources,
+        journalMoods: state.journalMoods,
+        journalTitles: state.journalTitles,
+        rivals: state.rivals,
+        deletedTradeIds: state.deletedTradeIds,
+        backtestSessions: state.backtestSessions,
+        onboarding: state.onboarding,
+        preSession: state.preSession,
+        chartHistory: state.chartHistory,
       }),
     }
   )

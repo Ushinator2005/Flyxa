@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { useAuth } from './AuthContext.js';
+import useFlyxaStore from '../store/flyxaStore.js';
 
 export type ProfitabilityStatus = 'profitable' | 'breakeven' | 'not_profitable';
 
@@ -29,16 +30,6 @@ const DEFAULT_SURVEY: OnboardingSurvey = {
 
 const OnboardingContext = createContext<OnboardingContextValue | undefined>(undefined);
 
-function onboardingStorageKey(userId: string) {
-  return `tw_onboarding_${userId}`;
-}
-
-interface StoredOnboardingState {
-  completed: boolean;
-  completedAt?: string;
-  survey: OnboardingSurvey;
-}
-
 function normalizeRules(rules: unknown): string[] {
   if (!Array.isArray(rules)) return [...DEFAULT_SURVEY.goldenRules];
   const normalized = rules
@@ -65,47 +56,24 @@ function normalizeImprovementAreas(areas: unknown): string[] {
   return normalized;
 }
 
-function loadOnboardingState(userId: string): StoredOnboardingState {
-  if (typeof window === 'undefined') {
-    return { completed: false, survey: { ...DEFAULT_SURVEY } };
-  }
-
-  try {
-    const raw = window.localStorage.getItem(onboardingStorageKey(userId));
-    if (!raw) {
-      return { completed: false, survey: { ...DEFAULT_SURVEY } };
-    }
-    const parsed = JSON.parse(raw) as Partial<StoredOnboardingState>;
-    const survey = (parsed.survey ?? {}) as Partial<OnboardingSurvey>;
-    const normalizedSurvey: OnboardingSurvey = {
-      whyJournaling: typeof survey.whyJournaling === 'string' ? survey.whyJournaling : '',
-      improvementAreas: normalizeImprovementAreas(survey.improvementAreas),
-      profitabilityStatus:
-        survey.profitabilityStatus === 'profitable'
-        || survey.profitabilityStatus === 'breakeven'
-        || survey.profitabilityStatus === 'not_profitable'
-          ? survey.profitabilityStatus
-          : null,
-      goldenRules: normalizeRules(survey.goldenRules),
-    };
-
-    return {
-      completed: Boolean(parsed.completed),
-      completedAt: typeof parsed.completedAt === 'string' ? parsed.completedAt : undefined,
-      survey: normalizedSurvey,
-    };
-  } catch {
-    return { completed: false, survey: { ...DEFAULT_SURVEY } };
-  }
-}
-
-function persistOnboardingState(userId: string, state: StoredOnboardingState) {
-  if (typeof window === 'undefined') return;
-  window.localStorage.setItem(onboardingStorageKey(userId), JSON.stringify(state));
+function parseSurvey(raw: Record<string, unknown>): OnboardingSurvey {
+  return {
+    whyJournaling: typeof raw.whyJournaling === 'string' ? raw.whyJournaling : '',
+    improvementAreas: normalizeImprovementAreas(raw.improvementAreas),
+    profitabilityStatus:
+      raw.profitabilityStatus === 'profitable'
+      || raw.profitabilityStatus === 'breakeven'
+      || raw.profitabilityStatus === 'not_profitable'
+        ? raw.profitabilityStatus
+        : null,
+    goldenRules: normalizeRules(raw.goldenRules),
+  };
 }
 
 export function OnboardingProvider({ children }: { children: React.ReactNode }) {
   const { user, loading: authLoading } = useAuth();
+  const storedOnboarding = useFlyxaStore(state => state.onboarding);
+  const setOnboardingAction = useFlyxaStore(state => state.setOnboarding);
   const [loading, setLoading] = useState(true);
   const [completed, setCompleted] = useState(false);
   const [completedAt, setCompletedAt] = useState<string | undefined>(undefined);
@@ -125,12 +93,32 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
       return;
     }
 
-    const state = loadOnboardingState(user.id);
-    setCompleted(state.completed);
-    setCompletedAt(state.completedAt);
-    setSurvey(state.survey);
+    if (storedOnboarding) {
+      setCompleted(storedOnboarding.completed);
+      setCompletedAt(storedOnboarding.completedAt);
+      setSurvey(parseSurvey(storedOnboarding.survey as unknown as Record<string, unknown>));
+    } else {
+      // Migrate from localStorage on first use
+      const legacyKey = `tw_onboarding_${user.id}`;
+      try {
+        const raw = window.localStorage.getItem(legacyKey);
+        if (raw) {
+          const parsed = JSON.parse(raw) as unknown as Record<string, unknown>;
+          const migratedSurvey = parseSurvey((parsed.survey ?? {}) as unknown as Record<string, unknown>);
+          const migratedState = {
+            completed: Boolean(parsed.completed),
+            completedAt: typeof parsed.completedAt === 'string' ? parsed.completedAt : undefined,
+            survey: migratedSurvey as unknown as Record<string, unknown>,
+          };
+          setCompleted(migratedState.completed);
+          setCompletedAt(migratedState.completedAt);
+          setSurvey(migratedSurvey);
+          setOnboardingAction(migratedState);
+        }
+      } catch { /* ignore */ }
+    }
     setLoading(false);
-  }, [authLoading, user?.id]);
+  }, [authLoading, user?.id, storedOnboarding, setOnboardingAction]);
 
   const saveSurvey = (updates: Partial<OnboardingSurvey>) => {
     setSurvey(current => {
@@ -140,15 +128,7 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
         improvementAreas: updates.improvementAreas ? normalizeImprovementAreas(updates.improvementAreas) : current.improvementAreas,
         goldenRules: updates.goldenRules ? normalizeRules(updates.goldenRules) : current.goldenRules,
       };
-
-      if (user?.id) {
-        persistOnboardingState(user.id, {
-          completed,
-          completedAt,
-          survey: next,
-        });
-      }
-
+      setOnboardingAction({ completed, completedAt, survey: next as unknown as Record<string, unknown> });
       return next;
     });
   };
@@ -161,30 +141,17 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
       profitabilityStatus: nextSurvey.profitabilityStatus,
       goldenRules: normalizeRules(nextSurvey.goldenRules),
     };
-
     setSurvey(normalized);
     setCompleted(true);
     setCompletedAt(now);
-
-    if (user?.id) {
-      persistOnboardingState(user.id, {
-        completed: true,
-        completedAt: now,
-        survey: normalized,
-      });
-    }
+    setOnboardingAction({ completed: true, completedAt: now, survey: normalized as unknown as Record<string, unknown> });
   };
 
   const resetOnboarding = () => {
     setCompleted(false);
     setCompletedAt(undefined);
     setSurvey({ ...DEFAULT_SURVEY });
-    if (user?.id) {
-      persistOnboardingState(user.id, {
-        completed: false,
-        survey: { ...DEFAULT_SURVEY },
-      });
-    }
+    setOnboardingAction({ completed: false, survey: { ...DEFAULT_SURVEY } as unknown as Record<string, unknown> });
   };
 
   const value = useMemo<OnboardingContextValue>(() => ({

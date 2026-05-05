@@ -77,14 +77,6 @@ interface ChecklistItem {
   done: boolean;
 }
 
-interface TradingPlanPersistedState {
-  planBlocks?: Array<Pick<PlanBlock, 'id' | 'content' | 'isOpen'>>;
-  checklist?: Array<Pick<ChecklistItem, 'id' | 'done'>>;
-  setups?: Array<Pick<Setup, 'id' | 'isExpanded'>>;
-  lastSaved?: string;
-}
-
-const LOCAL_STORAGE_KEY = 'flyxa_trading_plan_state_v1';
 
 const TAB_ITEMS: Array<{ id: TradingPlanTab; label: string; icon: typeof FileText }> = [
   { id: 'trading-plan', label: 'Trading Plan', icon: FileText },
@@ -255,16 +247,6 @@ function formatLastSaved(lastSaved: Date | null, now: number): string {
   return `Saved ${hours} hr ago`;
 }
 
-function loadPersistedState(): TradingPlanPersistedState | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    const raw = window.localStorage.getItem(LOCAL_STORAGE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as TradingPlanPersistedState;
-  } catch {
-    return null;
-  }
-}
 
 function ruleColorClass(color: RiskRule['color']): string {
   if (color === 'red') return 'tp-rule-value-red';
@@ -283,14 +265,13 @@ function toneClass(tone: ColorTone): string {
 
 export default function TradingPlan() {
   const hydrateSharedData = useFlyxaStore(state => state.hydrateSharedData);
-  const persistedState = useMemo(() => loadPersistedState(), []);
 
   const [activeTab, setActiveTab] = useState<TradingPlanTab>('trading-plan');
   const [planBlocks, setPlanBlocks] = useState<PlanBlock[]>(() => {
-    if (!persistedState?.planBlocks) return INITIAL_PLAN_BLOCKS;
-    const persistedMap = new Map(persistedState.planBlocks.map(block => [block.id, block]));
+    const stored = useFlyxaStore.getState().planBlocks;
+    const storedMap = new Map(stored.map(block => [block.id, block]));
     return INITIAL_PLAN_BLOCKS.map(block => {
-      const persisted = persistedMap.get(block.id);
+      const persisted = storedMap.get(block.id);
       if (!persisted) return block;
       return {
         ...block,
@@ -301,29 +282,25 @@ export default function TradingPlan() {
   });
 
   const [setups, setSetups] = useState<Setup[]>(() => {
-    if (!persistedState?.setups) return INITIAL_SETUPS;
-    const persistedMap = new Map(persistedState.setups.map(setup => [setup.id, setup]));
+    const stored = useFlyxaStore.getState().setupPlaybook;
+    const storedMap = new Map(stored.map(setup => [setup.id, setup]));
     return INITIAL_SETUPS.map(setup => {
-      const persisted = persistedMap.get(setup.id);
+      const persisted = storedMap.get(setup.id);
       if (!persisted) return setup;
       return { ...setup, isExpanded: typeof persisted.isExpanded === 'boolean' ? persisted.isExpanded : setup.isExpanded };
     });
   });
 
   const [checklist, setChecklist] = useState<ChecklistItem[]>(() => {
-    if (!persistedState?.checklist) return INITIAL_CHECKLIST;
-    const doneMap = new Map(persistedState.checklist.map(item => [item.id, item.done]));
+    const stored = useFlyxaStore.getState().checklist;
+    const doneMap = new Map(stored.map(item => [item.id, item.done]));
     return INITIAL_CHECKLIST.map(item => ({
       ...item,
       done: typeof doneMap.get(item.id) === 'boolean' ? Boolean(doneMap.get(item.id)) : item.done,
     }));
   });
 
-  const [lastSaved, setLastSaved] = useState<Date | null>(() => {
-    if (!persistedState?.lastSaved) return null;
-    const parsed = new Date(persistedState.lastSaved);
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
-  });
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
   const riskRules = INITIAL_RISK_RULES;
@@ -345,16 +322,6 @@ export default function TradingPlan() {
 
   const persistState = useCallback(() => {
     const savedAt = new Date();
-    if (typeof window !== 'undefined') {
-      const payload: TradingPlanPersistedState = {
-        planBlocks: planBlocks.map(block => ({ id: block.id, content: block.content, isOpen: block.isOpen })),
-        checklist: checklist.map(item => ({ id: item.id, done: item.done })),
-        setups: setups.map(setup => ({ id: setup.id, isExpanded: setup.isExpanded })),
-        lastSaved: savedAt.toISOString(),
-      };
-      window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(payload));
-      window.localStorage.setItem('flyxa_checklist', JSON.stringify(checklist.map(item => item.text)));
-    }
     hydrateSharedData({
       planBlocks: planBlocks as any,
       checklist: checklist as any,

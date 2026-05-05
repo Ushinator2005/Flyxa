@@ -7,6 +7,7 @@ import { useRisk } from '../contexts/RiskContext.js';
 import { useTrades } from '../hooks/useTrades.js';
 import { RiskSettings, Trade } from '../types/index.js';
 import { PatternItem, patternsData } from './FlyxaAIPatterns.js';
+import useFlyxaStore from '../store/flyxaStore.js';
 
 type BiasValue = 'Bull' | 'Bear' | 'Neutral';
 type BiasState = Record<'ES' | 'NQ', BiasValue>;
@@ -57,16 +58,6 @@ const baseTechnicalChecklistItems: ChecklistItem[] = [
   { id: 'technical-platform-ready', label: 'Platform connected + charts set' },
 ];
 
-function readJsonFromStorage<T>(key: string, fallback: T): T {
-  if (typeof window === 'undefined') return fallback;
-  try {
-    const raw = window.localStorage.getItem(key);
-    if (!raw) return fallback;
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
-  }
-}
 
 function parseTradeDate(trade: Trade): Date | null {
   if (trade.trade_date) {
@@ -250,17 +241,14 @@ export default function FlyxaAIPreSession() {
   const { filterTradesBySelectedAccount } = useAppSettings();
   const { settings } = useRisk();
 
+  const storedPreSession = useFlyxaStore(state => state.preSession);
+  const setPreSessionAction = useFlyxaStore(state => state.setPreSession);
+
   const [now, setNow] = useState(() => new Date());
-  const [emotion, setEmotion] = useState<string>(() => {
-    if (typeof window === 'undefined') return '';
-    return window.localStorage.getItem('presession.emotion') || '';
-  });
-  const [note, setNote] = useState<string>(() => {
-    if (typeof window === 'undefined') return '';
-    return window.localStorage.getItem('presession.note') || '';
-  });
-  const [bias, setBias] = useState<BiasState>(() => readJsonFromStorage<BiasState>('presession.bias', { ES: 'Neutral', NQ: 'Neutral' }));
-  const [checklistState, setChecklistState] = useState<ChecklistState>(() => readJsonFromStorage<ChecklistState>('presession.checklist', {}));
+  const [emotion, setEmotion] = useState<string>(() => (storedPreSession?.emotion ?? ''));
+  const [note, setNote] = useState<string>(() => (storedPreSession?.note ?? ''));
+  const [bias, setBias] = useState<BiasState>(() => (storedPreSession?.bias as BiasState ?? { ES: 'Neutral', NQ: 'Neutral' }));
+  const [checklistState, setChecklistState] = useState<ChecklistState>(() => (storedPreSession?.checklistState as ChecklistState ?? {}));
   const [storedRiskSettings] = useState(() => parseRiskSettingsFromStorage());
 
   useEffect(() => {
@@ -381,26 +369,30 @@ export default function FlyxaAIPreSession() {
   }`;
   const emotionLogged = emotion.trim().length > 0;
 
+  const persistPreSession = (updates: Partial<{ emotion: string; note: string; bias: BiasState; checklistState: ChecklistState; startedAt: string | null }>) => {
+    setPreSessionAction({
+      emotion: updates.emotion ?? emotion,
+      note: updates.note ?? note,
+      bias: updates.bias ?? bias,
+      checklistState: updates.checklistState ?? checklistState,
+      startedAt: updates.startedAt ?? storedPreSession?.startedAt ?? null,
+    });
+  };
+
   const setEmotionAndPersist = (nextEmotion: string) => {
     setEmotion(nextEmotion);
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem('presession.emotion', nextEmotion);
-    }
+    persistPreSession({ emotion: nextEmotion });
   };
 
   const setNoteAndPersist = (nextNote: string) => {
     setNote(nextNote);
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem('presession.note', nextNote);
-    }
+    persistPreSession({ note: nextNote });
   };
 
   const setBiasAndPersist = (instrument: keyof BiasState, value: BiasValue) => {
     setBias(current => {
       const next = { ...current, [instrument]: value };
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem('presession.bias', JSON.stringify(next));
-      }
+      persistPreSession({ bias: next });
       return next;
     });
   };
@@ -409,17 +401,13 @@ export default function FlyxaAIPreSession() {
     if (item.autoFromEmotion) return;
     setChecklistState(current => {
       const next = { ...current, [item.id]: !current[item.id] };
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem('presession.checklist', JSON.stringify(next));
-      }
+      persistPreSession({ checklistState: next });
       return next;
     });
   };
 
   const startSession = () => {
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem('presession.startedAt', new Date().toISOString());
-    }
+    persistPreSession({ startedAt: new Date().toISOString() });
     navigate('/');
   };
 

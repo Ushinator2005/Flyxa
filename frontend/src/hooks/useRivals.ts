@@ -1,28 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import type { Rival } from '../types/rivals.js';
 import { mockRivals } from '../data/rivals.mock.js';
 import { getMascotXP } from '../lib/mascotProgression.js';
 import { useActiveAccountEntries, useJournalStreak } from '../store/selectors.js';
-
-const STORAGE_KEY = 'flyxa_rivals_v1';
-
-function loadStoredRivals(): Rival[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as Rival[];
-  } catch {
-    // Ignore parse errors.
-  }
-  return mockRivals.filter((rival) => !rival.isMe);
-}
-
-function saveRivals(rivals: Rival[]): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(rivals.filter((rival) => !rival.isMe)));
-  } catch {
-    // Ignore write failures.
-  }
-}
+import useFlyxaStore from '../store/flyxaStore.js';
 
 function mean(values: number[]): number {
   if (values.length === 0) return 0;
@@ -30,9 +11,12 @@ function mean(values: number[]): number {
 }
 
 export function useRivals() {
-  const [storedRivals, setStoredRivals] = useState<Rival[]>(() => loadStoredRivals());
+  const storedRivals = useFlyxaStore(state => state.rivals) as Rival[];
+  const setRivalsAction = useFlyxaStore(state => state.setRivals);
   const entries = useActiveAccountEntries();
   const journalStreak = useJournalStreak();
+
+  const resolvedRivals = storedRivals.length > 0 ? storedRivals : mockRivals.filter((r) => !r.isMe) as Rival[];
 
   const myRival = useMemo(() => {
     const last30 = [...entries]
@@ -78,9 +62,8 @@ export function useRivals() {
   }, [entries, journalStreak]);
 
   const rivals = useMemo(() => {
-    const list = [myRival, ...storedRivals.filter((rival) => !rival.isMe)];
-    return list;
-  }, [myRival, storedRivals]);
+    return [myRival, ...resolvedRivals.filter((rival) => !rival.isMe)];
+  }, [myRival, resolvedRivals]);
 
   const addRival = (username: string) => {
     const initials = username.slice(0, 2).toUpperCase();
@@ -90,7 +73,7 @@ export function useRivals() {
       username,
       displayName: username,
       avatarInitials: initials,
-      avatarColor: colors[storedRivals.length % colors.length],
+      avatarColor: colors[resolvedRivals.length % colors.length],
       mascot: {
         stage: 'seed',
         name: 'The Newcomer',
@@ -100,19 +83,11 @@ export function useRivals() {
       },
     };
     newRival.mascot.xp = getMascotXP(newRival.mascot.streakDays, newRival.mascot.stats);
-    setStoredRivals((current) => {
-      const next = [...current, newRival];
-      saveRivals(next);
-      return next;
-    });
+    setRivalsAction([...resolvedRivals, newRival] as typeof resolvedRivals);
   };
 
   const removeRival = (id: string) => {
-    setStoredRivals((current) => {
-      const next = current.filter((rival) => rival.id !== id);
-      saveRivals(next);
-      return next;
-    });
+    setRivalsAction(resolvedRivals.filter((rival) => rival.id !== id) as typeof resolvedRivals);
   };
 
   return { rivals, addRival, removeRival };

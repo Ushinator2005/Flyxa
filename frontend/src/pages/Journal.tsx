@@ -20,11 +20,10 @@ import { JournalBackupPayload, JournalEntry } from '../types/index.js';
 import Modal from '../components/common/Modal.js';
 import LoadingSpinner from '../components/common/LoadingSpinner.js';
 import { useAuth } from '../contexts/AuthContext.js';
+import useFlyxaStore from '../store/flyxaStore.js';
 
 // constants
 
-const JOURNAL_MOOD_STORAGE_KEY = 'tw-journal-moods';
-const JOURNAL_TITLE_STORAGE_KEY = 'tw-journal-titles';
 const JOURNAL_BACKUP_STORAGE_PREFIX = 'tw-journal-backup:';
 const JOURNAL_BACKUP_VERSION = 1;
 const JOURNAL_MOODS = ['Calm', 'Focused', 'Confident', 'Tired', 'Frustrated'] as const;
@@ -165,39 +164,6 @@ function truncateTitle(title: string) {
   return `${title.slice(0, 54).trimEnd()}...`;
 }
 
-function loadJournalMoods(): Record<string, string> {
-  if (typeof window === 'undefined') return {};
-  try {
-    const raw = window.localStorage.getItem(JOURNAL_MOOD_STORAGE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    return Object.fromEntries(
-      Object.entries(parsed).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
-    );
-  } catch { return {}; }
-}
-
-function saveJournalMoods(moods: Record<string, string>) {
-  if (typeof window === 'undefined') return;
-  window.localStorage.setItem(JOURNAL_MOOD_STORAGE_KEY, JSON.stringify(moods));
-}
-
-function loadJournalTitles(): Record<string, string> {
-  if (typeof window === 'undefined') return {};
-  try {
-    const raw = window.localStorage.getItem(JOURNAL_TITLE_STORAGE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    return Object.fromEntries(
-      Object.entries(parsed).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
-    );
-  } catch { return {}; }
-}
-
-function saveJournalTitles(titles: Record<string, string>) {
-  if (typeof window === 'undefined') return;
-  window.localStorage.setItem(JOURNAL_TITLE_STORAGE_KEY, JSON.stringify(titles));
-}
 
 function getDisplayTitle(entry: JournalEntry, titleByEntryId: Record<string, string>) {
   const stored = titleByEntryId[entry.id]?.trim();
@@ -373,8 +339,10 @@ export default function Journal() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<JournalEntry | null>(null);
-  const [moodByEntryId, setMoodByEntryId] = useState<Record<string, string>>(() => loadJournalMoods());
-  const [titleByEntryId, setTitleByEntryId] = useState<Record<string, string>>(() => loadJournalTitles());
+  const moodByEntryId = useFlyxaStore(state => state.journalMoods);
+  const titleByEntryId = useFlyxaStore(state => state.journalTitles);
+  const setJournalMoodAction = useFlyxaStore(state => state.setJournalMood);
+  const setJournalTitleAction = useFlyxaStore(state => state.setJournalTitle);
   const [titleDraft, setTitleDraft] = useState('');
   const [activeSectionTab, setActiveSectionTab] = useState<JournalSectionTab>('reflection');
   const [sectionDraft, setSectionDraft] = useState<Record<JournalSectionTab, string>>({
@@ -434,11 +402,7 @@ export default function Journal() {
   }, [backupStorageKey, entries, moodByEntryId, titleByEntryId, user?.id]);
 
   function updateEntryMood(entryId: string, mood: string) {
-    setMoodByEntryId(current => {
-      const next = { ...current, [entryId]: mood };
-      saveJournalMoods(next);
-      return next;
-    });
+    setJournalMoodAction(entryId, mood);
   }
 
   useEffect(() => {
@@ -481,12 +445,7 @@ export default function Journal() {
 
   function persistEntryTitle(entryId: string, nextTitle: string) {
     const normalized = nextTitle.trim();
-    setTitleByEntryId(current => {
-      const next = { ...current };
-      if (normalized) { next[entryId] = normalized; } else { delete next[entryId]; }
-      saveJournalTitles(next);
-      return next;
-    });
+    setJournalTitleAction(entryId, normalized);
   }
 
   function applyEntryUpdateLocally(entryId: string, updates: Partial<JournalEntry>) {
@@ -577,12 +536,7 @@ export default function Journal() {
     try {
       await journalApi.delete(entry.id);
       if (selected?.id === entry.id) setSelected(null);
-      setTitleByEntryId(current => {
-        const next = { ...current };
-        delete next[entry.id];
-        saveJournalTitles(next);
-        return next;
-      });
+      setJournalTitleAction(entry.id, '');
       await fetchEntries();
     } catch (error) {
       console.error(error);
@@ -646,18 +600,10 @@ export default function Journal() {
 
       const restoreResult = await journalApi.restoreBackup(normalizedEntries);
       if (Object.keys(normalizedMoods).length > 0) {
-        setMoodByEntryId((current) => {
-          const next = { ...current, ...normalizedMoods };
-          saveJournalMoods(next);
-          return next;
-        });
+        Object.entries(normalizedMoods).forEach(([id, mood]) => setJournalMoodAction(id, mood));
       }
       if (Object.keys(normalizedTitles).length > 0) {
-        setTitleByEntryId((current) => {
-          const next = { ...current, ...normalizedTitles };
-          saveJournalTitles(next);
-          return next;
-        });
+        Object.entries(normalizedTitles).forEach(([id, title]) => setJournalTitleAction(id, title));
       }
 
       await fetchEntries();

@@ -24,6 +24,8 @@ import { analyticsApi } from '../services/api.js';
 import { useRisk } from '../contexts/RiskContext.js';
 import { AnalyticsSummary } from '../types/index.js';
 import { formatCurrency } from '../utils/calculations.js';
+import useFlyxaStore from '../store/flyxaStore.js';
+import type { ChartHistoryRecord } from '../store/types.js';
 
 declare global {
   interface Window {
@@ -62,7 +64,6 @@ interface BacktestSessionRecord extends BacktestConfig {
 const TV_SCRIPT_SRC = 'https://s3.tradingview.com/tv.js';
 const TV_CONTAINER_ID = 'tradingview_chart';
 const BACKTEST_CONFIG_KEY = 'tw_backtest_config_v1';
-const BACKTEST_HISTORY_KEY = 'tw_backtest_history_v1';
 
 const TIMEFRAME_OPTIONS: Array<{ label: string; value: ChartInterval }> = [
   { label: '1m', value: '1' },
@@ -185,37 +186,6 @@ function parseStoredConfig() {
   }
 }
 
-function parseStoredHistory() {
-  const raw = localStorage.getItem(BACKTEST_HISTORY_KEY);
-  if (!raw) {
-    return [];
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as Array<Partial<BacktestSessionRecord> & { id?: string }>;
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    return parsed
-      .filter(item => item.symbolDisplay && item.widgetSymbol && item.timeframe)
-      .map((item, index) => ({
-        sessionId: item.sessionId || item.id || `history-${index}-${Date.now()}`,
-        symbolDisplay: item.symbolDisplay as string,
-        widgetSymbol: item.widgetSymbol as string,
-        timeframe: item.timeframe as ChartInterval,
-        accountBalance: Number(item.accountBalance || 0),
-        startDate: item.startDate || getDefaultDates().startDate,
-        endDate: item.endDate || getDefaultDates().endDate,
-        speed: (item.speed as ReplaySpeed) || 1,
-        createdAt: item.createdAt || new Date().toISOString(),
-        lastOpenedAt: item.lastOpenedAt || item.createdAt || new Date().toISOString(),
-      }))
-      .sort((a, b) => Date.parse(b.lastOpenedAt) - Date.parse(a.lastOpenedAt));
-  } catch {
-    return [];
-  }
-}
 
 function resolveSymbol(input: string) {
   const normalized = input.trim().toUpperCase();
@@ -257,7 +227,8 @@ export default function Chart() {
   const defaultDates = getDefaultDates();
   const [config, setConfig] = useState<BacktestConfig | null>(null);
   const [savedConfig, setSavedConfig] = useState<BacktestConfig | null>(() => parseStoredConfig());
-  const [sessionHistory, setSessionHistory] = useState<BacktestSessionRecord[]>(() => parseStoredHistory());
+  const sessionHistory = useFlyxaStore(state => state.chartHistory) as BacktestSessionRecord[];
+  const setChartHistoryAction = useFlyxaStore(state => state.setChartHistory);
   const [isSetupOpen, setIsSetupOpen] = useState(false);
 
   const [setupSymbolInput, setSetupSymbolInput] = useState('NQ1');
@@ -358,9 +329,6 @@ export default function Chart() {
     }
   }, [savedConfig]);
 
-  useEffect(() => {
-    localStorage.setItem(BACKTEST_HISTORY_KEY, JSON.stringify(sessionHistory));
-  }, [sessionHistory]);
 
   useEffect(() => {
     analyticsApi.getSummary()
@@ -469,22 +437,20 @@ export default function Chart() {
   const syncSessionRecord = (nextConfig: BacktestConfig) => {
     setConfig(nextConfig);
     setSavedConfig(nextConfig);
-    setSessionHistory(current => {
-      const timestamp = new Date().toISOString();
-      const existing = current.find(item => item.sessionId === nextConfig.sessionId);
-      if (!existing) {
-        return [toSessionRecord(nextConfig), ...current];
-      }
-
-      const nextHistory = current.map(item => (
+    const timestamp = new Date().toISOString();
+    const existing = sessionHistory.find(item => item.sessionId === nextConfig.sessionId);
+    let nextHistory: BacktestSessionRecord[];
+    if (!existing) {
+      nextHistory = [toSessionRecord(nextConfig), ...sessionHistory];
+    } else {
+      nextHistory = sessionHistory.map(item => (
         item.sessionId === nextConfig.sessionId
           ? { ...item, ...nextConfig, lastOpenedAt: timestamp }
           : item
       ));
-
       nextHistory.sort((a, b) => Date.parse(b.lastOpenedAt) - Date.parse(a.lastOpenedAt));
-      return nextHistory;
-    });
+    }
+    setChartHistoryAction(nextHistory as ChartHistoryRecord[]);
   };
 
   const updateCurrentSession = (updater: (current: BacktestConfig) => BacktestConfig) => {
