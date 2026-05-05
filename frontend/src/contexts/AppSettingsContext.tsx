@@ -397,7 +397,16 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
       ...account,
     };
     setAccounts(current => ensureDefaultAccount([...current, nextAccount]));
-  }, []);
+    if (user) {
+      supabase.from('trading_accounts').insert({
+        id: nextAccount.id, user_id: user.id, name: nextAccount.name,
+        broker: nextAccount.broker || null, credentials: nextAccount.credentials || null,
+        type: nextAccount.type, status: nextAccount.status, color: nextAccount.color,
+      }).then(({ error }) => {
+        if (error) console.error('[Accounts] Failed to save new account:', error.message);
+      });
+    }
+  }, [user]);
 
   const updateAccount = useCallback((accountId: string, updates: Partial<Omit<TradingAccount, 'id' | 'createdAt'>>) => {
     setAccounts(current => current.map(account => (
@@ -405,7 +414,20 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
         ? { ...account, ...updates }
         : account
     )));
-  }, []);
+    if (user && accountId !== DEFAULT_ACCOUNT_ID) {
+      supabase.from('trading_accounts').update({
+        ...('name' in updates ? { name: updates.name } : {}),
+        ...('broker' in updates ? { broker: updates.broker || null } : {}),
+        ...('credentials' in updates ? { credentials: updates.credentials || null } : {}),
+        ...('type' in updates ? { type: updates.type } : {}),
+        ...('status' in updates ? { status: updates.status } : {}),
+        ...('color' in updates ? { color: updates.color } : {}),
+        updated_at: new Date().toISOString(),
+      }).eq('id', accountId).eq('user_id', user.id).then(({ error }) => {
+        if (error) console.error('[Accounts] Failed to update account:', error.message);
+      });
+    }
+  }, [user]);
 
   const deleteAccount = useCallback((accountId: string) => {
     if (accountId === DEFAULT_ACCOUNT_ID) return;
@@ -418,7 +440,14 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
       ])
     ));
     setSelectedAccountIdState(current => current === accountId ? ALL_ACCOUNTS_ID : current);
-  }, []);
+    if (user) {
+      supabase.from('trading_accounts').delete()
+        .eq('id', accountId).eq('user_id', user.id)
+        .then(({ error }) => {
+          if (error) console.error('[Accounts] Failed to delete account:', error.message);
+        });
+    }
+  }, [user]);
 
   const updatePreferences = useCallback((updates: Partial<AppPreferences>) => {
     setPreferences(current => ({ ...current, ...updates }));
