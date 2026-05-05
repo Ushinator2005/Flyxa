@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
+import { supabaseZustandStorage } from './supabaseStorage.js';
 import { lookupContract } from '../constants/futuresContracts.js';
 import { DEFAULT_ACHIEVEMENTS, mergeAchievementCatalog, refreshAchievements } from './achievements.js';
 import { pushToast } from './toastStore.js';
@@ -616,6 +617,7 @@ const useFlyxaStore = create<FlyxaStore>()(
     }),
     {
       name: 'flyxa-store',
+      storage: createJSONStorage(() => supabaseZustandStorage),
       version: 1,
       merge: (persistedState, currentState) => {
         const persisted = (persistedState as Partial<FlyxaStore> | undefined) ?? {};

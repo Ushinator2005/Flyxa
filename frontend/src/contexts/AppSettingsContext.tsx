@@ -1,14 +1,15 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { AppPreferences, Trade, TradingAccount, TradingAccountStatus } from '../types/index.js';
 import { useAuth } from './AuthContext.js';
 import { deriveTradeSessionLabel } from '../utils/sessionTimes.js';
 import useFlyxaStore from '../store/flyxaStore.js';
 import type { Account } from '../store/types.js';
+import { supabase } from '../services/api.js';
 
 export const ALL_ACCOUNTS_ID = 'all';
 export const DEFAULT_ACCOUNT_ID = 'default-account';
 const DEFAULT_TIMEZONE = 'America/New_York';
-const TIMEZONE_STORAGE_KEY = 'settings.timezone';
+
 
 const SUPPORTED_TIMEZONE_SET = (() => {
   const intlWithSupportedValues = Intl as unknown as { supportedValuesOf?: (key: string) => string[] };
@@ -142,24 +143,51 @@ interface AppSettingsContextValue {
 
 const AppSettingsContext = createContext<AppSettingsContextValue | undefined>(undefined);
 
-function getAccountsKey(userId: string) {
-  return `tw_accounts_${userId}`;
+// localStorage keys kept only for one-time migration
+function getAccountsKey(userId: string) { return `tw_accounts_${userId}`; }
+function getPreferencesKey(userId: string) { return `tw_preferences_${userId}`; }
+function getSelectedAccountKey(userId: string) { return `tw_selected_account_${userId}`; }
+function getTradeAccountsKey(userId: string) { return `tw_trade_accounts_${userId}`; }
+function getConfluenceOptionsKey(userId: string) { return `tw_confluence_options_${userId}`; }
+
+interface AppSettingsRow {
+  accounts?: TradingAccount[];
+  preferences?: Partial<AppPreferences>;
+  selectedAccountId?: string;
+  tradeAccounts?: Record<string, string>;
+  confluenceOptions?: string[];
 }
 
-function getPreferencesKey(userId: string) {
-  return `tw_preferences_${userId}`;
+async function loadAppSettingsFromSupabase(userId: string): Promise<AppSettingsRow | null> {
+  try {
+    const { data, error } = await supabase
+      .from('user_store')
+      .select('app_settings')
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (!error && data?.app_settings) return data.app_settings as AppSettingsRow;
+  } catch { /* fall through to localStorage migration */ }
+  return null;
 }
 
-function getSelectedAccountKey(userId: string) {
-  return `tw_selected_account_${userId}`;
+async function saveAppSettingsToSupabase(userId: string, row: AppSettingsRow): Promise<void> {
+  try {
+    await supabase.from('user_store').upsert(
+      { user_id: userId, app_settings: row, updated_at: new Date().toISOString() },
+      { onConflict: 'user_id' }
+    );
+  } catch { /* silently fail */ }
 }
 
-function getTradeAccountsKey(userId: string) {
-  return `tw_trade_accounts_${userId}`;
-}
-
-function getConfluenceOptionsKey(userId: string) {
-  return `tw_confluence_options_${userId}`;
+function migrateFromLocalStorage(userId: string): AppSettingsRow {
+  const tryParse = (raw: string | null) => { try { return raw ? JSON.parse(raw) : null; } catch { return null; } };
+  return {
+    accounts: tryParse(localStorage.getItem(getAccountsKey(userId))) ?? undefined,
+    preferences: tryParse(localStorage.getItem(getPreferencesKey(userId))) ?? undefined,
+    selectedAccountId: localStorage.getItem(getSelectedAccountKey(userId)) ?? undefined,
+    tradeAccounts: tryParse(localStorage.getItem(getTradeAccountsKey(userId))) ?? undefined,
+    confluenceOptions: tryParse(localStorage.getItem(getConfluenceOptionsKey(userId))) ?? undefined,
+  };
 }
 
 function normalizeAccountStatus(
@@ -191,78 +219,19 @@ function ensureDefaultAccount(accounts: TradingAccount[]): TradingAccount[] {
   return [DEFAULT_ACCOUNT, ...withoutDuplicates];
 }
 
-function loadAccounts(userId: string): TradingAccount[] {
-  if (typeof window === 'undefined') return [DEFAULT_ACCOUNT];
-
-  try {
-    const raw = window.localStorage.getItem(getAccountsKey(userId));
-    if (!raw) return [DEFAULT_ACCOUNT];
-    const parsed = JSON.parse(raw) as unknown;
-    return Array.isArray(parsed) ? ensureDefaultAccount(parsed as TradingAccount[]) : [DEFAULT_ACCOUNT];
-  } catch {
-    return [DEFAULT_ACCOUNT];
-  }
-}
-
-function loadPreferences(userId: string): AppPreferences {
-  if (typeof window === 'undefined') return DEFAULT_PREFERENCES;
-
-  try {
-    const raw = window.localStorage.getItem(getPreferencesKey(userId));
-    const parsed = raw ? JSON.parse(raw) as Partial<AppPreferences> : {};
-    const rawTimezone = window.localStorage.getItem(TIMEZONE_STORAGE_KEY) ?? parsed.timezone ?? DEFAULT_TIMEZONE;
-    const normalizedTimezone = SUPPORTED_TIMEZONE_SET.has(rawTimezone) ? rawTimezone : DEFAULT_TIMEZONE;
-
-    return {
-      ...DEFAULT_PREFERENCES,
-      ...parsed,
-      timezone: normalizedTimezone,
-      sessionTimes: normalizeSessionTimes(parsed.sessionTimes),
-      scannerColors: {
-        ...DEFAULT_PREFERENCES.scannerColors,
-        ...(typeof parsed.scannerColors === 'object' && parsed.scannerColors !== null ? parsed.scannerColors as object : {}),
-      },
-    };
-  } catch {
-    const fallbackTimezone = window.localStorage.getItem(TIMEZONE_STORAGE_KEY) ?? DEFAULT_TIMEZONE;
-    return {
-      ...DEFAULT_PREFERENCES,
-      timezone: SUPPORTED_TIMEZONE_SET.has(fallbackTimezone) ? fallbackTimezone : DEFAULT_TIMEZONE,
-      sessionTimes: DEFAULT_PREFERENCES.sessionTimes,
-    };
-  }
-}
-
-function loadSelectedAccount(userId: string): string {
-  if (typeof window === 'undefined') return ALL_ACCOUNTS_ID;
-  return window.localStorage.getItem(getSelectedAccountKey(userId)) || ALL_ACCOUNTS_ID;
-}
-
-function loadTradeAccounts(userId: string): Record<string, string> {
-  if (typeof window === 'undefined') return {};
-
-  try {
-    const raw = window.localStorage.getItem(getTradeAccountsKey(userId));
-    if (!raw) return {};
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    return Object.fromEntries(
-      Object.entries(parsed).filter((entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1].trim() !== '')
-    );
-  } catch {
-    return {};
-  }
-}
-
-function loadConfluenceOptions(userId: string): string[] {
-  if (typeof window === 'undefined') return [...DEFAULT_CONFLUENCE_OPTIONS];
-
-  try {
-    const raw = window.localStorage.getItem(getConfluenceOptionsKey(userId));
-    if (!raw) return [...DEFAULT_CONFLUENCE_OPTIONS];
-    return normalizeConfluenceOptions(JSON.parse(raw) as unknown);
-  } catch {
-    return [...DEFAULT_CONFLUENCE_OPTIONS];
-  }
+function parsePreferences(parsed: Partial<AppPreferences> | undefined): AppPreferences {
+  if (!parsed) return DEFAULT_PREFERENCES;
+  const rawTimezone = parsed.timezone ?? DEFAULT_TIMEZONE;
+  return {
+    ...DEFAULT_PREFERENCES,
+    ...parsed,
+    timezone: SUPPORTED_TIMEZONE_SET.has(rawTimezone) ? rawTimezone : DEFAULT_TIMEZONE,
+    sessionTimes: normalizeSessionTimes(parsed.sessionTimes),
+    scannerColors: {
+      ...DEFAULT_PREFERENCES.scannerColors,
+      ...(typeof parsed.scannerColors === 'object' && parsed.scannerColors !== null ? parsed.scannerColors as object : {}),
+    },
+  };
 }
 
 export function AppSettingsProvider({ children }: { children: React.ReactNode }) {
@@ -275,7 +244,10 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
   const [confluenceOptions, setConfluenceOptions] = useState<string[]>([...DEFAULT_CONFLUENCE_OPTIONS]);
   const [selectedAccountId, setSelectedAccountIdState] = useState<string>(ALL_ACCOUNTS_ID);
   const [tradeAccounts, setTradeAccounts] = useState<Record<string, string>>({});
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const initialLoadDone = useRef(false);
 
+  // Load from Supabase on user login
   useEffect(() => {
     if (!user) {
       setAccounts([DEFAULT_ACCOUNT]);
@@ -283,49 +255,52 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
       setConfluenceOptions([...DEFAULT_CONFLUENCE_OPTIONS]);
       setSelectedAccountIdState(ALL_ACCOUNTS_ID);
       setTradeAccounts({});
+      initialLoadDone.current = false;
       return;
     }
 
-    const nextAccounts = loadAccounts(user.id);
-    setAccounts(nextAccounts);
-    setPreferences(loadPreferences(user.id));
-    setConfluenceOptions(loadConfluenceOptions(user.id));
-    setTradeAccounts(loadTradeAccounts(user.id));
+    void (async () => {
+      let row = await loadAppSettingsFromSupabase(user.id);
 
-    const storedSelection = loadSelectedAccount(user.id);
-    const isValidSelection = storedSelection === ALL_ACCOUNTS_ID || nextAccounts.some(account => account.id === storedSelection);
-    setSelectedAccountIdState(isValidSelection ? storedSelection : ALL_ACCOUNTS_ID);
+      // First time — migrate from localStorage
+      if (!row || Object.values(row).every(v => v === undefined)) {
+        row = migrateFromLocalStorage(user.id);
+        if (Object.values(row).some(v => v !== undefined)) {
+          void saveAppSettingsToSupabase(user.id, row);
+        }
+      }
+
+      const nextAccounts = Array.isArray(row.accounts) ? ensureDefaultAccount(row.accounts) : [DEFAULT_ACCOUNT];
+      setAccounts(nextAccounts);
+      setPreferences(parsePreferences(row.preferences));
+      setConfluenceOptions(normalizeConfluenceOptions(row.confluenceOptions));
+      setTradeAccounts(
+        row.tradeAccounts && typeof row.tradeAccounts === 'object'
+          ? Object.fromEntries(Object.entries(row.tradeAccounts).filter((e): e is [string, string] => typeof e[1] === 'string'))
+          : {}
+      );
+      const stored = row.selectedAccountId ?? ALL_ACCOUNTS_ID;
+      setSelectedAccountIdState(stored === ALL_ACCOUNTS_ID || nextAccounts.some(a => a.id === stored) ? stored : ALL_ACCOUNTS_ID);
+      initialLoadDone.current = true;
+    })();
   }, [user]);
 
-  useEffect(() => {
-    if (!user) return;
-    window.localStorage.setItem(getAccountsKey(user.id), JSON.stringify(ensureDefaultAccount(accounts)));
-  }, [accounts, user]);
+  // Debounced save to Supabase whenever any settings change
+  const scheduleSave = useCallback(() => {
+    if (!user || !initialLoadDone.current) return;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      void saveAppSettingsToSupabase(user.id, {
+        accounts: ensureDefaultAccount(accounts),
+        preferences,
+        selectedAccountId,
+        tradeAccounts,
+        confluenceOptions,
+      });
+    }, 1500);
+  }, [user, accounts, preferences, selectedAccountId, tradeAccounts, confluenceOptions]);
 
-  useEffect(() => {
-    if (!user) return;
-    window.localStorage.setItem(getPreferencesKey(user.id), JSON.stringify(preferences));
-  }, [preferences, user]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    window.localStorage.setItem(TIMEZONE_STORAGE_KEY, preferences.timezone);
-  }, [preferences.timezone]);
-
-  useEffect(() => {
-    if (!user) return;
-    window.localStorage.setItem(getSelectedAccountKey(user.id), selectedAccountId);
-  }, [selectedAccountId, user]);
-
-  useEffect(() => {
-    if (!user) return;
-    window.localStorage.setItem(getTradeAccountsKey(user.id), JSON.stringify(tradeAccounts));
-  }, [tradeAccounts, user]);
-
-  useEffect(() => {
-    if (!user) return;
-    window.localStorage.setItem(getConfluenceOptionsKey(user.id), JSON.stringify(confluenceOptions));
-  }, [confluenceOptions, user]);
+  useEffect(() => { scheduleSave(); }, [scheduleSave]);
 
   useEffect(() => {
     const mapped: Account[] = accounts.map(account => ({

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '../services/api.js';
+import useFlyxaStore from '../store/flyxaStore.js';
 
 interface AuthContextType {
   user: User | null;
@@ -26,10 +27,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);
+
+      if (event === 'SIGNED_IN') {
+        void useFlyxaStore.persist.rehydrate();
+      }
+      if (event === 'SIGNED_OUT') {
+        useFlyxaStore.persist.clearStorage();
+      }
     });
 
     return () => subscription.unsubscribe();
