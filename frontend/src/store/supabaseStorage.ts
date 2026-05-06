@@ -115,12 +115,22 @@ export const supabaseZustandStorage: StateStorage = {
         const localSavedMs = parseInt(localStorage.getItem(LOCAL_SAVED_AT_KEY) ?? '0', 10);
         const local = localStorage.getItem('flyxa-store');
 
-        // If localStorage was written more than 2s after the last confirmed Supabase save,
-        // it has changes that never reached Supabase (debounce cut short by page close).
-        // Use the local copy and immediately resync it.
+        // Only prefer local over Supabase if:
+        // 1. Local was written after the last confirmed Supabase save (unsaved changes), AND
+        // 2. Local actually has more journal entries than Supabase (never overwrite with less data)
         if (local && localSavedMs > supabaseMs + 2000) {
-          void flushSave(userId, local);
-          return local;
+          try {
+            const localParsed = JSON.parse(local) as { state?: { entries?: unknown[] } };
+            const remoteParsed = data.flyxa_data as { state?: { entries?: unknown[] } };
+            const localEntryCount = localParsed?.state?.entries?.length ?? 0;
+            const remoteEntryCount = remoteParsed?.state?.entries?.length ?? 0;
+
+            // Local is only authoritative if it has at least as many entries as Supabase
+            if (localEntryCount >= remoteEntryCount) {
+              void flushSave(userId, local);
+              return local;
+            }
+          } catch { /* fall through to use Supabase */ }
         }
 
         return JSON.stringify(data.flyxa_data);
