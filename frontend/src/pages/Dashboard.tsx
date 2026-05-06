@@ -180,22 +180,20 @@ function StatCard({ icon, color, dim, label, value, badgeLabel, badgeTone = 'neu
   badgeLabel?: string; badgeTone?: BadgeTone;
 }) {
   return (
-    <Card>
-      <div style={{ padding: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <p style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: T3, marginBottom: 6 }}>
-            {label}
-          </p>
-          <p style={{
-            fontSize: 20, fontWeight: 500, fontFamily: MONO,
-            fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em',
-            fontFeatureSettings: "'zero' 1",
-            lineHeight: 1, marginBottom: 6, color: T1,
-          }}>
-            {value}
-          </p>
-          <DeltaBadge label={badgeLabel} tone={badgeTone} />
-        </div>
+    <Card style={{ borderTop: `2px solid ${color}` }}>
+      <div style={{ padding: '16px 18px' }}>
+        <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: T2, marginBottom: 8 }}>
+          {label}
+        </p>
+        <p style={{
+          fontSize: 26, fontWeight: 700, fontFamily: MONO,
+          fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.03em',
+          fontFeatureSettings: "'zero' 1",
+          lineHeight: 1, marginBottom: 8, color,
+        }}>
+          {value}
+        </p>
+        <DeltaBadge label={badgeLabel} tone={badgeTone} />
       </div>
     </Card>
   );

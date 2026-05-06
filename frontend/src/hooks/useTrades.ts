@@ -62,7 +62,7 @@ function toApiTrade(trade: StoreTrade): ApiTrade {
     contract_size: trade.contracts,
     point_value: 1,
     trade_date: trade.date,
-    trade_time: trade.time,
+    trade_time: trade.time || (trade as unknown as { entryTime?: string }).entryTime,
     close_time: trade.exitTime,
     trade_length_seconds: trade.duration ? trade.duration * 60 : 0,
     candle_count: 0,
