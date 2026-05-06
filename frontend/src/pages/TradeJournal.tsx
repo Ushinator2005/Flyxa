@@ -968,7 +968,7 @@ function TradeReflectionBlock({ trade, onMutate, onRuleForce }: TradeReflectionB
 export default function TradeJournal() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
-  const { preferences } = useAppSettings();
+  const { preferences, accounts } = useAppSettings();
   const { user } = useAuth();
   const { deleteTrade: deleteTradeEverywhere } = useTrades();
   const persistedEntries = useFlyxaStore(state => state.entries);
@@ -1363,14 +1363,18 @@ export default function TradeJournal() {
       reader.readAsDataURL(file);
     });
     const url = user ? await uploadScreenshot(dataUrl, user.id) : dataUrl;
+    const currentTradeId = activeTradeId;
     mutateEntries(prev => prev.map(entry => {
       if (entry.id !== selectedEntry.id) return entry;
       const nextScreenshots = [...entry.screenshots];
       nextScreenshots[slot] = url;
-      return { ...entry, screenshots: nextScreenshots };
+      const nextTrades = entry.trades.map(t =>
+        t.id === currentTradeId ? { ...t, screenshotUrl: url } : t
+      );
+      return { ...entry, screenshots: nextScreenshots, trades: nextTrades };
     }));
     screenshotSlotRef.current = null;
-  }, [mutateEntries, selectedEntry, user]);
+  }, [activeTradeId, mutateEntries, selectedEntry, user]);
 
   const primaryScreenshot = selectedEntry
     ? (activeTrade?.screenshotUrl || selectedEntry.screenshots[0] || selectedEntry.scannedImageUrl || '')
@@ -1513,7 +1517,11 @@ export default function TradeJournal() {
               <div>
                 <p className="tj-entry-title">{formatDateTitle(selectedEntry.date)}</p>
                 <p className="tj-entry-sub">
-                  Apex Funded | Live | <strong>{formatSignedCurrency(computeEntryStats(selectedEntry).pnl)}</strong> | Grade {computeEntryStats(selectedEntry).grade}
+                  {(() => {
+                    const acctId = activeTrade?.accountId;
+                    const acct = accounts.find(a => a.id === acctId);
+                    return acct ? `${acct.name} | ${acct.type}` : null;
+                  })()} | <strong>{formatSignedCurrency(computeEntryStats(selectedEntry).pnl)}</strong> | Grade {computeEntryStats(selectedEntry).grade}
                 </p>
               </div>
               <div className="tj-head-actions">
