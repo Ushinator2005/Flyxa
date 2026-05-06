@@ -182,7 +182,6 @@ function StatCard({ icon, color, dim, label, value, badgeLabel, badgeTone = 'neu
   return (
     <Card>
       <div style={{ padding: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
-        <IconBadge color={color} dim={dim}>{icon}</IconBadge>
         <div style={{ flex: 1, minWidth: 0 }}>
           <p style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: T3, marginBottom: 6 }}>
             {label}
