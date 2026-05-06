@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '../services/api.js';
 import useFlyxaStore from '../store/flyxaStore.js';
@@ -19,20 +19,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const wasLoggedInRef = useRef(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);
+      wasLoggedInRef.current = !!session;
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      const wasLoggedIn = wasLoggedInRef.current;
+      const isLoggedIn = !!session;
+      wasLoggedInRef.current = isLoggedIn;
+
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);
 
-      if (event === 'SIGNED_IN') {
+      // Only rehydrate when actually signing in (not on token refresh or other events)
+      if (event === 'SIGNED_IN' && !wasLoggedIn) {
         void useFlyxaStore.persist.rehydrate();
       }
       if (event === 'SIGNED_OUT') {
