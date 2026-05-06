@@ -1045,6 +1045,7 @@ export default function TradeJournal() {
     if (!targetEntry) return;
     setSelectedEntryId(targetEntry.id);
     if (tradeId) setActiveTradeId(tradeId);
+    setShowScanner(false);
   }, [entries, params]);
 
   useEffect(() => {
