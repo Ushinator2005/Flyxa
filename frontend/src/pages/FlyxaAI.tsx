@@ -48,7 +48,6 @@ type WeeklyDebriefData = {
   confluences: ConfluenceHighlight[];
   focusItems: string[];
   nextDebrief: { generatedOn: string; sessionsLogged: number; sessionsTarget: number };
-  history: Array<{ label: string; resultR: string; sessions: number }>;
 };
 
 
@@ -368,7 +367,6 @@ function buildData(trades: Trade[]): WeeklyDebriefData {
         sessionsLogged: 0,
         sessionsTarget: 5,
       },
-      history: [],
     };
   }
 
@@ -616,16 +614,6 @@ function buildData(trades: Trade[]): WeeklyDebriefData {
     return addDays(weekEnd, days);
   })();
 
-  const history = Array.from({ length: 4 }, (_, idx) => {
-    const start = addDays(weekStart, -7 * (idx + 1));
-    const end = addDays(start, 6);
-    const bucket = ordered.filter(t => inRange(t, start, end));
-    const bucketSummary = summarize(bucket);
-    const sessions = new Set(bucket.map(tradeSessionKey).filter(Boolean)).size;
-    const label = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    return { label: `${label} debrief`, resultR: formatSignedR(bucketSummary.netR), sessions };
-  });
-
   return {
     weekRange: formatWeekRange(weekStart, weekEnd),
     sessionCount,
@@ -648,7 +636,6 @@ function buildData(trades: Trade[]): WeeklyDebriefData {
       sessionsLogged: sessionCount,
       sessionsTarget: 5,
     },
-    history,
   };
 }
 
@@ -890,19 +877,6 @@ export default function FlyxaAI() {
             ))}
           </nav>
 
-          <div className="mt-6 border-t px-2 pt-4" style={{ borderColor: colors.b0 }}>
-            <p style={tinyMetaLabelStyle}>History</p>
-            <div className="mt-2.5 space-y-2">
-              {weeklyDebriefData.history.map(item => (
-                <button key={item.label} type="button" className="w-full px-0 py-0.5 text-left">
-                  <p className="text-[12px]" style={{ color: colors.t1 }}>{item.label}</p>
-                  <p className="mt-0.5 text-[10.5px]" style={{ color: colors.t2 }}>
-                    {item.resultR} &middot; {item.sessions} sessions
-                  </p>
-                </button>
-              ))}
-            </div>
-          </div>
         </aside>
 
         <main className="min-h-0 overflow-hidden" style={{ backgroundColor: colors.d0 }}>

@@ -126,4 +126,26 @@ router.get('/chart', authMiddleware, async (req: Request, res: Response, next: N
   }
 });
 
+router.get('/ff-calendar', authMiddleware, async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const [thisWeek, nextWeek] = await Promise.allSettled([
+      fetch('https://nfs.faireconomy.media/ff_calendar_thisweek.json', {
+        headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' },
+      }).then(r => r.ok ? r.json() : []),
+      fetch('https://nfs.faireconomy.media/ff_calendar_nextweek.json', {
+        headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' },
+      }).then(r => r.ok ? r.json() : []),
+    ]);
+
+    const combined = [
+      ...(thisWeek.status === 'fulfilled' && Array.isArray(thisWeek.value) ? thisWeek.value : []),
+      ...(nextWeek.status === 'fulfilled' && Array.isArray(nextWeek.value) ? nextWeek.value : []),
+    ];
+
+    return res.json(combined);
+  } catch (error) {
+    return next(error);
+  }
+});
+
 export default router;

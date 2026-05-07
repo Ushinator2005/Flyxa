@@ -62,18 +62,6 @@ function winRateBadge(winRate: number): string {
 
 // ── Sub-components ───────────────────────────────────────────────
 
-function IconBadge({ color, dim, children }: { color: string; dim: string; children: React.ReactNode }) {
-  return (
-    <div style={{
-      width: 40, height: 40, borderRadius: 8, flexShrink: 0,
-      background: dim, color,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-    }}>
-      {children}
-    </div>
-  );
-}
-
 function EquityCurveIcon() {
   return (
     <svg width="17" height="17" viewBox="0 0 17 17" fill="none" aria-hidden="true">
@@ -174,7 +162,7 @@ function CardHeader({ title, sub, right }: { title: string; sub?: string; right?
   );
 }
 
-function StatCard({ icon, color, dim, label, value, badgeLabel, badgeTone = 'neutral' }: {
+function StatCard({ color, label, value, badgeLabel, badgeTone = 'neutral' }: {
   icon: React.ReactNode; color: string; dim: string;
   label: string; value: string;
   badgeLabel?: string; badgeTone?: BadgeTone;

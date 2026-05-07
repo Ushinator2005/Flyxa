@@ -1,7 +1,17 @@
-import { Settings } from 'lucide-react';
+import { Settings, ChevronDown } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import ThemeToggle from '../common/ThemeToggle.js';
 import { ALL_ACCOUNTS_ID, useAppSettings } from '../../contexts/AppSettingsContext.js';
+
+function accountStatusColor(status: string): string {
+  const s = status.toLowerCase();
+  if (s === 'blown')  return '#ef4444';
+  if (s === 'eval')   return '#3b82f6';
+  if (s === 'funded') return '#22c55e';
+  if (s === 'live')   return '#f59e0b';
+  return 'var(--app-text-subtle)';
+}
 
 const pageNames: Record<string, string> = {
   '/': 'Dashboard',
@@ -25,6 +35,22 @@ export default function Header() {
   const navigate = useNavigate();
   const { accounts, selectedAccountId, setSelectedAccountId } = useAppSettings();
   const pageName = pageNames[location.pathname] || 'Flyxa';
+  const [open, setOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  const selectedAccount = accounts.find(a => a.id === selectedAccountId);
+  const selectedColor = selectedAccount ? accountStatusColor(selectedAccount.status) : null;
+  const selectedLabel = selectedAccount?.name ?? 'All Accounts';
 
   return (
     <header
@@ -51,19 +77,19 @@ export default function Header() {
         {pageName}
       </h1>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <label style={{ position: 'relative' }}>
-          <span className="sr-only">Select account</span>
-          <select
-            value={selectedAccountId}
-            onChange={event => setSelectedAccountId(event.target.value)}
+        {/* Custom account dropdown with color dots */}
+        <div ref={dropdownRef} style={{ position: 'relative' }}>
+          <button
+            type="button"
+            onClick={() => setOpen(o => !o)}
             style={{
               height: 34,
               minWidth: 180,
-              appearance: 'none',
-              paddingLeft: 12,
-              paddingRight: 32,
-              paddingTop: 0,
-              paddingBottom: 0,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              paddingLeft: 10,
+              paddingRight: 10,
               fontSize: 12,
               fontFamily: 'var(--font-sans)',
               fontWeight: 500,
@@ -75,23 +101,82 @@ export default function Header() {
               outline: 'none',
             }}
           >
-            <option value={ALL_ACCOUNTS_ID}>All Accounts</option>
-            {accounts.map(account => (
-              <option key={account.id} value={account.id}>
-                {account.name}
-              </option>
-            ))}
-          </select>
-          <span style={{
-            pointerEvents: 'none',
-            position: 'absolute',
-            right: 10,
-            top: '50%',
-            transform: 'translateY(-50%)',
-            fontSize: 10,
-            color: 'var(--app-text-subtle)',
-          }}>▼</span>
-        </label>
+            {selectedColor ? (
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: selectedColor, flexShrink: 0 }} />
+            ) : (
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--app-text-subtle)', flexShrink: 0 }} />
+            )}
+            <span style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {selectedLabel}
+            </span>
+            <ChevronDown size={11} style={{ flexShrink: 0, opacity: 0.5 }} />
+          </button>
+
+          {open && (
+            <div style={{
+              position: 'absolute',
+              top: 'calc(100% + 4px)',
+              right: 0,
+              minWidth: 200,
+              background: 'var(--app-panel)',
+              border: '1px solid var(--app-border)',
+              borderRadius: 8,
+              padding: '4px 0',
+              zIndex: 9999,
+              boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
+            }}>
+              {/* All Accounts option */}
+              <button
+                type="button"
+                onClick={() => { setSelectedAccountId(ALL_ACCOUNTS_ID); setOpen(false); }}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '7px 12px',
+                  fontSize: 12,
+                  fontFamily: 'var(--font-sans)',
+                  color: selectedAccountId === ALL_ACCOUNTS_ID ? 'var(--app-text)' : 'var(--app-text-muted)',
+                  background: selectedAccountId === ALL_ACCOUNTS_ID ? 'var(--app-panel-strong)' : 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                }}
+              >
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--app-text-subtle)', flexShrink: 0 }} />
+                All Accounts
+                {selectedAccountId === ALL_ACCOUNTS_ID && <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--amber)' }}>✓</span>}
+              </button>
+
+              {accounts.map(account => (
+                <button
+                  key={account.id}
+                  type="button"
+                  onClick={() => { setSelectedAccountId(account.id); setOpen(false); }}
+                  style={{
+                    width: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '7px 12px',
+                    fontSize: 12,
+                    fontFamily: 'var(--font-sans)',
+                    color: selectedAccountId === account.id ? 'var(--app-text)' : 'var(--app-text-muted)',
+                    background: selectedAccountId === account.id ? 'var(--app-panel-strong)' : 'transparent',
+                    border: 'none',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                  }}
+                >
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: accountStatusColor(account.status), flexShrink: 0 }} />
+                  <span style={{ flex: 1 }}>{account.name}</span>
+                  {selectedAccountId === account.id && <span style={{ fontSize: 10, color: 'var(--amber)' }}>✓</span>}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <ThemeToggle compact />
         <button
           type="button"

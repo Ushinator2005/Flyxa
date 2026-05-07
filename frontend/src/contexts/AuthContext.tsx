@@ -38,8 +38,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(session?.user ?? null);
       setLoading(false);
 
-      // Only rehydrate when actually signing in (not on token refresh or other events)
-      if (event === 'SIGNED_IN' && !wasLoggedIn) {
+      // Rehydrate on actual sign-in, or on initial session restore if not yet hydrated
+      if ((event === 'SIGNED_IN' && !wasLoggedIn) || (event === 'INITIAL_SESSION' && isLoggedIn && !wasLoggedIn)) {
         void useFlyxaStore.persist.rehydrate();
       }
       if (event === 'SIGNED_OUT') {

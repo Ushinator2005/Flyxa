@@ -3,7 +3,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Brain, BarChart2, Target,
   Heart, FileText, Crosshair, Swords, Trophy,
-  Settings, LogOut, ChevronLeft, ChevronRight, Plus, CreditCard, ScanLine, Newspaper,
+  Settings, LogOut, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Plus, CreditCard, ScanLine, Newspaper,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext.js';
 import { useAppSettings } from '../../contexts/AppSettingsContext.js';
@@ -86,6 +86,16 @@ function SidebarContent({ onNavClick, collapsed }: { onNavClick?: () => void; co
   const { user, signOut } = useAuth();
   const { accounts, selectedAccountId, setSelectedAccountId } = useAppSettings();
   const selectedAcct = accounts.find(a => a.id === selectedAccountId);
+  const [accountsCollapsed, setAccountsCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem('flyxa-ai.sidebar.accounts.collapsed') === '1';
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem('flyxa-ai.sidebar.accounts.collapsed', accountsCollapsed ? '1' : '0');
+  }, [accountsCollapsed]);
+
   const handleAddAccountClick = () => {
     navigate('/settings#accounts');
     onNavClick?.();
@@ -151,13 +161,67 @@ function SidebarContent({ onNavClick, collapsed }: { onNavClick?: () => void; co
         {/* Accounts */}
         {accounts.length > 0 && (
           <div>
-            {!collapsed && (
-              <p style={{
-                fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase',
-                color: T3, padding: '0 12px', marginBottom: 5,
-              }}>Accounts</p>
-            )}
             {collapsed ? (
+              <button
+                type="button"
+                title={accountsCollapsed ? 'Show accounts' : 'Hide accounts'}
+                aria-label={accountsCollapsed ? 'Show accounts' : 'Hide accounts'}
+                onClick={() => setAccountsCollapsed(current => !current)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: 30,
+                  height: 28,
+                  margin: '0 auto 5px',
+                  borderRadius: 6,
+                  border: 'none',
+                  background: 'transparent',
+                  color: T3,
+                  cursor: 'pointer',
+                  lineHeight: 0,
+                }}
+              >
+                {accountsCollapsed ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
+              </button>
+            ) : (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 8,
+                padding: '0 8px 0 12px',
+                marginBottom: 5,
+              }}>
+                <p style={{
+                  fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase',
+                  color: T3, margin: 0,
+                }}>Accounts</p>
+                <button
+                  type="button"
+                  title={accountsCollapsed ? 'Show accounts' : 'Hide accounts'}
+                  aria-label={accountsCollapsed ? 'Show accounts' : 'Hide accounts'}
+                  onClick={() => setAccountsCollapsed(current => !current)}
+                  style={{
+                    width: 24,
+                    height: 22,
+                    borderRadius: 5,
+                    border: 'none',
+                    background: 'transparent',
+                    color: T3,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: 0,
+                    lineHeight: 0,
+                  }}
+                >
+                  {accountsCollapsed ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
+                </button>
+              </div>
+            )}
+            {accountsCollapsed ? null : collapsed ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'center' }}>
                 {accounts.map(acct => {
                   const sel = selectedAccountId === acct.id;

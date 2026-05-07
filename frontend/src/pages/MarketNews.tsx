@@ -4,11 +4,10 @@ import {
   ChevronDown,
   ChevronUp,
   ExternalLink,
+  Filter,
   RefreshCw,
   Search,
   Settings2,
-  TrendingDown,
-  TrendingUp,
   X,
   Zap,
 } from 'lucide-react';
@@ -30,7 +29,6 @@ const RED_BORDER = 'var(--red-border)';
 const COBALT = 'var(--cobalt)';
 const COBALT_DIM = 'var(--cobalt-dim)';
 const COBALT_BORDER = 'var(--cobalt-border)';
-const PURPLE = '#a78bfa';
 const T1 = 'var(--app-text)';
 const T2 = 'var(--app-text-muted)';
 const T3 = 'var(--app-text-subtle)';
@@ -39,12 +37,15 @@ const MONO = 'var(--font-mono)';
 
 const FINNHUB_KEY = import.meta.env.VITE_FINNHUB_KEY as string | undefined;
 const POLYGON_KEY = import.meta.env.VITE_POLYGON_KEY as string | undefined;
+const FMP_KEY = import.meta.env.VITE_FMP_KEY as string | undefined;
 const CACHE_KEY = 'flyxa_news_cache_v2';
 const SOURCES_KEY = 'flyxa_news_sources';
 const CACHE_TTL = 15 * 60 * 1000;
 const REFRESH_INTERVAL = 3 * 60 * 1000;
 
 type ImpactLevel = 'high' | 'medium' | 'low';
+type ImpactFilter = 'all' | ImpactLevel;
+type CalendarImpactSelection = Record<ImpactLevel, boolean>;
 
 interface RawHeadline {
   headline: string;
@@ -54,18 +55,12 @@ interface RawHeadline {
   url?: string;
 }
 
-interface FuturesQuote {
-  symbol: string;
-  label: string;
-  price: number | null;
-  change: number | null;
-  changePct: number | null;
-}
-
 interface CalendarEvent {
   event: string;
+  date: string; // YYYY-MM-DD
   time: string;
   impact: ImpactLevel;
+  country: string;
   actual?: string;
   forecast?: string;
   previous?: string;
@@ -126,13 +121,6 @@ function writeSourcePrefs(prefs: SourcePrefs) {
   localStorage.setItem(SOURCES_KEY, JSON.stringify(prefs));
 }
 
-function fmtTime(iso: string): string {
-  try {
-    return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  } catch {
-    return iso;
-  }
-}
 
 function fmtRelative(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -185,15 +173,9 @@ function sidebarCardStyle(): React.CSSProperties {
     border: `1px solid ${BORDER}`,
     borderRadius: 8,
     padding: '12px 13px',
-  };
-}
-
-function kpiCardStyle(): React.CSSProperties {
-  return {
-    border: `1px solid ${BORDER}`,
-    borderRadius: 8,
-    background: S1,
-    padding: '8px 10px',
+    minWidth: 0,
+    overflow: 'hidden',
+    boxSizing: 'border-box',
   };
 }
 
@@ -267,48 +249,73 @@ async function fetchPolygonNews(): Promise<RawHeadline[]> {
   }));
 }
 
-async function fetchFuturesQuotes(): Promise<FuturesQuote[]> {
-  if (!FINNHUB_KEY) {
-    return [
-      { symbol: 'ES', label: 'E-mini S&P 500', price: null, change: null, changePct: null },
-      { symbol: 'NQ', label: 'E-mini NASDAQ-100', price: null, change: null, changePct: null },
-    ];
-  }
-
-  const symbols = [
-    { id: 'ES1!', symbol: 'ES', label: 'E-mini S&P 500' },
-    { id: 'NQ1!', symbol: 'NQ', label: 'E-mini NASDAQ-100' },
-  ];
-
-  const results = await Promise.allSettled(
-    symbols.map(async symbol => {
-      const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol.id)}&token=${FINNHUB_KEY}`);
-      if (!res.ok) return { ...symbol, price: null, change: null, changePct: null };
-      const quote = await res.json() as { c: number; d: number; dp: number };
-      return { ...symbol, price: quote.c ?? null, change: quote.d ?? null, changePct: quote.dp ?? null };
-    }),
-  );
-
-  return results.map((result, index) =>
-    result.status === 'fulfilled' ? result.value : { ...symbols[index], price: null, change: null, changePct: null },
-  );
+interface FMPCalEvent {
+  event: string;
+  date: string;
+  country: string;
+  actual: number | null;
+  previous: number | null;
+  change: number | null;
+  changePercentage: number | null;
+  estimate: number | null;
+  impact: string;
+  unit: string;
 }
 
-async function fetchEconomicCalendar(): Promise<CalendarEvent[]> {
-  if (!FINNHUB_KEY) return [];
-  const day = new Date().toISOString().slice(0, 10);
-  const res = await fetch(`https://finnhub.io/api/v1/calendar/economic?from=${day}&to=${day}&token=${FINNHUB_KEY}`);
-  if (!res.ok) return [];
+interface CalendarResult { events: CalendarEvent[]; isToday: boolean }
 
-  const data = await res.json() as { economicCalendar?: Array<{ event: string; time: string; impact: string; actual?: string; estimate?: string; prev?: string }> };
-  return (data.economicCalendar ?? []).slice(0, 12).map(event => ({
-    event: event.event,
-    time: event.time,
-    impact: (event.impact === 'high' || event.impact === 'medium' ? event.impact : 'low') as ImpactLevel,
-    actual: event.actual,
-    forecast: event.estimate,
-    previous: event.prev,
-  }));
+async function fetchForexFactoryCalendar(): Promise<CalendarResult> {
+  if (!FMP_KEY) return { events: [], isToday: true };
+
+  const now = new Date();
+  const todaySlice = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const twoWeeksOut = new Date(now);
+  twoWeeksOut.setDate(twoWeeksOut.getDate() + 14);
+  const endSlice = `${twoWeeksOut.getFullYear()}-${String(twoWeeksOut.getMonth() + 1).padStart(2, '0')}-${String(twoWeeksOut.getDate()).padStart(2, '0')}`;
+
+  let raw: FMPCalEvent[] = [];
+  try {
+    const res = await fetch(
+      `https://financialmodelingprep.com/stable/economic-calendar?from=${todaySlice}&to=${endSlice}&apikey=${FMP_KEY}`
+    );
+    if (!res.ok) return { events: [], isToday: true };
+    raw = await res.json() as FMPCalEvent[];
+  } catch {
+    return { events: [], isToday: true };
+  }
+
+  if (!Array.isArray(raw)) return { events: [], isToday: true };
+
+  const rankImpact = (i: string) => {
+    const lower = i.toLowerCase();
+    return lower === 'high' ? 0 : lower === 'medium' ? 1 : 2;
+  };
+
+  const fmt = (v: number | null, unit: string): string | undefined => {
+    if (v == null) return undefined;
+    return unit ? `${v}${unit}` : String(v);
+  };
+
+  const events: CalendarEvent[] = raw
+    .filter(e => e.country === 'US')
+    .sort((a, b) => {
+      const dateDiff = a.date.slice(0, 10).localeCompare(b.date.slice(0, 10));
+      if (dateDiff !== 0) return dateDiff;
+      return rankImpact(a.impact) - rankImpact(b.impact);
+    })
+    .map(e => ({
+      event: e.event,
+      date: e.date.slice(0, 10),
+      time: e.date.slice(11, 16),
+      country: 'USD',
+      impact: (rankImpact(e.impact) === 0 ? 'high' : rankImpact(e.impact) === 1 ? 'medium' : 'low') as ImpactLevel,
+      actual: fmt(e.actual, e.unit),
+      forecast: fmt(e.estimate, e.unit),
+      previous: fmt(e.previous, e.unit),
+    }));
+
+  const hasToday = events.some(e => e.date === todaySlice);
+  return { events, isToday: hasToday };
 }
 
 function rawToNewsItem(raw: RawHeadline): NewsFilterItem {
@@ -497,63 +504,244 @@ function NewsCard({ item }: { item: NewsFilterItem }) {
   );
 }
 
-function FuturesPanel({ quotes }: { quotes: FuturesQuote[] }) {
+function fmtFFTime(raw: string): string {
+  // Forex Factory sends times like "8:30am", "12:00pm", "All Day", "Tentative"
+  if (!raw || raw === 'All Day' || raw === 'Tentative') return raw || '—';
+  try {
+    const [timePart, meridiem] = [raw.slice(0, -2), raw.slice(-2).toLowerCase()];
+    const [h, m] = timePart.split(':').map(Number);
+    const hours24 = meridiem === 'pm' && h !== 12 ? h + 12 : meridiem === 'am' && h === 12 ? 0 : h;
+    return `${String(hours24).padStart(2, '0')}:${String(m ?? 0).padStart(2, '0')}`;
+  } catch {
+    return raw;
+  }
+}
+
+function actualColor(actual: string | undefined, forecast: string | undefined): string {
+  if (!actual || !forecast) return GREEN;
+  const a = parseFloat(actual.replace(/[^0-9.-]/g, ''));
+  const f = parseFloat(forecast.replace(/[^0-9.-]/g, ''));
+  if (isNaN(a) || isNaN(f)) return GREEN;
+  return a >= f ? GREEN : RED;
+}
+
+function fmtCalendarDate(dateSlice: string): string {
+  const now = new Date();
+  const todaySlice = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  if (dateSlice === todaySlice) return 'Today';
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowSlice = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`;
+  if (dateSlice === tomorrowSlice) return 'Tomorrow';
+  return new Date(dateSlice + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+}
+
+function selectedCalendarImpactLabel(selection: CalendarImpactSelection): string {
+  const active = (['high', 'medium', 'low'] as ImpactLevel[]).filter((impact) => selection[impact]);
+  if (active.length === 3) return 'All';
+  if (active.length === 0) return 'None';
+  return active.map((impact) => (impact === 'medium' ? 'Med' : impact[0].toUpperCase() + impact.slice(1))).join(' + ');
+}
+
+function CalendarImpactFilterButton({
+  value,
+  onChange,
+}: {
+  value: CalendarImpactSelection;
+  onChange: (value: CalendarImpactSelection) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const options: Array<{ key: ImpactLevel; label: string }> = [
+    { key: 'high', label: 'High' },
+    { key: 'medium', label: 'Medium' },
+    { key: 'low', label: 'Low' },
+  ];
+
   return (
-    <section style={sidebarCardStyle()}>
-      <p style={{ margin: '0 0 10px', fontSize: 10, color: T3, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>
-        Live Futures
-      </p>
-      <div style={{ display: 'grid', gap: 8 }}>
-        {quotes.map(quote => {
-          const up = quote.change != null && quote.change >= 0;
-          const color = quote.change == null ? T3 : up ? GREEN : RED;
-          return (
-            <div key={quote.symbol} style={{ padding: '7px 8px', borderRadius: 6, background: S2 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 700 }}>{quote.symbol}</span>
-                <span style={{ fontFamily: MONO, fontSize: 13, color: T1 }}>
-                  {quote.price == null ? '—' : quote.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 10, color: T3 }}>{quote.label}</span>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color, fontSize: 10, fontFamily: MONO }}>
-                  {up ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
-                  {quote.change == null ? '—' : `${quote.change >= 0 ? '+' : ''}${quote.change.toFixed(2)} (${quote.changePct?.toFixed(2) ?? '0.00'}%)`}
-                </span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </section>
+    <div style={{ position: 'relative', flexShrink: 0 }}>
+      <button
+        type="button"
+        aria-label="Filter economic calendar impact"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        style={{
+          height: 28,
+          border: `1px solid ${BORDER}`,
+          borderRadius: 6,
+          background: open ? COBALT_DIM : S2,
+          color: open ? COBALT : T2,
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '0 8px',
+          fontSize: 10,
+          fontWeight: 700,
+          cursor: 'pointer',
+          maxWidth: 118,
+        }}
+      >
+        <Filter size={12} />
+        <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {selectedCalendarImpactLabel(value)}
+        </span>
+      </button>
+
+      {open && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 32,
+            right: 0,
+            zIndex: 20,
+            width: 150,
+            border: `1px solid ${BORDER}`,
+            borderRadius: 8,
+            background: S1,
+            boxShadow: '0 12px 28px rgba(0,0,0,0.35)',
+            padding: 6,
+          }}
+        >
+          {options.map((option) => {
+            const checked = value[option.key];
+            return (
+              <label
+                key={option.key}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '7px 6px',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  color: checked ? T1 : T2,
+                  fontSize: 11,
+                  fontWeight: 600,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(event) => onChange({ ...value, [option.key]: event.target.checked })}
+                  style={{ accentColor: impactColor(option.key) }}
+                />
+                <span
+                  style={{
+                    width: 7,
+                    height: 7,
+                    borderRadius: 999,
+                    background: impactColor(option.key),
+                    flexShrink: 0,
+                  }}
+                />
+                {option.label}
+              </label>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 
-function CalendarPanel({ events }: { events: CalendarEvent[] }) {
+function CalendarPanel({
+  events,
+  isToday,
+  impactSelection,
+  onImpactSelectionChange,
+}: {
+  events: CalendarEvent[];
+  isToday: boolean;
+  impactSelection: CalendarImpactSelection;
+  onImpactSelectionChange: (value: CalendarImpactSelection) => void;
+}) {
+  void isToday;
+  const subtitle = events.length === 0 ? 'USD' : 'USD · 2wk';
+  const filteredEvents = events.filter((event) => impactSelection[event.impact]);
+
+  const byDate = filteredEvents.reduce<Record<string, CalendarEvent[]>>((acc, e) => {
+    (acc[e.date] ??= []).push(e);
+    return acc;
+  }, {});
+  const dates = Object.keys(byDate).sort();
+
   return (
-    <section style={sidebarCardStyle()}>
-      <p style={{ margin: '0 0 10px', fontSize: 10, color: T3, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>
-        Economic Calendar
-      </p>
+    <section style={{ ...sidebarCardStyle(), padding: '16px', borderColor: AMBER_BORDER, background: S1 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 14, minWidth: 0 }}>
+        <p style={{ margin: 0, fontSize: 13, color: T1, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 800, minWidth: 0 }}>
+          Economic Calendar
+        </p>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          <span style={{ fontSize: 10, color: T3 }}>{subtitle}</span>
+          <CalendarImpactFilterButton value={impactSelection} onChange={onImpactSelectionChange} />
+        </div>
+      </div>
       {events.length === 0 ? (
-        <p style={{ margin: 0, color: T3, fontSize: 11 }}>No events today or data unavailable.</p>
+        <p style={{ margin: 0, color: T3, fontSize: 11 }}>No USD events available.</p>
+      ) : filteredEvents.length === 0 ? (
+        <p style={{ margin: 0, color: T3, fontSize: 11 }}>No selected USD events in the current range.</p>
       ) : (
-        <div style={{ display: 'grid', gap: 4 }}>
-          {events.map((event, index) => (
-            <div
-              key={`${event.event}-${index}`}
-              style={{
-                padding: '7px 8px',
-                borderRadius: 6,
-                background: S2,
-                borderLeft: `2px solid ${impactColor(event.impact)}`,
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontFamily: MONO, fontSize: 10, color: T3, minWidth: 46 }}>{fmtTime(event.time)}</span>
-                <span style={{ fontSize: 11, color: T2, flex: 1, minWidth: 0, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>{event.event}</span>
-                {event.actual && <span style={{ color: GREEN, fontFamily: MONO, fontSize: 10 }}>{event.actual}</span>}
+        <div
+          style={{
+            display: 'grid',
+            gap: 14,
+            width: '100%',
+            maxWidth: '100%',
+            maxHeight: 'min(68vh, 720px)',
+            overflowY: 'auto',
+            overflowX: 'hidden',
+            padding: '0 3px 0 2px',
+            minWidth: 0,
+            boxSizing: 'border-box',
+          }}
+        >
+          {dates.map(date => (
+            <div key={date} style={{ minWidth: 0, width: '100%', maxWidth: '100%', overflow: 'hidden' }}>
+              <p style={{ margin: '0 0 7px', paddingLeft: 2, fontSize: 11, fontWeight: 800, color: AMBER, letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1.2 }}>
+                {fmtCalendarDate(date)}
+              </p>
+              <div style={{ display: 'grid', gap: 5, minWidth: 0, width: '100%' }}>
+                {byDate[date].map((event, index) => {
+                  const hasActual = Boolean(event.actual);
+                  const aColor = actualColor(event.actual, event.forecast);
+                  return (
+                    <div
+                      key={`${event.event}-${index}`}
+                      style={{
+                        padding: '9px 10px',
+                        borderRadius: 7,
+                        background: S2,
+                        borderLeft: `3px solid ${impactColor(event.impact)}`,
+                        minWidth: 0,
+                        maxWidth: '100%',
+                        overflow: 'hidden',
+                        boxSizing: 'border-box',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: (event.forecast || event.previous) ? 5 : 0 }}>
+                        <span style={{ fontFamily: MONO, fontSize: 12, color: T1, minWidth: 44, flexShrink: 0, fontWeight: 700 }}>{fmtFFTime(event.time)}</span>
+                        <span style={{ fontSize: 12, color: T1, flex: 1, minWidth: 0, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', fontWeight: 600 }}>{event.event}</span>
+                        {hasActual && (
+                          <span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 700, color: aColor, flexShrink: 0 }}>{event.actual}</span>
+                        )}
+                      </div>
+                      {(event.forecast || event.previous) && (
+                        <div style={{ display: 'flex', gap: 10, paddingLeft: 50, minWidth: 0, maxWidth: '100%', alignItems: 'center', overflow: 'hidden', whiteSpace: 'nowrap', boxSizing: 'border-box' }}>
+                          {event.forecast && (
+                            <span style={{ fontSize: 10, color: T3, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', flexShrink: 1 }}>
+                              F: <span style={{ color: T2, fontFamily: MONO }}>{event.forecast}</span>
+                            </span>
+                          )}
+                          {event.previous && (
+                            <span style={{ fontSize: 10, color: T3, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', flexShrink: 1 }}>
+                              P: <span style={{ color: T2, fontFamily: MONO }}>{event.previous}</span>
+                            </span>
+                          )}
+                          {!hasActual && <span style={{ fontSize: 10, color: T3, overflow: 'hidden', textOverflow: 'ellipsis', flexShrink: 1 }}>pending</span>}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           ))}
@@ -626,13 +814,18 @@ function SourcesPanel({ prefs, onChange }: { prefs: SourcePrefs; onChange: (valu
 
 export default function MarketNews() {
   const [items, setItems] = useState<NewsFilterItem[]>([]);
-  const [quotes, setQuotes] = useState<FuturesQuote[]>([]);
   const [calendar, setCalendar] = useState<CalendarEvent[]>([]);
+  const [calendarIsToday, setCalendarIsToday] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isRawFallback, setIsRawFallback] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
-  const [filter, setFilter] = useState<'all' | ImpactLevel>('all');
+  const [filter, setFilter] = useState<ImpactFilter>('all');
+  const [calendarImpactSelection, setCalendarImpactSelection] = useState<CalendarImpactSelection>({
+    high: true,
+    medium: true,
+    low: true,
+  });
   const [prefs, setPrefs] = useState<SourcePrefs>(readSourcePrefs);
   const [query, setQuery] = useState('');
   const [sortBy, setSortBy] = useState<'impact' | 'newest'>('impact');
@@ -712,12 +905,11 @@ export default function MarketNews() {
   }, [prefs]);
 
   const fetchSidebar = useCallback(async () => {
-    const [quoteResult, calendarResult] = await Promise.allSettled([
-      fetchFuturesQuotes(),
-      prefs.economicCalendar ? fetchEconomicCalendar() : Promise.resolve([]),
-    ]);
-    if (quoteResult.status === 'fulfilled') setQuotes(quoteResult.value);
-    if (calendarResult.status === 'fulfilled') setCalendar(calendarResult.value);
+    const calendarResult = prefs.economicCalendar
+      ? await fetchForexFactoryCalendar()
+      : { events: [] as CalendarEvent[], isToday: true };
+    setCalendar(calendarResult.events);
+    setCalendarIsToday(calendarResult.isToday);
   }, [prefs.economicCalendar]);
 
   useEffect(() => {
@@ -766,41 +958,67 @@ export default function MarketNews() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minWidth: 0, overflow: 'hidden', fontFamily: SANS, background: PAGE_BG }}>
-      <div style={{ padding: '14px 18px 12px', borderBottom: `1px solid ${BORDER}`, background: S1, flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <h1 style={{ margin: 0, fontSize: 19, letterSpacing: '-0.02em' }}>Market News</h1>
-            <p style={{ margin: '4px 0 0', color: T2, fontSize: 12 }}>High-signal feed for ES and NQ with live context.</p>
+      <div style={{ padding: '12px 18px 10px', borderBottom: `1px solid ${BORDER}`, background: S1, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, flex: 1, minWidth: 0 }}>
+            <div style={{ minWidth: 0 }}>
+              <h1 style={{ margin: 0, fontSize: 18, letterSpacing: '-0.01em', fontWeight: 650 }}>Market News</h1>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0 }}>
+              {[
+                { label: 'Breaking', value: breakingCount, color: RED },
+                { label: 'High', value: highCount, color: AMBER },
+                { label: 'Calendar', value: highCalendarCount, color: COBALT },
+              ].map((stat) => (
+                <span
+                  key={stat.label}
+                  style={{
+                    height: 24,
+                    border: `1px solid ${BORDER}`,
+                    borderRadius: 6,
+                    background: S2,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '0 8px',
+                    fontSize: 10,
+                    color: T3,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.04em',
+                    fontWeight: 700,
+                  }}
+                >
+                  {stat.label}
+                  <span style={{ color: stat.color, fontFamily: MONO, fontSize: 12, fontWeight: 800 }}>{stat.value}</span>
+                </span>
+              ))}
+            </div>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+            {lastRefresh && <span style={{ fontSize: 10, color: T3, fontFamily: MONO }}>Updated {fmtRelative(lastRefresh.toISOString())}</span>}
             <button
               onClick={() => fetchNews(true)}
               disabled={loading}
               style={{
-                height: 32,
+                height: 30,
                 borderRadius: 6,
                 border: `1px solid ${loading ? COBALT_BORDER : BORDER}`,
                 background: loading ? COBALT_DIM : S2,
                 color: loading ? COBALT : T2,
-                padding: '0 11px',
+                padding: '0 10px',
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: 6,
+                fontSize: 12,
+                fontWeight: 600,
                 cursor: loading ? 'not-allowed' : 'pointer',
               }}
             >
               <RefreshCw size={13} style={{ animation: loading ? 'spin 1s linear infinite' : undefined }} />
               {loading ? 'Refreshing' : 'Refresh'}
             </button>
-            {lastRefresh && <span style={{ fontSize: 10, color: T3, fontFamily: MONO }}>Updated {fmtRelative(lastRefresh.toISOString())}</span>}
           </div>
-        </div>
-
-        <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
-          <KpiCard label="Breaking" value={breakingCount} tone={RED} icon={<Zap size={12} />} />
-          <KpiCard label="High Impact" value={highCount} tone={AMBER} icon={<AlertTriangle size={12} />} />
-          <KpiCard label="Calendar Risks" value={highCalendarCount} tone={PURPLE} icon={<Settings2 size={12} />} />
         </div>
 
         <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -846,10 +1064,8 @@ export default function MarketNews() {
               { key: 'medium', label: 'Med' },
               { key: 'low', label: 'Low' },
             ]}
-            onChange={value => setFilter(value as 'all' | ImpactLevel)}
+            onChange={value => setFilter(value as ImpactFilter)}
           />
-
-          {lastRefresh && <span style={{ fontSize: 10, color: T3, fontFamily: MONO }}>Updated {fmtRelative(lastRefresh.toISOString())}</span>}
         </div>
       </div>
 
@@ -857,7 +1073,7 @@ export default function MarketNews() {
         className="mn-grid"
         style={{
           display: 'grid',
-          gridTemplateColumns: 'minmax(0, 1fr) clamp(240px, 23vw, 300px)',
+          gridTemplateColumns: 'minmax(360px, 0.68fr) minmax(380px, 0.32fr)',
           flex: 1,
           minHeight: 0,
           minWidth: 0,
@@ -868,7 +1084,7 @@ export default function MarketNews() {
         }}
       >
         <main className="mn-feed" style={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
-          <div style={{ maxWidth: 920, margin: '0 auto', padding: '0 10px 14px' }}>
+          <div style={{ maxWidth: 760, margin: '0 auto', padding: '0 10px 14px' }}>
           {topBreaking && (
             <div
               style={{
@@ -970,12 +1186,18 @@ export default function MarketNews() {
             background: PAGE_BG,
             overflowY: 'auto',
             overflowX: 'hidden',
-            padding: 12,
+            padding: 16,
           }}
         >
-          <div style={{ position: 'sticky', top: 12, display: 'grid', gap: 10 }}>
-            <FuturesPanel quotes={quotes} />
-            {prefs.economicCalendar && <CalendarPanel events={calendar} />}
+          <div style={{ display: 'grid', gap: 10 }}>
+            {prefs.economicCalendar && (
+              <CalendarPanel
+                events={calendar}
+                isToday={calendarIsToday}
+                impactSelection={calendarImpactSelection}
+                onImpactSelectionChange={setCalendarImpactSelection}
+              />
+            )}
             <SourcesPanel prefs={prefs} onChange={handlePrefsChange} />
           </div>
         </aside>
@@ -986,7 +1208,7 @@ export default function MarketNews() {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
         }
-        @media (max-width: 1440px) {
+        @media (max-width: 1024px) {
           .mn-grid {
             display: block !important;
             overflow: auto !important;
@@ -1002,18 +1224,6 @@ export default function MarketNews() {
           }
         }
       `}</style>
-    </div>
-  );
-}
-
-function KpiCard({ label, value, tone, icon }: { label: string; value: number; tone: string; icon: React.ReactNode }) {
-  return (
-    <div style={kpiCardStyle()}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
-        <span style={{ fontSize: 10, color: T3, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700 }}>{label}</span>
-        <span style={{ color: tone, lineHeight: 0 }}>{icon}</span>
-      </div>
-      <div style={{ fontFamily: MONO, fontSize: 18, color: tone, fontWeight: 700, lineHeight: 1 }}>{value}</div>
     </div>
   );
 }

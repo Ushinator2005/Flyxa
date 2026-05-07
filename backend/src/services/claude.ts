@@ -2570,3 +2570,112 @@ Rules:
   }
 }
 
+export interface JournalInsightPattern {
+  id: string;
+  type: 'Risk' | 'Edge' | 'Psychology' | 'Behaviour';
+  status: 'Active' | 'Improving' | 'Confirmed' | 'Resolved';
+  title: string;
+  description: string;
+  confidence: number;
+  tradeDates: string[];
+  tags: Array<{ label: string; sentiment: 'positive' | 'negative' | 'neutral' }>;
+  instrument: string;
+  session: 'RTH open' | 'Overlap' | 'Midday';
+}
+
+export async function analyzeJournalInsights(
+  entries: Array<{
+    date: string;
+    trades: Array<{
+      symbol: string;
+      direction: string;
+      result: string;
+      pnl: number;
+      rr: number;
+      entryTime?: string;
+      followedPlan?: boolean | null;
+      processGrade?: number;
+      thesis?: string;
+      execution?: string;
+      adjustment?: string;
+    }>;
+    pre?: string;
+    post?: string;
+    lessons?: string;
+  }>
+): Promise<JournalInsightPattern[]> {
+  const totalTrades = entries.reduce((n, e) => n + e.trades.length, 0);
+  if (totalTrades === 0) return [];
+
+  const digest = entries.map(e => ({
+    date: e.date,
+    pre: e.pre?.trim() || null,
+    post: e.post?.trim() || null,
+    lessons: e.lessons?.trim() || null,
+    trades: e.trades.map(t => ({
+      symbol: t.symbol,
+      direction: t.direction,
+      result: t.result,
+      pnl: t.pnl,
+      rr: Number(t.rr?.toFixed(2)),
+      entryTime: t.entryTime,
+      followedPlan: t.followedPlan,
+      processGrade: t.processGrade,
+      thesis: t.thesis?.trim() || null,
+      execution: t.execution?.trim() || null,
+      adjustment: t.adjustment?.trim() || null,
+    })),
+  }));
+
+  const prompt = `You are a professional trading coach analysing a trader's complete journal.
+
+Analyse these ${totalTrades} trades across ${entries.length} trading days and identify 4–8 real behavioural and performance patterns.
+Focus heavily on the written reflections (thesis, execution, lessons) — these contain the truth about why trades won or lost.
+
+Journal data:
+${JSON.stringify(digest, null, 2)}
+
+Return ONLY a JSON array (no other text, no markdown). Each item must match exactly:
+{
+  "id": "p1",                          // unique string
+  "type": "Risk" | "Edge" | "Psychology" | "Behaviour",
+  "status": "Active" | "Improving" | "Confirmed",
+  "title": string,                     // max 70 chars, specific
+  "description": string,               // 2–3 sentences referencing actual journal text
+  "confidence": number,                // 50–99 integer
+  "tradeDates": string[],              // dates (YYYY-MM-DD) where this pattern appears
+  "tags": [{ "label": string, "sentiment": "positive"|"negative"|"neutral" }],
+  "instrument": string,                // e.g. "NQ" or "Mixed"
+  "session": "RTH open" | "Overlap" | "Midday"
+}
+
+Rules:
+- "Edge" type = consistently profitable behaviours to reinforce
+- "Risk" type = behaviours costing money
+- "Psychology" type = emotional or cognitive patterns
+- "Behaviour" type = execution or process patterns
+- Only report patterns with at least 2 data points in the journal
+- Be specific — reference actual entry times, symbols, written notes where possible
+- Return at minimum 2 Edge patterns and 2 Risk/Psychology patterns`;
+
+  const response = await anthropic.messages.create({
+    model: MODEL,
+    temperature: 0.3,
+    max_tokens: 4096,
+    messages: [{ role: 'user', content: prompt }],
+  });
+
+  const content = response.content[0];
+  if (content.type !== 'text') return [];
+
+  try {
+    const raw = content.text.trim().replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+    const parsed = JSON.parse(raw) as JournalInsightPattern[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      p => p.id && p.type && p.title && p.description && Array.isArray(p.tradeDates)
+    );
+  } catch {
+    return [];
+  }
+}

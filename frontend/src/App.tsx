@@ -21,7 +21,6 @@ import Settings from './pages/Settings.js';
 import MarketNews from './pages/MarketNews.js';
 import TradeScanner from './pages/TradeScanner.js';
 import LoadingSpinner from './components/common/LoadingSpinner.js';
-import LandingPage from './lumis/pages/LandingPage.js';
 import ToastStack from './components/common/Toast.js';
 import useFlyxaStore from './store/flyxaStore.js';
 import { useDailyLossUsed } from './store/selectors.js';
@@ -182,7 +181,7 @@ export default function App() {
     <>
       <Routes>
         <Route path="/auth" element={user ? <Navigate to="/" replace /> : <Auth />} />
-        <Route path="/landing" element={<LandingPage />} />
+        <Route path="/landing" element={<Navigate to={user ? '/' : '/auth'} replace />} />
 
         <Route element={<ProtectedRoute />}>
           <Route element={<ProtectedLayout />}>

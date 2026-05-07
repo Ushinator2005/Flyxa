@@ -3,7 +3,8 @@ import { Trade as ApiTrade } from '../types/index.js';
 import useFlyxaStore, { createEmptyJournalEntry, DEFAULT_ACCOUNT_ID } from '../store/flyxaStore.js';
 import type { Trade as StoreTrade } from '../store/types.js';
 import { tradesApi } from '../services/api.js';
-import { loadDeletedTradeIds, persistDeletedTradeId } from '../utils/deletedTrades.js';
+import { persistDeletedTradeId } from '../utils/deletedTrades.js';
+import { flushSupabaseStoreNow } from '../store/supabaseStorage.js';
 
 function toStoreTrade(data: Partial<ApiTrade>, entryId: string, accountId: string): StoreTrade {
   const direction = data.direction === 'Short' ? 'SHORT' : 'LONG';
@@ -45,6 +46,7 @@ function toStoreTrade(data: Partial<ApiTrade>, entryId: string, accountId: strin
 
 function toApiTrade(trade: StoreTrade): ApiTrade {
   const session = getSession(trade.time);
+  const tradeTime = trade.time || (trade as unknown as { entryTime?: string }).entryTime || '09:30';
   return {
     id: trade.id,
     user_id: 'local',
@@ -62,7 +64,7 @@ function toApiTrade(trade: StoreTrade): ApiTrade {
     contract_size: trade.contracts,
     point_value: 1,
     trade_date: trade.date,
-    trade_time: trade.time || (trade as unknown as { entryTime?: string }).entryTime,
+    trade_time: tradeTime,
     close_time: trade.exitTime,
     trade_length_seconds: trade.duration ? trade.duration * 60 : 0,
     candle_count: 0,
@@ -95,19 +97,20 @@ export function evictTradeFromCache(_userId: string, _tradeId: string) {
 export function useTrades() {
   const entries = useFlyxaStore((state) => state.entries);
   const activeAccountId = useFlyxaStore((state) => state.activeAccountId);
+  const deletedTradeIds = useFlyxaStore((state) => state.deletedTradeIds);
   const addEntry = useFlyxaStore((state) => state.addEntry);
   const addTrade = useFlyxaStore((state) => state.addTrade);
   const updateTradeInStore = useFlyxaStore((state) => state.updateTrade);
   const deleteTradeInStore = useFlyxaStore((state) => state.deleteTrade);
 
   const trades = useMemo(() => {
-    const deletedTradeIds = loadDeletedTradeIds();
+    const deleted = new Set(deletedTradeIds);
     const allTrades = entries
       .flatMap((entry) => entry.trades.map(toApiTrade))
-      .filter((trade) => !deletedTradeIds.has(trade.id));
+      .filter((trade) => !deleted.has(trade.id));
     if (!activeAccountId) return allTrades;
     return allTrades.filter((trade) => (trade.accountId ?? trade.account_id ?? DEFAULT_ACCOUNT_ID) === activeAccountId);
-  }, [activeAccountId, entries]);
+  }, [activeAccountId, deletedTradeIds, entries]);
 
   const fetchTrades = useCallback(async () => {
     return;
@@ -171,6 +174,7 @@ export function useTrades() {
 
     persistDeletedTradeId(id);
     deleteTradeInStore(entry.id, id);
+    await flushSupabaseStoreNow();
 
     try {
       await tradesApi.delete(id);

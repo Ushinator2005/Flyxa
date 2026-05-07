@@ -60,6 +60,39 @@ interface JournalTrade {
     processGrade: number;
     followedPlan: boolean | null;
   };
+  preEntry?: {
+    confidenceAtEntry: number;
+    emotionalState: string;
+    hesitated: boolean | null;
+    hesitationReason: string;
+  };
+  thesis?: {
+    setup: string;
+    invalidation: string;
+    asymmetry: string;
+    setupType: string;
+  };
+  executionReview?: {
+    enteredAtLevel: boolean | null;
+    waitedForConfirmation: boolean | null;
+    correctSize: boolean | null;
+    exitedAtPlan: boolean | null;
+    movedStopCorrectly: boolean | null;
+    resistedEarlyExit: boolean | null;
+    note: string;
+  };
+  psychologyRatings?: {
+    setupQuality: number;
+    discipline: number;
+    execution: number;
+    patience: number;
+    riskManagement: number;
+    emotionalControl: number;
+    notes: Record<string, string>;
+  };
+  behavioralFlags?: string[];
+  stateOfMind?: Array<{ label: string; valence: 'positive' | 'caution' | 'negative' }>;
+  processScore?: number;
 }
 
 interface JournalEntry {
@@ -80,6 +113,25 @@ interface JournalEntry {
     execution: number;
   };
   emotions: Array<{ label: string; state: EmotionState }>;
+  dailyReflection?: {
+    pre: string;
+    post: string;
+    lessons: string;
+    bias: 'bullish' | 'neutral' | 'bearish' | null;
+    newsRisk: 'clear' | 'caution' | 'avoid' | null;
+    sessionTarget: number | null;
+    sessionGrade: string | null;
+    marketRespectedBias: boolean | null;
+    lessonCategory: string | null;
+  };
+  physicalState?: {
+    sleep: number;
+    sleepHours: number;
+    stress: number;
+    energy: number;
+    distractions: string[];
+    environment: string;
+  };
 }
 
 const DEFAULT_RULES = [
@@ -247,12 +299,6 @@ function inMonth(dateValue: string, monthValue: Date) {
   return parsed.getFullYear() === monthValue.getFullYear() && parsed.getMonth() === monthValue.getMonth();
 }
 
-function cycleEmotionState(state: EmotionState): EmotionState {
-  if (state === 'neutral') return 'green';
-  if (state === 'green') return 'amber';
-  if (state === 'amber') return 'red';
-  return 'neutral';
-}
 
 function getRulesTemplate() {
   if (typeof window === 'undefined') return DEFAULT_RULES;
@@ -460,6 +506,27 @@ function normalizeEntries(value: unknown[], rulesTemplate: string[]): JournalEnt
           screenshotUrl: typeof trade.screenshotUrl === 'string' ? trade.screenshotUrl : typeof trade.scannedImageUrl === 'string' ? trade.scannedImageUrl : undefined,
           accountId: typeof trade.accountId === 'string' && trade.accountId ? trade.accountId : typeof trade.account === 'string' && trade.account ? trade.account : undefined,
           reflection: tradeRef,
+          preEntry: trade.preEntry && typeof trade.preEntry === 'object' ? trade.preEntry as JournalTrade['preEntry'] : undefined,
+          thesis: trade.thesis && typeof trade.thesis === 'object' ? trade.thesis as JournalTrade['thesis'] : undefined,
+          executionReview: trade.executionReview && typeof trade.executionReview === 'object' ? trade.executionReview as JournalTrade['executionReview'] : undefined,
+          psychologyRatings: trade.psychologyRatings && typeof trade.psychologyRatings === 'object' ? trade.psychologyRatings as JournalTrade['psychologyRatings'] : undefined,
+          behavioralFlags: Array.isArray(trade.behavioralFlags) ? trade.behavioralFlags as string[] : undefined,
+          stateOfMind: Array.isArray(trade.stateOfMind)
+            ? trade.stateOfMind
+              .map((item) => {
+                if (typeof item === 'string') return { label: item, valence: 'caution' as const };
+                if (!item || typeof item !== 'object') return null;
+                const value = item as Record<string, unknown>;
+                const label = typeof value.label === 'string' ? value.label : '';
+                const valence: 'positive' | 'negative' | 'caution' =
+                  value.valence === 'positive' || value.valence === 'negative' || value.valence === 'caution'
+                  ? value.valence as 'positive' | 'negative' | 'caution'
+                  : 'caution';
+                return label ? { label, valence } : null;
+              })
+              .filter((item): item is NonNullable<typeof item> => Boolean(item))
+            : undefined,
+          processScore: typeof trade.processScore === 'number' ? trade.processScore : undefined,
         };
         return withTradeDerivedValues(normalizedTrade);
       });
@@ -520,6 +587,8 @@ function normalizeEntries(value: unknown[], rulesTemplate: string[]): JournalEnt
         rules,
         psychology,
         emotions,
+        dailyReflection: record.dailyReflection && typeof record.dailyReflection === 'object' ? record.dailyReflection as JournalEntry['dailyReflection'] : undefined,
+        physicalState: record.physicalState && typeof record.physicalState === 'object' ? record.physicalState as JournalEntry['physicalState'] : undefined,
       };
     })
     .sort((a, b) => b.date.localeCompare(a.date));
@@ -814,153 +883,664 @@ function PriceLevelsBlock({ trade, onMutate }: PriceLevelsBlockProps) {
   );
 }
 
-interface TradeReflectionBlockProps {
-  trade: JournalTrade;
-  onMutate: (fields: Partial<JournalTrade>) => void;
-  onRuleForce: (ruleText: string, state: RuleState) => void;
+
+
+// ── Helper: computeProcessScore ──────────────────────────────────────────────
+function computeProcessScore(trade: JournalTrade): number {
+  const r = trade.psychologyRatings;
+  if (!r) return 0;
+  const scores = [r.setupQuality, r.discipline, r.execution, r.patience, r.riskManagement, r.emotionalControl].filter(v => v > 0);
+  if (scores.length === 0) return 0;
+  const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+  let score = avg * 20;
+  const flags = trade.behavioralFlags ?? [];
+  score -= flags.length * 8;
+  const er = trade.executionReview;
+  if (er && er.enteredAtLevel && er.waitedForConfirmation && er.correctSize && er.exitedAtPlan && er.movedStopCorrectly && er.resistedEarlyExit) score += 5;
+  if ((trade.preEntry?.confidenceAtEntry ?? 0) >= 4) score += 5;
+  return Math.max(0, Math.min(100, Math.round(score)));
 }
 
-function TradeReflectionBlock({ trade, onMutate, onRuleForce }: TradeReflectionBlockProps) {
-  const [local, setLocal] = useState({
-    thesis: trade.reflection?.thesis ?? '',
-    execution: trade.reflection?.execution ?? '',
-    adjustment: trade.reflection?.adjustment ?? '',
-  });
+// ── SectionHead collapsible header ───────────────────────────────────────────
+function SectionHead({ title, collapsed, onToggle }: {
+  title: string;
+  sectionKey?: string;
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="tj-section-head" style={{ cursor: 'pointer', userSelect: 'none' }} onClick={onToggle}>
+      <span className="tj-section-title">{title}</span>
+      <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--app-text-subtle)', fontFamily: 'var(--font-mono)' }}>
+        {collapsed ? '▶' : '▼'}
+      </span>
+    </div>
+  );
+}
+
+// ── A — DailyReflectionBlock ──────────────────────────────────────────────────
+function DailyReflectionBlock({ entry, onMutateEntry }: {
+  entry: JournalEntry;
+  onMutateEntry: (fields: Partial<JournalEntry>) => void;
+}) {
+  const dr = entry.dailyReflection ?? { pre: entry.reflection.pre, post: entry.reflection.post, lessons: entry.reflection.lessons, bias: null, newsRisk: null, sessionTarget: null, sessionGrade: null, marketRespectedBias: null, lessonCategory: null };
+  const [activeTab, setActiveTab] = useState<'pre' | 'post' | 'lessons'>('pre');
+  const [localPre, setLocalPre] = useState(dr.pre);
+  const [localPost, setLocalPost] = useState(dr.post);
+  const [localLessons, setLocalLessons] = useState(dr.lessons);
 
   useEffect(() => {
-    setLocal({
-      thesis: trade.reflection?.thesis ?? '',
-      execution: trade.reflection?.execution ?? '',
-      adjustment: trade.reflection?.adjustment ?? '',
-    });
-  }, [trade.id, trade.reflection?.thesis, trade.reflection?.execution, trade.reflection?.adjustment]);
+    const d = entry.dailyReflection ?? { pre: entry.reflection.pre, post: entry.reflection.post, lessons: entry.reflection.lessons, bias: null, newsRisk: null, sessionTarget: null, sessionGrade: null, marketRespectedBias: null, lessonCategory: null };
+    setLocalPre(d.pre); setLocalPost(d.post); setLocalLessons(d.lessons);
+  }, [entry.id]);
 
-  const currentRef = (): NonNullable<JournalTrade['reflection']> => ({
-    thesis: local.thesis,
-    execution: local.execution,
-    adjustment: local.adjustment,
-    processGrade: trade.reflection?.processGrade ?? 0,
-    followedPlan: trade.reflection?.followedPlan ?? null,
-  });
-
-  const commitText = (field: 'thesis' | 'execution' | 'adjustment', value: string) => {
-    onMutate({ reflection: { ...currentRef(), [field]: value } });
+  const update = (patch: Partial<typeof dr>) => {
+    onMutateEntry({ dailyReflection: { ...dr, ...patch } });
   };
 
-  const setProcessGrade = (value: number) => {
-    onMutate({ reflection: { ...currentRef(), processGrade: value } });
-  };
-
-  const setFollowedPlan = (value: boolean | null) => {
-    onMutate({ reflection: { ...currentRef(), followedPlan: value } });
-    if (value === false) onRuleForce('Only traded A/B setups', 'fail');
-  };
-
-  const processGrade = trade.reflection?.processGrade ?? 0;
-  const followedPlan = trade.reflection?.followedPlan ?? null;
-
-  const wordCount = `${local.thesis} ${local.execution} ${local.adjustment}`
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .length;
-
-  const TEXTAREA_ROWS: Array<{
-    key: 'thesis' | 'execution' | 'adjustment';
-    title: string;
-    sub: string;
-    placeholder: string;
-  }> = [
-    {
-      key: 'thesis',
-      title: 'Setup Thesis',
-      sub: 'What edge did you see?',
-      placeholder: 'Describe the setup - what made this worth taking? What confluence did you have?',
-    },
-    {
-      key: 'execution',
-      title: 'Execution',
-      sub: 'How did you execute?',
-      placeholder: 'Did you enter exactly at your level? Any hesitation? Did you follow the plan?',
-    },
-    {
-      key: 'adjustment',
-      title: "What I'd do differently",
-      sub: 'The adjustment',
-      placeholder: 'If you took this trade again tomorrow, what single thing would you change?',
-    },
-  ];
-
-  const gradeLabel = processGrade === 1 ? 'Poor'
-    : processGrade === 2 ? 'Below avg'
-    : processGrade === 3 ? 'Average'
-    : processGrade === 4 ? 'Good'
-    : processGrade === 5 ? 'Excellent'
-    : '';
+  const LESSON_CATS = ['Entry Timing','Exit Management','Sizing','Patience','Risk Management','Setup Selection','Emotional Control','Rule Following','Market Reading'];
+  const GRADES = ['A+','A','B+','B','C+','C'];
+  const biasOptions: Array<{ v: 'bullish'|'neutral'|'bearish'; label: string }> = [{ v:'bullish', label:'BULLISH' },{ v:'neutral', label:'NEUTRAL' },{ v:'bearish', label:'BEARISH' }];
+  const newsOptions: Array<{ v: 'clear'|'caution'|'avoid'; label: string }> = [{ v:'clear', label:'CLEAR' },{ v:'caution', label:'CAUTION' },{ v:'avoid', label:'AVOID' }];
 
   return (
-    <div className="tj-tr-card">
-      <div className="tj-tr-header">
-        <span className="tj-tr-title">TRADE REFLECTION</span>
-        <span className="tj-tr-word-count">{wordCount} words</span>
+    <div className="tj-card" style={{ marginBottom: 8 }}>
+      <div className="tj-tabs">
+        {(['pre','post','lessons'] as const).map(tab => (
+          <button key={tab} type="button" className={`tj-tab${activeTab===tab?' active':''}`} onClick={() => setActiveTab(tab)}>
+            {tab === 'pre' ? 'Pre-market' : tab === 'post' ? 'Post-session' : 'Lessons'}
+          </button>
+        ))}
       </div>
-      <div className="tj-tr-grid">
-        {TEXTAREA_ROWS.map(row => (
-          <div key={row.key} className="tj-tr-col">
-            <div className="tj-tr-col-head">
-              <div className="tj-tr-col-title">{row.title}</div>
-              <div className="tj-tr-col-sub">{row.sub}</div>
+
+      {activeTab === 'pre' && (
+        <div style={{ padding: '0' }}>
+          <textarea className="tj-reflect" style={{ minHeight: 80, display:'block' }}
+            value={localPre}
+            onChange={e => setLocalPre(e.target.value)}
+            onBlur={e => update({ pre: e.target.value })}
+            placeholder="Game plan, key levels, bias, setups you're watching. Write this BEFORE the open."
+          />
+          <div style={{ display:'flex', gap:12, padding:'10px 14px', borderTop:'1px solid var(--app-border)', flexWrap:'wrap' }}>
+            <div>
+              <div style={{ fontSize:9, color:'var(--app-text-subtle)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:4 }}>Bias</div>
+              <div style={{ display:'flex', gap:3 }}>
+                {biasOptions.map(o => (
+                  <button key={o.v} type="button" onClick={() => update({ bias: dr.bias === o.v ? null : o.v })}
+                    style={{ padding:'3px 8px', fontSize:9, borderRadius:4, border:`1px solid ${dr.bias===o.v?'var(--amber-border)':'var(--app-border)'}`, background:dr.bias===o.v?'var(--amber-dim)':'transparent', color:dr.bias===o.v?'var(--amber)':'var(--app-text-subtle)', cursor:'pointer', fontFamily:'var(--font-sans)', fontWeight:600 }}>
+                    {o.label}
+                  </button>
+                ))}
+              </div>
             </div>
-            <textarea
-              className="tj-tr-textarea"
-              value={local[row.key]}
-              onChange={e => setLocal(prev => ({ ...prev, [row.key]: e.target.value }))}
-              onBlur={e => commitText(row.key, e.target.value)}
-              placeholder={row.placeholder}
-            />
+            <div>
+              <div style={{ fontSize:9, color:'var(--app-text-subtle)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:4 }}>News Risk</div>
+              <div style={{ display:'flex', gap:3 }}>
+                {newsOptions.map(o => (
+                  <button key={o.v} type="button" onClick={() => update({ newsRisk: dr.newsRisk === o.v ? null : o.v })}
+                    style={{ padding:'3px 8px', fontSize:9, borderRadius:4, border:`1px solid ${dr.newsRisk===o.v?(o.v==='clear'?'var(--green-border)':o.v==='avoid'?'var(--red-border)':'var(--amber-border)'):'var(--app-border)'}`, background:dr.newsRisk===o.v?(o.v==='clear'?'var(--green-dim)':o.v==='avoid'?'var(--red-dim)':'var(--amber-dim)'):'transparent', color:dr.newsRisk===o.v?(o.v==='clear'?'var(--green)':o.v==='avoid'?'var(--red)':'var(--amber)'):'var(--app-text-subtle)', cursor:'pointer', fontFamily:'var(--font-sans)', fontWeight:600 }}>
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize:9, color:'var(--app-text-subtle)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:4 }}>Session Target</div>
+              <input type="number" placeholder="Daily target $" style={{ width:110, height:26, padding:'0 8px', fontSize:11, fontFamily:'var(--font-mono)', background:'var(--app-bg,var(--app-panel-strong))', border:'1px solid var(--app-border)', borderRadius:4, color:'var(--app-text)', outline:'none' }}
+                value={dr.sessionTarget ?? ''}
+                onChange={e => update({ sessionTarget: e.target.value ? Number(e.target.value) : null })} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'post' && (
+        <div>
+          <textarea className="tj-reflect" style={{ minHeight:80, display:'block' }}
+            value={localPost}
+            onChange={e => setLocalPost(e.target.value)}
+            onBlur={e => update({ post: e.target.value })}
+            placeholder="How did the session go vs the plan?"
+          />
+          <div style={{ display:'flex', gap:12, padding:'10px 14px', borderTop:'1px solid var(--app-border)', flexWrap:'wrap', alignItems:'center' }}>
+            <div>
+              <div style={{ fontSize:9, color:'var(--app-text-subtle)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:4 }}>Session Grade</div>
+              <div style={{ display:'flex', gap:3 }}>
+                {GRADES.map(g => (
+                  <button key={g} type="button" onClick={() => update({ sessionGrade: dr.sessionGrade === g ? null : g })}
+                    style={{ padding:'3px 8px', fontSize:9, borderRadius:4, border:`1px solid ${dr.sessionGrade===g?'var(--amber-border)':'var(--app-border)'}`, background:dr.sessionGrade===g?'var(--amber-dim)':'transparent', color:dr.sessionGrade===g?'var(--amber)':'var(--app-text-subtle)', cursor:'pointer', fontFamily:'var(--font-mono)', fontWeight:700 }}>
+                    {g}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div style={{ marginLeft:'auto' }}>
+              <div style={{ fontSize:9, color:'var(--app-text-subtle)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:4 }}>Market respected bias?</div>
+              <div style={{ display:'flex', gap:3 }}>
+                {[true,false].map(v => (
+                  <button key={String(v)} type="button" onClick={() => update({ marketRespectedBias: dr.marketRespectedBias === v ? null : v })}
+                    style={{ padding:'3px 8px', fontSize:9, borderRadius:4, border:`1px solid ${dr.marketRespectedBias===v?'var(--amber-border)':'var(--app-border)'}`, background:dr.marketRespectedBias===v?'var(--amber-dim)':'transparent', color:dr.marketRespectedBias===v?'var(--amber)':'var(--app-text-subtle)', cursor:'pointer', fontFamily:'var(--font-sans)', fontWeight:600 }}>
+                    {v ? 'YES' : 'NO'}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'lessons' && (
+        <div>
+          <textarea className="tj-reflect" style={{ minHeight:80, display:'block' }}
+            value={localLessons}
+            onChange={e => setLocalLessons(e.target.value)}
+            onBlur={e => update({ lessons: e.target.value })}
+            placeholder="One specific thing to do differently next session. Not 'be more disciplined' — something concrete and actionable."
+          />
+          <div style={{ padding:'10px 14px', borderTop:'1px solid var(--app-border)' }}>
+            <div style={{ fontSize:9, color:'var(--app-text-subtle)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6 }}>Lesson Category</div>
+            <div style={{ display:'flex', flexWrap:'wrap', gap:4 }}>
+              {LESSON_CATS.map(cat => (
+                <button key={cat} type="button" onClick={() => update({ lessonCategory: dr.lessonCategory === cat ? null : cat })}
+                  style={{ padding:'3px 8px', fontSize:9, borderRadius:3, border:`1px solid ${dr.lessonCategory===cat?'var(--amber-border)':'var(--app-border)'}`, background:dr.lessonCategory===cat?'var(--amber-dim)':'transparent', color:dr.lessonCategory===cat?'var(--amber)':'var(--app-text-subtle)', cursor:'pointer', fontFamily:'var(--font-sans)' }}>
+                  {cat}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── B — PreEntryBlock ─────────────────────────────────────────────────────────
+function PreEntryBlock({ trade, entry, allEntries, onMutate }: {
+  trade: JournalTrade;
+  entry: JournalEntry;
+  allEntries: JournalEntry[];
+  onMutate: (fields: Partial<JournalTrade>) => void;
+}) {
+  const pe = trade.preEntry ?? { confidenceAtEntry:0, emotionalState:'', hesitated:null, hesitationReason:'' };
+  const [hesReason, setHesReason] = useState(pe.hesitationReason ?? '');
+  useEffect(() => { setHesReason(trade.preEntry?.hesitationReason ?? ''); }, [trade.id]);
+
+  const update = (patch: Partial<typeof pe>) => onMutate({ preEntry: { ...pe, ...patch } });
+
+  const EMOTIONAL_STATES = ['Calm and focused','Slightly anxious','Excited / hyped','Frustrated (from earlier trade)','Bored / impatient','Fearful of missing','Revenge-motivated','In the zone','Distracted / not present','Overconfident'];
+  const CONF_LABELS = ['','Low / forced','Uncertain','Moderate','Confident','High conviction'];
+
+  const dayTrades = entry.trades;
+  const tradeIndex = dayTrades.findIndex(t => t.id === trade.id);
+  const tradeNumber = tradeIndex + 1;
+  const prevTrades = dayTrades.slice(0, tradeIndex);
+  const dailyPnlBefore = prevTrades.reduce((sum, t) => sum + (t.pnl ?? 0), 0);
+  const prevWasLoss = tradeIndex > 0 && (dayTrades[tradeIndex-1]?.result === 'loss');
+  const isThirdPlus = tradeNumber >= 3;
+
+  const dr = entry.dailyReflection;
+  const maxLoss = dr?.sessionTarget ? -Math.abs(dr.sessionTarget) : null;
+  const nearLimit = maxLoss !== null && dailyPnlBefore <= maxLoss * 0.8 && dailyPnlBefore < 0;
+
+  // allEntries is available if needed for cross-day context
+  void allEntries;
+
+  return (
+    <div style={{ background:'var(--app-panel)', border:'1px solid var(--app-border)', borderRadius:6, overflow:'hidden', marginBottom:8 }}>
+      <div style={{ background:'var(--amber-dim)', borderBottom:'1px solid var(--amber-border)', padding:'8px 14px', fontSize:11, color:'var(--app-text-muted)', fontStyle:'italic' }}>
+        Fill this in immediately after entry — before you know the outcome. Outcome bias corrupts this data if you wait.
+      </div>
+
+      <div style={{ padding:'12px 14px', borderBottom:'1px solid var(--app-border)' }}>
+        <div style={{ fontSize:9, color:'var(--app-text-subtle)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:2 }}>Confidence at Entry</div>
+        <div style={{ fontSize:10, color:'var(--app-text-subtle)', fontStyle:'italic', marginBottom:8 }}>How certain were you this was the right trade?</div>
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          <div style={{ display:'flex', gap:4 }}>
+            {[1,2,3,4,5].map(v => (
+              <button key={v} type="button" onClick={() => update({ confidenceAtEntry: v })}
+                style={{ width:28, height:6, borderRadius:2, border:'none', cursor:'pointer', background: pe.confidenceAtEntry >= v ? (v <= 2 ? 'var(--red)' : v === 3 ? 'var(--amber)' : 'var(--green)') : 'var(--app-panel-strong)' }} />
+            ))}
+          </div>
+          {pe.confidenceAtEntry > 0 && (
+            <span style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--amber)' }}>{CONF_LABELS[pe.confidenceAtEntry]}</span>
+          )}
+        </div>
+      </div>
+
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', borderBottom:'1px solid var(--app-border)' }}>
+        <div style={{ padding:'12px 14px', borderRight:'1px solid var(--app-border)' }}>
+          <div style={{ fontSize:9, color:'var(--app-text-subtle)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:6 }}>Emotional State at Entry</div>
+          <select value={pe.emotionalState} onChange={e => update({ emotionalState: e.target.value })}
+            style={{ width:'100%', padding:'5px 8px', fontSize:11, fontFamily:'var(--font-sans)', background:'var(--app-panel-strong)', border:'1px solid var(--app-border)', borderRadius:4, color:'var(--app-text-muted)', outline:'none', cursor:'pointer' }}>
+            <option value="">Select state...</option>
+            {EMOTIONAL_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+        <div style={{ padding:'12px 14px' }}>
+          <div style={{ fontSize:9, color:'var(--app-text-subtle)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:2 }}>Hesitated at Entry?</div>
+          <div style={{ fontSize:10, color:'var(--app-text-subtle)', fontStyle:'italic', marginBottom:6 }}>Did you delay or second-guess before pressing the button?</div>
+          <div style={{ display:'flex', gap:4, marginBottom: pe.hesitated ? 8 : 0 }}>
+            {[true,false].map(v => (
+              <button key={String(v)} type="button" onClick={() => update({ hesitated: pe.hesitated === v ? null : v })}
+                style={{ padding:'3px 10px', fontSize:10, borderRadius:4, border:`1px solid ${pe.hesitated===v?'var(--amber-border)':'var(--app-border)'}`, background:pe.hesitated===v?'var(--amber-dim)':'transparent', color:pe.hesitated===v?'var(--amber)':'var(--app-text-subtle)', cursor:'pointer', fontFamily:'var(--font-sans)', fontWeight:600 }}>
+                {v ? 'YES' : 'NO'}
+              </button>
+            ))}
+          </div>
+          {pe.hesitated && (
+            <textarea value={hesReason} onChange={e => setHesReason(e.target.value)} onBlur={e => update({ hesitationReason: e.target.value })}
+              placeholder="What made you hesitate?" style={{ width:'100%', minHeight:40, padding:'6px 8px', fontSize:10, fontFamily:'var(--font-sans)', background:'var(--app-panel-strong)', border:'1px solid var(--app-border)', borderRadius:4, color:'var(--app-text-muted)', outline:'none', resize:'none', boxSizing:'border-box' }} />
+          )}
+        </div>
+      </div>
+
+      <div style={{ padding:'10px 14px', display:'flex', gap:20, alignItems:'center', flexWrap:'wrap' }}>
+        <div>
+          <div style={{ fontSize:9, color:'var(--app-text-subtle)', textTransform:'uppercase', letterSpacing:'0.07em' }}>Trade # Today</div>
+          <div style={{ fontSize:13, fontFamily:'var(--font-mono)', color:'var(--app-text)', marginTop:2 }}>{tradeNumber}</div>
+        </div>
+        <div>
+          <div style={{ fontSize:9, color:'var(--app-text-subtle)', textTransform:'uppercase', letterSpacing:'0.07em' }}>Daily P&L Before</div>
+          <div style={{ fontSize:13, fontFamily:'var(--font-mono)', color: dailyPnlBefore > 0 ? 'var(--green)' : dailyPnlBefore < 0 ? 'var(--red)' : 'var(--app-text-muted)', marginTop:2 }}>
+            {dailyPnlBefore >= 0 ? '+' : ''}{dailyPnlBefore.toFixed(2)}
+          </div>
+        </div>
+        {isThirdPlus && prevWasLoss && (
+          <div style={{ padding:'3px 10px', borderRadius:4, background:'var(--amber-dim)', border:'1px solid var(--amber-border)', fontSize:10, color:'var(--amber)', fontFamily:'var(--font-sans)' }}>
+            Trade {tradeNumber} after loss — check revenge risk
+          </div>
+        )}
+        {nearLimit && (
+          <div style={{ padding:'3px 10px', borderRadius:4, background:'var(--amber-dim)', border:'1px solid var(--amber-border)', fontSize:10, color:'var(--amber)' }}>
+            Within ${Math.abs(dailyPnlBefore - (maxLoss ?? 0)).toFixed(0)} of daily limit
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── C — TradeThesisBlock ──────────────────────────────────────────────────────
+function TradeThesisBlock({ trade, onMutate }: { trade: JournalTrade; onMutate: (f: Partial<JournalTrade>) => void }) {
+  const th = trade.thesis ?? { setup:'', invalidation:'', asymmetry:'', setupType:'' };
+  const [local, setLocal] = useState(th);
+  useEffect(() => { setLocal(trade.thesis ?? { setup:'', invalidation:'', asymmetry:'', setupType:'' }); }, [trade.id]);
+
+  const update = (patch: Partial<typeof th>) => onMutate({ thesis: { ...th, ...patch } });
+  const commit = (field: keyof typeof th, value: string) => update({ [field]: value });
+
+  const setups: string[] = useMemo(() => {
+    try { const raw = localStorage.getItem('flyxa_setups'); return raw ? (JSON.parse(raw) as string[]) : []; } catch { return []; }
+  }, []);
+
+  const COLS: Array<{ key: 'setup'|'invalidation'|'asymmetry'; title: string; sub: string; placeholder: string }> = [
+    { key:'setup', title:'Setup Thesis', sub:'What specific edge did you see?', placeholder:"Which setup was this? What confluences were present? Why this level, this direction, right now?" },
+    { key:'invalidation', title:'Invalidation', sub:'What would prove you wrong?', placeholder:"If price does X, the setup is invalid and I should be out. What specific price action kills this thesis?" },
+    { key:'asymmetry', title:'Why this R:R?', sub:'Is the risk worth the reward?', placeholder:"Where is price likely going? What liquidity target makes this trade worth taking at this R:R?" },
+  ];
+
+  return (
+    <div style={{ background:'var(--app-panel)', border:'1px solid var(--app-border)', borderRadius:6, overflow:'hidden', marginBottom:8 }}>
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', borderBottom:'1px solid var(--app-border)' }}>
+        {COLS.map((col, i) => (
+          <div key={col.key} style={{ borderRight: i < 2 ? '1px solid var(--app-border)' : undefined }}>
+            <div style={{ padding:'8px 12px 6px', borderBottom:'1px solid var(--app-border)' }}>
+              <div style={{ fontSize:11, fontWeight:500, color:'var(--app-text-muted)' }}>{col.title}</div>
+              <div style={{ fontSize:9, color:'var(--app-text-subtle)', fontStyle:'italic' }}>{col.sub}</div>
+            </div>
+            <textarea value={local[col.key]} onChange={e => setLocal(p => ({ ...p, [col.key]: e.target.value }))} onBlur={e => commit(col.key, e.target.value)} placeholder={col.placeholder}
+              style={{ width:'100%', minHeight:72, padding:'10px 12px', fontSize:11, fontFamily:'var(--font-sans)', background:'transparent', border:'none', outline:'none', resize:'none', color:'var(--app-text-muted)', boxSizing:'border-box' }} />
           </div>
         ))}
       </div>
-      <div className="tj-tr-process-row">
-        <div className="tj-tr-process-copy">
-          <div className="tj-tr-process-label">PROCESS GRADE</div>
-          <div className="tj-tr-process-sub">Rate the quality of this trade, not the P&amp;L</div>
+      <div style={{ padding:'10px 14px', display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+        <span style={{ fontSize:9, color:'var(--app-text-subtle)', textTransform:'uppercase', letterSpacing:'0.07em', flexShrink:0 }}>Setup Type</span>
+        {setups.length === 0 ? (
+          <span style={{ fontSize:11, color:'var(--cobalt)', cursor:'pointer' }}>+ Add setups in Trading Plan →</span>
+        ) : setups.map(s => (
+          <button key={s} type="button" onClick={() => update({ setupType: th.setupType === s ? '' : s })}
+            style={{ padding:'3px 8px', fontSize:10, borderRadius:3, border:`1px solid ${th.setupType===s?'var(--amber-border)':'var(--app-border)'}`, background:th.setupType===s?'var(--amber-dim)':'transparent', color:th.setupType===s?'var(--amber)':'var(--app-text-subtle)', cursor:'pointer', fontFamily:'var(--font-sans)' }}>
+            {s}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── D — ExecutionReviewBlock ──────────────────────────────────────────────────
+function ExecutionReviewBlock({ trade, onMutate }: { trade: JournalTrade; onMutate: (f: Partial<JournalTrade>) => void }) {
+  const er = trade.executionReview ?? { enteredAtLevel:null, waitedForConfirmation:null, correctSize:null, exitedAtPlan:null, movedStopCorrectly:null, resistedEarlyExit:null, note:'' };
+  const [note, setNote] = useState(er.note ?? '');
+  useEffect(() => { setNote(trade.executionReview?.note ?? ''); }, [trade.id]);
+  const update = (patch: Partial<typeof er>) => onMutate({ executionReview: { ...er, ...patch } });
+
+  const YNToggle = ({ label, field, value }: { label: string; field: keyof typeof er; value: boolean | null }) => (
+    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+      <span style={{ fontSize:10, color:'var(--app-text-muted)' }}>{label}</span>
+      <div style={{ display:'flex', gap:3 }}>
+        {[true,false].map(v => (
+          <button key={String(v)} type="button" onClick={() => update({ [field]: value === v ? null : v } as Partial<typeof er>)}
+            style={{ padding:'2px 8px', fontSize:9, borderRadius:3, border:`1px solid ${value===v?(v?'var(--green-border)':'var(--red-border)'):'var(--app-border)'}`, background:value===v?(v?'var(--green-dim)':'var(--red-dim)'):'transparent', color:value===v?(v?'var(--green)':'var(--red)'):'var(--app-text-subtle)', cursor:'pointer', fontFamily:'var(--font-sans)', fontWeight:600 }}>
+            {v ? 'YES' : 'NO'}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ background:'var(--app-panel)', border:'1px solid var(--app-border)', borderRadius:6, overflow:'hidden', marginBottom:8 }}>
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', borderBottom:'1px solid var(--app-border)' }}>
+        <div style={{ padding:'12px 14px', borderRight:'1px solid var(--app-border)', display:'flex', flexDirection:'column', gap:8 }}>
+          <div style={{ fontSize:9, color:'var(--app-text-subtle)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:0 }}>Entry Execution</div>
+          <YNToggle label="Entered exactly at my level" field="enteredAtLevel" value={er.enteredAtLevel} />
+          <YNToggle label="Waited for confirmation" field="waitedForConfirmation" value={er.waitedForConfirmation} />
+          <YNToggle label="Correct position size" field="correctSize" value={er.correctSize} />
         </div>
-        <div className="tj-tr-grade-buttons">
-          {[1, 2, 3, 4, 5].map(v => (
-            <button
-              key={v}
-              type="button"
-              className={`tj-tr-grade-btn ${processGrade >= v ? 'active' : ''}`}
-              onClick={() => setProcessGrade(v)}
-            >
-              {v}
-            </button>
-          ))}
-        </div>
-        <div className="tj-tr-grade-readout">
-          <div className="tj-tr-grade-number">{processGrade > 0 ? processGrade : '-'}</div>
-          <div className="tj-tr-grade-label">{gradeLabel}</div>
+        <div style={{ padding:'12px 14px', display:'flex', flexDirection:'column', gap:8 }}>
+          <div style={{ fontSize:9, color:'var(--app-text-subtle)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:0 }}>Exit Execution</div>
+          <YNToggle label="Exited at planned level" field="exitedAtPlan" value={er.exitedAtPlan} />
+          <YNToggle label="Moved stop to BE at right time" field="movedStopCorrectly" value={er.movedStopCorrectly} />
+          <YNToggle label="Resisted urge to exit early" field="resistedEarlyExit" value={er.resistedEarlyExit} />
         </div>
       </div>
-      <div className="tj-tr-plan-row">
+      <textarea value={note} onChange={e => setNote(e.target.value)} onBlur={e => update({ note: e.target.value })}
+        placeholder="Anything specific about how you managed this trade that you want to remember — good or bad."
+        style={{ width:'100%', minHeight:60, padding:'10px 14px', fontSize:11, fontFamily:'var(--font-sans)', background:'transparent', border:'none', outline:'none', resize:'none', color:'var(--app-text-muted)', boxSizing:'border-box' }} />
+    </div>
+  );
+}
+
+// ── E — PsychologyRatingsBlock ────────────────────────────────────────────────
+function PsychologyRatingsBlock({ trade, onMutate }: { trade: JournalTrade; onMutate: (f: Partial<JournalTrade>) => void }) {
+  const r = trade.psychologyRatings ?? { setupQuality:0, discipline:0, execution:0, patience:0, riskManagement:0, emotionalControl:0, notes:{} };
+  const [noteOpen, setNoteOpen] = useState<Record<string, boolean>>({});
+  const [noteValues, setNoteValues] = useState<Record<string, string>>(r.notes ?? {});
+  useEffect(() => { setNoteValues(trade.psychologyRatings?.notes ?? {}); }, [trade.id]);
+
+  const update = (patch: Partial<typeof r>) => onMutate({ psychologyRatings: { ...r, ...patch } });
+  const pipColor = (score: number, v: number) => score >= v ? (score <= 2 ? 'var(--red)' : score === 3 ? 'var(--amber)' : 'var(--green)') : 'var(--app-panel-strong)';
+
+  const CARDS: Array<{ key: keyof Omit<typeof r,'notes'>; label: string; sub: string }> = [
+    { key:'setupQuality', label:'Setup Quality', sub:'Was this an A/B/C setup?' },
+    { key:'discipline', label:'Discipline', sub:'Did you follow your rules completely?' },
+    { key:'execution', label:'Execution', sub:'Did you enter and exit as planned?' },
+    { key:'patience', label:'Patience', sub:'Did you wait for the right moment?' },
+    { key:'riskManagement', label:'Risk Management', sub:'Did you respect sizing and stops?' },
+    { key:'emotionalControl', label:'Emotional Control', sub:'Were you in control throughout?' },
+  ];
+
+  return (
+    <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, marginBottom:8 }}>
+      {CARDS.map(card => {
+        const score = r[card.key] as number;
+        return (
+          <div key={card.key} style={{ background:'var(--app-panel)', border:'1px solid var(--app-border)', borderRadius:6, padding:'10px 12px' }}>
+            <div style={{ fontSize:9, fontWeight:500, textTransform:'uppercase', letterSpacing:'0.07em', color:'var(--app-text-subtle)', marginBottom:2 }}>{card.label}</div>
+            <div style={{ fontSize:10, color:'var(--app-text-subtle)', fontStyle:'italic', marginBottom:8 }}>{card.sub}</div>
+            <div style={{ display:'flex', gap:3, marginBottom:6 }}>
+              {[1,2,3,4,5].map(v => (
+                <button key={v} type="button" onClick={() => update({ [card.key]: v })}
+                  style={{ flex:1, height:5, borderRadius:2, border:'none', cursor:'pointer', background: pipColor(score, v) }} />
+              ))}
+            </div>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+              <span style={{ fontSize:15, fontWeight:500, fontFamily:'var(--font-mono)', color: score===0?'var(--app-text-subtle)':score<=2?'var(--red)':score===3?'var(--amber)':'var(--green)' }}>{score > 0 ? score : '—'}</span>
+              <button type="button" onClick={() => setNoteOpen(p => ({ ...p, [card.key]: !p[card.key] }))}
+                style={{ fontSize:10, color:'var(--app-text-subtle)', background:'none', border:'none', cursor:'pointer', fontFamily:'var(--font-sans)' }}>
+                {noteValues[card.key] ? '✎ note' : '+ note'}
+              </button>
+            </div>
+            {noteOpen[card.key] && (
+              <input type="text" value={noteValues[card.key] ?? ''} onChange={e => setNoteValues(p => ({ ...p, [card.key]: e.target.value }))}
+                onBlur={e => { update({ notes: { ...r.notes, [card.key]: e.target.value } }); if (!e.target.value) setNoteOpen(p => ({ ...p, [card.key]: false })); }}
+                placeholder="Why this score?"
+                style={{ width:'100%', marginTop:6, padding:'3px 6px', fontSize:10, fontFamily:'var(--font-sans)', background:'var(--app-panel-strong)', border:'1px solid var(--app-border)', borderRadius:3, color:'var(--app-text-muted)', outline:'none', boxSizing:'border-box' }} />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── F — BehavioralFlagsBlock ──────────────────────────────────────────────────
+const BEHAVIORAL_FLAGS_LEFT = [
+  { id:'moved-stop', label:'Moved stop loss after entry' },
+  { id:'sized-up', label:'Sized up from original plan' },
+  { id:'outside-window', label:'Took trade outside planned window' },
+  { id:'no-confirmation', label:'Entered before confirmation' },
+  { id:'added-losing', label:'Added to a losing position' },
+];
+const BEHAVIORAL_FLAGS_RIGHT = [
+  { id:'exit-early', label:'Exited too early (fear)' },
+  { id:'past-inval', label:'Held past invalidation' },
+  { id:'off-playbook', label:'Took setup not in playbook' },
+  { id:'past-limit', label:'Traded after hitting daily limit' },
+  { id:'revenge', label:'Revenge trade after a loss' },
+];
+
+function BehavioralFlagsBlock({ trade, onMutate }: { trade: JournalTrade; onMutate: (f: Partial<JournalTrade>) => void }) {
+  const flags = trade.behavioralFlags ?? [];
+  const toggle = (id: string) => {
+    const next = flags.includes(id) ? flags.filter(f => f !== id) : [...flags, id];
+    onMutate({ behavioralFlags: next });
+  };
+
+  const FlagRow = ({ id, label }: { id: string; label: string }) => {
+    const checked = flags.includes(id);
+    return (
+      <div onClick={() => toggle(id)} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px', borderBottom:'1px solid var(--app-border)', cursor:'pointer' }}
+        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.018)'; }}
+        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}>
+        <div style={{ width:14, height:14, borderRadius:2, border:`1px solid ${checked?'var(--red-border)':'var(--app-border)'}`, background:checked?'var(--red-dim)':'transparent', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center' }}>
+          {checked && <span style={{ fontSize:9, color:'var(--red)', lineHeight:1 }}>✕</span>}
+        </div>
+        <span style={{ fontSize:11, color: checked ? 'var(--red)' : 'var(--app-text-muted)' }}>{label}</span>
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ background:'var(--app-panel)', border:'1px solid var(--app-border)', borderRadius:6, overflow:'hidden', marginBottom:8 }}>
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr' }}>
+        <div style={{ borderRight:'1px solid var(--app-border)' }}>
+          {BEHAVIORAL_FLAGS_LEFT.map(f => <FlagRow key={f.id} id={f.id} label={f.label} />)}
+        </div>
         <div>
-          <div className="tj-tr-plan-title">Followed trading plan?</div>
-          <div className="tj-tr-plan-sub">Did this trade match your rules?</div>
-        </div>
-        <div className="tj-tr-plan-toggle">
-          <button
-            type="button"
-            className={`tj-tr-plan-btn ${followedPlan === true ? 'yes' : ''}`}
-            onClick={() => setFollowedPlan(true)}
-          >YES</button>
-          <button
-            type="button"
-            className={`tj-tr-plan-btn ${followedPlan === false ? 'no' : ''}`}
-            onClick={() => setFollowedPlan(false)}
-          >NO</button>
+          {BEHAVIORAL_FLAGS_RIGHT.map(f => <FlagRow key={f.id} id={f.id} label={f.label} />)}
         </div>
       </div>
+      <div style={{ padding:'10px 14px', borderTop:'1px solid var(--app-border)' }}>
+        {flags.length > 0
+          ? <span style={{ fontSize:11, color:'var(--red)', fontFamily:'var(--font-mono)' }}>{flags.length} behavioral flag{flags.length > 1 ? 's' : ''} this trade</span>
+          : <span style={{ fontSize:11, color:'var(--app-text-subtle)' }}>No behavioral flags</span>}
+      </div>
+    </div>
+  );
+}
+
+// ── G — StateOfMindBlock ──────────────────────────────────────────────────────
+const STATE_OF_MIND_TAGS = {
+  positive: ['In the zone','Calm','Focused','Patient','Confident','Clear-headed','Decisive','Composed'],
+  caution:  ['Slightly anxious','Slightly rushed','Mildly frustrated','Uncertain','Distracted','Tired','Impatient'],
+  negative: ['Revenge trading','FOMO','Overconfident','Fearful','Reckless','Frustrated','Desperate','Emotionally numb'],
+};
+
+function StateOfMindBlock({ entry, activeTrade, onMutateEntry, onMutateTrade }: {
+  entry: JournalEntry;
+  activeTrade: JournalTrade | null;
+  onMutateEntry: (f: Partial<JournalEntry>) => void;
+  onMutateTrade?: (f: Partial<JournalTrade>) => void;
+}) {
+  const emotions = entry.emotions;
+  const tradesom = activeTrade?.stateOfMind;
+
+  const selectedFor = (label: string, _valence: 'positive' | 'caution' | 'negative') => {
+    if (tradesom) return tradesom.some(t => t.label === label);
+    return emotions.some(e => e.label === label && e.state !== 'neutral');
+  };
+
+  const toggle = (label: string, valence: 'positive' | 'caution' | 'negative') => {
+    if (onMutateTrade && activeTrade) {
+      const current = activeTrade.stateOfMind ?? [];
+      const exists = current.find(t => t.label === label);
+      const next = exists ? current.filter(t => t.label !== label) : [...current, { label, valence }];
+      onMutateTrade({ stateOfMind: next });
+    } else {
+      onMutateEntry({ emotions: emotions.map(e =>
+        e.label === label ? { ...e, state: e.state === 'neutral' ? (valence === 'positive' ? 'green' : valence === 'caution' ? 'amber' : 'red') : 'neutral' } : e
+      )});
+    }
+  };
+
+  const groups: Array<{ key: 'positive'|'caution'|'negative'; color: string; bg: string; border: string }> = [
+    { key:'positive', color:'var(--green)', bg:'var(--green-dim)', border:'var(--green-border)' },
+    { key:'caution',  color:'var(--amber)', bg:'var(--amber-dim)', border:'var(--amber-border)' },
+    { key:'negative', color:'var(--red)',   bg:'var(--red-dim)',   border:'var(--red-border)' },
+  ];
+
+  return (
+    <div style={{ background:'var(--app-panel)', border:'1px solid var(--app-border)', borderRadius:6, padding:'12px 14px', marginBottom:8 }}>
+      <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+        {groups.map((g, gi) => (
+          <div key={g.key}>
+            {gi > 0 && <div style={{ height:1, background:'var(--app-border)', marginBottom:10 }} />}
+            <div style={{ display:'flex', flexWrap:'wrap', gap:4 }}>
+              {STATE_OF_MIND_TAGS[g.key].map(label => {
+                const sel = selectedFor(label, g.key);
+                return (
+                  <button key={label} type="button" onClick={() => toggle(label, g.key)}
+                    style={{ padding:'3px 8px', fontSize:10, borderRadius:3, border:`1px solid ${sel?g.border:'var(--app-border)'}`, background:sel?g.bg:'transparent', color:sel?g.color:'var(--app-text-muted)', cursor:'pointer', fontFamily:'var(--font-sans)' }}>
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── H — PhysicalStateBlock ────────────────────────────────────────────────────
+function PhysicalStateBlock({ entry, onMutateEntry }: { entry: JournalEntry; onMutateEntry: (f: Partial<JournalEntry>) => void }) {
+  const ps = entry.physicalState ?? { sleep:0, sleepHours:0, stress:0, energy:0, distractions:[], environment:'' };
+  const update = (patch: Partial<typeof ps>) => onMutateEntry({ physicalState: { ...ps, ...patch } });
+
+  const DISTRACTIONS = ['Phone','Other screen','People','Noise','None'];
+  const ENVIRONMENTS = ['Home','Office','Travelling','Unusual setup'];
+
+  const PipRow = ({ label, value, field, colorFn }: { label: string; value: number; field: keyof typeof ps; colorFn: (v: number) => string }) => (
+    <div style={{ minWidth:80 }}>
+      <div style={{ fontSize:9, color:'var(--app-text-subtle)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:4 }}>{label}</div>
+      <div style={{ display:'flex', gap:3 }}>
+        {[1,2,3,4,5].map(v => (
+          <button key={v} type="button" onClick={() => update({ [field]: v } as Partial<typeof ps>)}
+            style={{ width:16, height:5, borderRadius:2, border:'none', cursor:'pointer', background: (value as number) >= v ? colorFn(value) : 'var(--app-panel-strong)' }} />
+        ))}
+      </div>
+    </div>
+  );
+
+  const toggleDistraction = (d: string) => {
+    let next: string[];
+    if (d === 'None') { next = ps.distractions.includes('None') ? [] : ['None']; }
+    else { next = ps.distractions.includes(d) ? ps.distractions.filter(x => x !== d) : [...ps.distractions.filter(x => x !== 'None'), d]; }
+    update({ distractions: next });
+  };
+
+  return (
+    <div style={{ background:'var(--app-panel)', border:'1px solid var(--app-border)', borderRadius:6, padding:'12px 14px', marginBottom:8 }}>
+      <div style={{ display:'flex', flexWrap:'wrap', gap:16, alignItems:'flex-start' }}>
+        <PipRow label="Sleep" value={ps.sleep} field="sleep" colorFn={() => 'var(--cobalt)'} />
+        <PipRow label="Stress" value={ps.stress} field="stress" colorFn={v => v <= 2 ? 'var(--green)' : v === 3 ? 'var(--amber)' : 'var(--red)'} />
+        <PipRow label="Energy" value={ps.energy} field="energy" colorFn={() => 'var(--green)'} />
+        <div>
+          <div style={{ fontSize:9, color:'var(--app-text-subtle)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:4 }}>Distractions</div>
+          <div style={{ display:'flex', flexWrap:'wrap', gap:3 }}>
+            {DISTRACTIONS.map(d => {
+              const sel = ps.distractions.includes(d);
+              const isNone = d === 'None';
+              return (
+                <button key={d} type="button" onClick={() => toggleDistraction(d)}
+                  style={{ padding:'2px 6px', fontSize:9, borderRadius:2, border:`1px solid ${sel?(isNone?'var(--green-border)':'var(--amber-border)'):'var(--app-border)'}`, background:sel?(isNone?'var(--green-dim)':'var(--amber-dim)'):'transparent', color:sel?(isNone?'var(--green)':'var(--amber)'):'var(--app-text-subtle)', cursor:'pointer', fontFamily:'var(--font-sans)' }}>
+                  {d}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div>
+          <div style={{ fontSize:9, color:'var(--app-text-subtle)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:4 }}>Environment</div>
+          <div style={{ display:'flex', flexWrap:'wrap', gap:3 }}>
+            {ENVIRONMENTS.map(e => {
+              const sel = ps.environment === e;
+              return (
+                <button key={e} type="button" onClick={() => update({ environment: sel ? '' : e })}
+                  style={{ padding:'2px 6px', fontSize:9, borderRadius:2, border:`1px solid ${sel?'var(--amber-border)':'var(--app-border)'}`, background:sel?'var(--amber-dim)':'transparent', color:sel?'var(--amber)':'var(--app-text-subtle)', cursor:'pointer', fontFamily:'var(--font-sans)' }}>
+                  {e}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── I — ProcessScoreBlock ─────────────────────────────────────────────────────
+function ProcessScoreBlock({ trade, entries, navigate }: { trade: JournalTrade; entries: JournalEntry[]; navigate: (path: string) => void }) {
+  const score = computeProcessScore(trade);
+  const grade = score >= 90 ? 'A+' : score >= 80 ? 'A' : score >= 70 ? 'B+' : score >= 60 ? 'B' : score >= 50 ? 'C+' : 'C';
+  const scoreColor = score >= 70 ? 'var(--green)' : score >= 50 ? 'var(--amber)' : 'var(--red)';
+  const flags = trade.behavioralFlags ?? [];
+
+  const allTrades = entries.flatMap(e => e.trades);
+  const wins = allTrades.filter(t => t.result === 'win' && (t.processScore ?? computeProcessScore(t)) > 0);
+  const losses = allTrades.filter(t => t.result === 'loss' && (t.processScore ?? computeProcessScore(t)) > 0);
+  const avgWinScore = wins.length ? Math.round(wins.reduce((s, t) => s + (t.processScore ?? computeProcessScore(t)), 0) / wins.length) : null;
+  const avgLossScore = losses.length ? Math.round(losses.reduce((s, t) => s + (t.processScore ?? computeProcessScore(t)), 0) / losses.length) : null;
+
+  const insights: Array<{ text: string; color: string }> = [];
+  if (flags.length > 0) insights.push({ text: `${flags.length} behavioral flag${flags.length > 1 ? 's' : ''} reduced your score by ${Math.min(flags.length * 8, 40)} points`, color: 'var(--red)' });
+  if (avgWinScore !== null && avgLossScore !== null) insights.push({ text: `Your avg score on wins is ${avgWinScore} vs ${avgLossScore} on losses`, color: 'var(--app-text-muted)' });
+  const conf = trade.preEntry?.confidenceAtEntry ?? 0;
+  const disc = trade.psychologyRatings?.discipline ?? 0;
+  if (conf >= 4 && disc <= 2) insights.push({ text: 'Confidence was high but discipline was low — review your sizing decision', color: 'var(--amber)' });
+
+  return (
+    <div style={{ background:'var(--app-panel)', border:'1px solid var(--app-border)', borderRadius:6, padding:'14px 16px', marginBottom:8 }}>
+      <div style={{ display:'flex', alignItems:'center', gap:20, marginBottom:12 }}>
+        <div>
+          <div style={{ fontSize:32, fontWeight:600, fontFamily:'var(--font-mono)', color:scoreColor, lineHeight:1 }}>{score > 0 ? score : '—'}</div>
+          <div style={{ fontSize:9, color:'var(--app-text-subtle)', textTransform:'uppercase', letterSpacing:'0.07em', marginTop:2 }}>Process Score</div>
+        </div>
+        <div style={{ flex:1 }}>
+          <div style={{ height:4, borderRadius:2, background:'var(--app-panel-strong)', overflow:'hidden', marginBottom:8 }}>
+            <div style={{ height:'100%', borderRadius:2, background:scoreColor, width:`${score}%`, transition:'width 0.3s ease' }} />
+          </div>
+          <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+            {insights.map((ins, i) => (
+              <div key={i} style={{ display:'flex', alignItems:'flex-start', gap:6 }}>
+                <span style={{ width:6, height:6, borderRadius:'50%', background:ins.color, flexShrink:0, marginTop:3 }} />
+                <span style={{ fontSize:11, color:'var(--app-text-muted)' }}>{ins.text}</span>
+              </div>
+            ))}
+            {insights.length === 0 && score > 0 && (
+              <span style={{ fontSize:11, color:'var(--app-text-subtle)' }}>Complete more fields to see insights</span>
+            )}
+          </div>
+        </div>
+        <div style={{ fontSize:24, fontWeight:700, fontFamily:'var(--font-mono)', color:scoreColor }}>{score > 0 ? grade : '—'}</div>
+      </div>
+      <button type="button" onClick={() => navigate(`/flyxa-ai?tradeId=${trade.id}`)}
+        style={{ width:'100%', padding:'10px 16px', fontSize:12, fontWeight:600, fontFamily:'var(--font-sans)', background:'var(--cobalt)', color:'#fff', border:'none', borderRadius:5, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+        ✦ Analyse this trade with Flyxa AI →
+      </button>
     </div>
   );
 }
@@ -993,10 +1573,22 @@ export default function TradeJournal() {
   const [deleteEntryConfirm, setDeleteEntryConfirm] = useState(false);
   const [isScreenshotFullscreen, setIsScreenshotFullscreen] = useState(false);
 
+  // Collapsible section state — persisted to localStorage
+  const COLLAPSE_KEY = 'flyxa-journal-sections';
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
+    try { return JSON.parse(localStorage.getItem(COLLAPSE_KEY) ?? '{}'); } catch { return {}; }
+  });
+  const toggleSection = (key: string) => {
+    setCollapsed(prev => {
+      const next = { ...prev, [key]: !prev[key] };
+      try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+
   const scanInputRef = useRef<HTMLInputElement>(null);
   const screenshotInputRef = useRef<HTMLInputElement>(null);
   const screenshotSlotRef = useRef<number | null>(null);
-  const tabRootRef = useRef<HTMLDivElement>(null);
 
   const mutateEntries = useCallback((updater: (prev: JournalEntry[]) => JournalEntry[]) => {
     const current = normalizeEntries(useFlyxaStore.getState().entries as unknown[], rulesTemplate);
@@ -1018,13 +1610,6 @@ export default function TradeJournal() {
     }));
   }, [mutateEntries, selectedEntryId]);
 
-  const forceEntryRule = useCallback((ruleText: string, state: RuleState) => {
-    if (!selectedEntryId) return;
-    mutateEntries(prev => prev.map(entry => {
-      if (entry.id !== selectedEntryId) return entry;
-      return { ...entry, rules: entry.rules.map(rule => rule.text === ruleText ? { ...rule, state } : rule) };
-    }));
-  }, [mutateEntries, selectedEntryId]);
 
   useEffect(() => {
     if (!entries.length) {
@@ -1305,42 +1890,6 @@ export default function TradeJournal() {
     setIsDragging(false);
   }, []);
 
-  const updateReflection = useCallback((field: 'pre' | 'post' | 'lessons', value: string) => {
-    if (!selectedEntry) return;
-    mutateEntries(prev => prev.map(entry => {
-      if (entry.id !== selectedEntry.id) return entry;
-      return {
-        ...entry,
-        reflection: {
-          ...entry.reflection,
-          [field]: value,
-        },
-      };
-    }));
-  }, [mutateEntries, selectedEntry]);
-
-  useEffect(() => {
-    const root = tabRootRef.current;
-    if (!root) return;
-
-    const tabs = Array.from(root.querySelectorAll<HTMLButtonElement>('.tj-tab'));
-    const panes = Array.from(root.querySelectorAll<HTMLElement>('.tj-pane'));
-    const activate = (tabKey: string) => {
-      tabs.forEach(tab => tab.classList.toggle('active', tab.dataset.tab === tabKey));
-      panes.forEach(pane => pane.classList.toggle('active', pane.dataset.pane === tabKey));
-    };
-
-    const onClick = (event: Event) => {
-      const target = event.target as HTMLElement;
-      const tab = target.closest<HTMLButtonElement>('.tj-tab');
-      if (!tab?.dataset.tab) return;
-      activate(tab.dataset.tab);
-    };
-
-    root.addEventListener('click', onClick);
-    activate('pre');
-    return () => root.removeEventListener('click', onClick);
-  }, [selectedEntryId]);
 
   const deleteEntry = useCallback(() => {
     if (!selectedEntry) return;
@@ -1667,114 +2216,99 @@ export default function TradeJournal() {
                 />
               )}
 
-              <div className="tj-section-head">
-                <span className="tj-section-title">Reflection</span>
-              </div>
-              <div className="tj-card" ref={tabRootRef}>
-                <div className="tj-tabs">
-                  <button type="button" className="tj-tab" data-tab="pre">Pre-market</button>
-                  <button type="button" className="tj-tab" data-tab="post">Post-session</button>
-                  <button type="button" className="tj-tab" data-tab="lessons">Lessons</button>
-                </div>
-                <div className="tj-pane" data-pane="pre">
-                  <textarea
-                    className="tj-reflect"
-                    value={selectedEntry.reflection.pre}
-                    onChange={event => updateReflection('pre', event.target.value)}
-                    placeholder="Game plan, key levels, bias, setups you're watching..."
-                  />
-                </div>
-                <div className="tj-pane" data-pane="post">
-                  <textarea
-                    className="tj-reflect"
-                    value={selectedEntry.reflection.post}
-                    onChange={event => updateReflection('post', event.target.value)}
-                    placeholder="How did the session go? What happened vs your plan?"
-                  />
-                </div>
-                <div className="tj-pane" data-pane="lessons">
-                  <textarea
-                    className="tj-reflect"
-                    value={selectedEntry.reflection.lessons}
-                    onChange={event => updateReflection('lessons', event.target.value)}
-                    placeholder="What did you learn? What would you do differently?"
-                  />
-                </div>
-              </div>
-
-              {activeTrade && (
-                <TradeReflectionBlock
-                  trade={activeTrade}
-                  onMutate={fields => mutateTradeFields(activeTrade.id, fields)}
-                  onRuleForce={forceEntryRule}
+              {/* ── A. DAILY REFLECTION ── */}
+              <SectionHead title="Daily Reflection" sectionKey="dailyReflection" collapsed={!!collapsed['dailyReflection']} onToggle={() => toggleSection('dailyReflection')} />
+              {!collapsed['dailyReflection'] && (
+                <DailyReflectionBlock
+                  entry={selectedEntry}
+                  onMutateEntry={fields => mutateEntries(prev => prev.map(e => e.id === selectedEntry.id ? { ...e, ...fields } : e))}
                 />
               )}
 
-              <div className="tj-section-head">
-                <span className="tj-section-title">Psychology</span>
-              </div>
-              <div className="tj-psy-grid">
-                {[
-                  { key: 'setupQuality' as const, label: 'Setup Quality', tone: 'g' as const },
-                  { key: 'discipline' as const, label: 'Discipline', tone: 'a' as const },
-                  { key: 'execution' as const, label: 'Execution', tone: 'r' as const },
-                ].map(card => {
-                  const score = selectedEntry.psychology[card.key];
-                  return (
-                    <div key={card.key} className="tj-psy-card">
-                      <div className="tj-psy-label">{card.label}</div>
-                      <div className="tj-pips">
-                        {[1, 2, 3, 4, 5].map(value => (
-                          <button
-                            key={value}
-                            type="button"
-                            className={`tj-pip ${card.tone} ${score >= value ? 'filled' : ''}`}
-                            onClick={() => {
-                              mutateEntries(prev => prev.map(entry => {
-                                if (entry.id !== selectedEntry.id) return entry;
-                                return {
-                                  ...entry,
-                                  psychology: {
-                                    ...entry.psychology,
-                                    [card.key]: value,
-                                  },
-                                };
-                              }));
-                            }}
-                          />
-                        ))}
-                      </div>
-                      <div className="tj-psy-score">{`${score}/5`}</div>
-                      <div className="tj-psy-note">
-                        {score >= 4 ? 'Strong today' : score >= 3 ? 'Solid with room to improve' : 'Needs tightening'}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+              {activeTrade && (
+                <>
+                  {/* ── B. PRE-ENTRY STATE ── */}
+                  <SectionHead title="Pre-entry State" sectionKey="preEntry" collapsed={!!collapsed['preEntry']} onToggle={() => toggleSection('preEntry')} />
+                  {!collapsed['preEntry'] && (
+                    <PreEntryBlock
+                      trade={activeTrade}
+                      entry={selectedEntry}
+                      allEntries={entries}
+                      onMutate={fields => mutateTradeFields(activeTrade.id, fields)}
+                    />
+                  )}
 
-              <div className="tj-section-head">
-                <span className="tj-section-title">State of Mind</span>
-              </div>
-              <div className="tj-tags">
-                {selectedEntry.emotions.map((emotion, index) => (
-                  <button
-                    key={emotion.label}
-                    type="button"
-                    className={`tj-tag ${emotion.state === 'green' ? 's-g' : emotion.state === 'amber' ? 's-a' : emotion.state === 'red' ? 's-r' : ''}`}
-                    onClick={() => {
-                      mutateEntries(prev => prev.map(entry => {
-                        if (entry.id !== selectedEntry.id) return entry;
-                        const next = [...entry.emotions];
-                        next[index] = { ...next[index], state: cycleEmotionState(next[index].state) };
-                        return { ...entry, emotions: next };
-                      }));
-                    }}
-                  >
-                    {emotion.label}
-                  </button>
-                ))}
-              </div>
+                  {/* ── C. TRADE THESIS ── */}
+                  <SectionHead title="Trade Thesis" sectionKey="tradeTh" collapsed={!!collapsed['tradeTh']} onToggle={() => toggleSection('tradeTh')} />
+                  {!collapsed['tradeTh'] && (
+                    <TradeThesisBlock
+                      trade={activeTrade}
+                      onMutate={fields => mutateTradeFields(activeTrade.id, fields)}
+                    />
+                  )}
+
+                  {/* ── D. EXECUTION REVIEW ── */}
+                  <SectionHead title="Execution Review" sectionKey="execReview" collapsed={!!collapsed['execReview']} onToggle={() => toggleSection('execReview')} />
+                  {!collapsed['execReview'] && (
+                    <ExecutionReviewBlock
+                      trade={activeTrade}
+                      onMutate={fields => mutateTradeFields(activeTrade.id, fields)}
+                    />
+                  )}
+
+                  {/* ── E. PSYCHOLOGY RATINGS ── */}
+                  <SectionHead title="Psychology Ratings" sectionKey="psychRatings" collapsed={!!collapsed['psychRatings']} onToggle={() => toggleSection('psychRatings')} />
+                  {!collapsed['psychRatings'] && (
+                    <PsychologyRatingsBlock
+                      trade={activeTrade}
+                      onMutate={fields => mutateTradeFields(activeTrade.id, fields)}
+                    />
+                  )}
+
+                  {/* ── F. BEHAVIORAL FLAGS ── */}
+                  <SectionHead title="Behavioral Flags" sectionKey="behavFlags" collapsed={!!collapsed['behavFlags']} onToggle={() => toggleSection('behavFlags')} />
+                  {!collapsed['behavFlags'] && (
+                    <BehavioralFlagsBlock
+                      trade={activeTrade}
+                      onMutate={fields => mutateTradeFields(activeTrade.id, fields)}
+                    />
+                  )}
+                </>
+              )}
+
+              {/* ── G. STATE OF MIND ── */}
+              <SectionHead title="State of Mind" sectionKey="stateOfMind" collapsed={!!collapsed['stateOfMind']} onToggle={() => toggleSection('stateOfMind')} />
+              {!collapsed['stateOfMind'] && (
+                <StateOfMindBlock
+                  entry={selectedEntry}
+                  activeTrade={activeTrade ?? null}
+                  onMutateEntry={fields => mutateEntries(prev => prev.map(e => e.id === selectedEntry.id ? { ...e, ...fields } : e))}
+                  onMutateTrade={activeTrade ? (fields => mutateTradeFields(activeTrade.id, fields)) : undefined}
+                />
+              )}
+
+              {/* ── H. PHYSICAL STATE ── */}
+              <SectionHead title="Physical State" sectionKey="physState" collapsed={!!collapsed['physState']} onToggle={() => toggleSection('physState')} />
+              {!collapsed['physState'] && (
+                <PhysicalStateBlock
+                  entry={selectedEntry}
+                  onMutateEntry={fields => mutateEntries(prev => prev.map(e => e.id === selectedEntry.id ? { ...e, ...fields } : e))}
+                />
+              )}
+
+              {activeTrade && (
+                <>
+                  {/* ── I. PROCESS SCORE ── */}
+                  <SectionHead title="Flyxa Process Score" sectionKey="processScore" collapsed={!!collapsed['processScore']} onToggle={() => toggleSection('processScore')} />
+                  {!collapsed['processScore'] && (
+                    <ProcessScoreBlock
+                      trade={activeTrade}
+                      entries={entries}
+                      navigate={navigate}
+                    />
+                  )}
+                </>
+              )}
             </div>
           </>
         ) : (
@@ -1852,4 +2386,3 @@ export default function TradeJournal() {
     </div>
   );
 }
-

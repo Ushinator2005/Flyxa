@@ -5,6 +5,8 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 const SAVE_DEBOUNCE_MS = 1500;
 const LOCAL_SAVED_AT_KEY = 'flyxa-store-saved-at';
+const LOCAL_ENTRIES_SAFE_KEY = 'flyxa-entries-safe';
+
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingValue: string | null = null;
 let cachedUserId: string | null = null;
@@ -30,16 +32,153 @@ async function getUserId(): Promise<string | null> {
   return cachedUserId;
 }
 
+function extractEntries(value: string): Record<string, unknown>[] {
+  try {
+    const parsed = JSON.parse(value) as { state?: { entries?: unknown[] } };
+    const entries = parsed?.state?.entries;
+    if (!Array.isArray(entries)) return [];
+    return entries.filter(
+      (e): e is Record<string, unknown> =>
+        e != null && typeof e === 'object' &&
+        typeof (e as Record<string, unknown>).id === 'string' &&
+        typeof (e as Record<string, unknown>).date === 'string'
+    );
+  } catch {
+    return [];
+  }
+}
+
+function deletedTradeIdsFromBlob(blob: unknown): Set<string> {
+  const ids = (blob as { state?: { deletedTradeIds?: unknown[] } } | null)?.state?.deletedTradeIds;
+  return new Set((Array.isArray(ids) ? ids : []).filter((id): id is string => typeof id === 'string'));
+}
+
+function removeDeletedTradesFromEntry(entry: Record<string, unknown>, deletedTradeIds: Set<string>): Record<string, unknown> {
+  if (deletedTradeIds.size === 0 || !Array.isArray(entry.trades)) return entry;
+  return {
+    ...entry,
+    trades: entry.trades.filter((trade) => {
+      if (!trade || typeof trade !== 'object') return true;
+      const id = (trade as Record<string, unknown>).id;
+      return typeof id !== 'string' || !deletedTradeIds.has(id);
+    }),
+  };
+}
+
+function sanitizeStoreBlob(parsed: unknown): unknown {
+  const deletedTradeIds = deletedTradeIdsFromBlob(parsed);
+  if (deletedTradeIds.size === 0) return parsed;
+
+  const base = parsed as { state?: { entries?: unknown[] } };
+  const entries = base?.state?.entries;
+  if (!Array.isArray(entries)) return parsed;
+
+  return {
+    ...(parsed as Record<string, unknown>),
+    state: {
+      ...(base.state ?? {}),
+      entries: entries.map((entry) => (
+        entry && typeof entry === 'object'
+          ? removeDeletedTradesFromEntry(entry as Record<string, unknown>, deletedTradeIds)
+          : entry
+      )),
+    },
+  };
+}
+
+function sanitizeStoreValue(value: string): string {
+  try {
+    return JSON.stringify(sanitizeStoreBlob(JSON.parse(value) as unknown));
+  } catch {
+    return value;
+  }
+}
+
+function mirrorLocalEntriesSafe(entries: Record<string, unknown>[]): void {
+  try {
+    const next: Record<string, unknown> = {};
+    for (const entry of entries) {
+      const id = entry.id as string;
+      next[id] = stripBase64Images(entry);
+    }
+    localStorage.setItem(LOCAL_ENTRIES_SAFE_KEY, JSON.stringify(next));
+  } catch { /* quota */ }
+}
+
+function readLocalEntriesSafe(): Record<string, unknown>[] {
+  try {
+    const raw = localStorage.getItem(LOCAL_ENTRIES_SAFE_KEY);
+    if (!raw) return [];
+    const map = JSON.parse(raw) as Record<string, unknown>;
+    return Object.values(map).filter(
+      (e): e is Record<string, unknown> => e != null && typeof e === 'object'
+    );
+  } catch {
+    return [];
+  }
+}
+
+// Sync entry rows to the dedicated store_entries_backup table.
+async function syncEntriesToTable(userId: string, entries: Record<string, unknown>[]): Promise<void> {
+  await supabase.from('store_entries_backup').delete().eq('user_id', userId);
+  if (entries.length === 0) return;
+  const rows = entries.map(e => ({
+    id: e.id as string,
+    user_id: userId,
+    date: e.date as string,
+    data: stripBase64Images(e) as Record<string, unknown>,
+    updated_at: new Date().toISOString(),
+  }));
+  await supabase.from('store_entries_backup').upsert(rows, { onConflict: 'id' });
+}
+
+// Recover entries from store_entries_backup table and rebuild a store blob.
+async function recoverFromJournalEntries(
+  userId: string,
+  baseBlob: unknown
+): Promise<string | null> {
+  try {
+    const { data, error } = await supabase
+      .from('store_entries_backup')
+      .select('data')
+      .eq('user_id', userId)
+      .order('date', { ascending: false });
+
+    if (error || !data || data.length === 0) return null;
+
+    const entries = data.map((row: { data: unknown }) => row.data);
+    const base = (baseBlob ?? { state: {}, version: 1 }) as Record<string, unknown>;
+    const rebuilt = {
+      ...base,
+      state: {
+        ...(base.state as Record<string, unknown> ?? {}),
+        entries,
+      },
+    };
+    return JSON.stringify(sanitizeStoreBlob(rebuilt));
+  } catch {
+    return null;
+  }
+}
+
 async function flushSave(userId: string, value: string): Promise<void> {
   try {
-    const parsed = JSON.parse(value) as unknown;
+    const sanitizedValue = sanitizeStoreValue(value);
+    const parsed = JSON.parse(sanitizedValue) as unknown;
     const sanitized = stripBase64Images(parsed);
     const now = new Date().toISOString();
+
+    // Primary store — single blob
     await supabase.from('user_store').upsert(
       { user_id: userId, flyxa_data: sanitized, updated_at: now },
       { onConflict: 'user_id' }
     );
     try { localStorage.setItem(LOCAL_SAVED_AT_KEY, Date.now().toString()); } catch { /* quota */ }
+
+    // Secondary store — per-entry rows mirror the current store.
+    const entries = extractEntries(sanitizedValue);
+    await syncEntriesToTable(userId, entries);
+    mirrorLocalEntriesSafe(entries);
   } catch {
     // silently fail — data is still in localStorage fallback
   }
@@ -68,7 +207,7 @@ if (typeof window !== 'undefined') {
     if (!pendingValue || !cachedUserId || !cachedToken) return;
     if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
 
-    const value = pendingValue;
+    const value = sanitizeStoreValue(pendingValue);
     const userId = cachedUserId;
     const token = cachedToken;
     pendingValue = null;
@@ -82,7 +221,6 @@ if (typeof window !== 'undefined') {
         updated_at: new Date().toISOString(),
       }]);
 
-      // keepalive: true ensures this request outlives the page
       void fetch(`${SUPABASE_URL}/rest/v1/user_store?on_conflict=user_id`, {
         method: 'POST',
         keepalive: true,
@@ -116,7 +254,6 @@ export const supabaseZustandStorage: StateStorage = {
         const local = localStorage.getItem('flyxa-store');
 
         // Always pick the source with more journal entries to avoid data loss.
-        // Fall back to timestamp comparison only when entry counts are equal.
         if (local) {
           try {
             const localParsed = JSON.parse(local) as { state?: { entries?: unknown[] } };
@@ -125,44 +262,90 @@ export const supabaseZustandStorage: StateStorage = {
             const remoteEntryCount = remoteParsed?.state?.entries?.length ?? 0;
 
             if (localEntryCount > remoteEntryCount) {
-              // Local has more data — push it to Supabase and use it
-              void flushSave(userId, local);
-              return local;
+              const sanitizedLocal = sanitizeStoreValue(local);
+              void flushSave(userId, sanitizedLocal);
+              return sanitizedLocal;
             }
 
             if (localEntryCount === remoteEntryCount && localSavedMs > supabaseMs + 2000) {
-              // Same amount of data but local has unsaved changes — push and use local
-              void flushSave(userId, local);
-              return local;
+              const sanitizedLocal = sanitizeStoreValue(local);
+              void flushSave(userId, sanitizedLocal);
+              return sanitizedLocal;
             }
-          } catch { /* fall through to use Supabase */ }
+          } catch { /* fall through */ }
         }
 
-        return JSON.stringify(data.flyxa_data);
+        // If user_store has entries, use it
+        const remoteEntries = (data.flyxa_data as { state?: { entries?: unknown[] } })?.state?.entries;
+        if (Array.isArray(remoteEntries) && remoteEntries.length > 0) {
+          return sanitizeStoreValue(JSON.stringify(data.flyxa_data));
+        }
+
+        // user_store exists but has 0 entries — try store_entries_backup table
+        const recovered = await recoverFromJournalEntries(userId, data.flyxa_data);
+        if (recovered) {
+          void flushSave(userId, recovered);
+          return recovered;
+        }
+
+        // Last resort: localStorage safe backup
+        const safeEntries = readLocalEntriesSafe();
+        if (safeEntries.length > 0) {
+          const base = data.flyxa_data as Record<string, unknown>;
+          const rebuilt = JSON.stringify({
+            ...base,
+            state: { ...(base.state as Record<string, unknown> ?? {}), entries: safeEntries },
+          });
+          const sanitizedRebuilt = sanitizeStoreValue(rebuilt);
+          void flushSave(userId, sanitizedRebuilt);
+          return sanitizedRebuilt;
+        }
+
+        return sanitizeStoreValue(JSON.stringify(data.flyxa_data));
       }
 
-      // No Supabase record yet — migrate from localStorage if data exists
+      // No user_store row — try store_entries_backup table first
+      const recovered = await recoverFromJournalEntries(userId, null);
+      if (recovered) {
+        void flushSave(userId, recovered);
+        return recovered;
+      }
+
+      // Then localStorage
       const local = localStorage.getItem('flyxa-store');
       if (local) {
-        void flushSave(userId, local);
-        return local;
+        const sanitizedLocal = sanitizeStoreValue(local);
+        void flushSave(userId, sanitizedLocal);
+        return sanitizedLocal;
+      }
+
+      // Last resort: safe backup
+      const safeEntries = readLocalEntriesSafe();
+      if (safeEntries.length > 0) {
+        const rebuilt = JSON.stringify({ state: { entries: safeEntries }, version: 1 });
+        const sanitizedRebuilt = sanitizeStoreValue(rebuilt);
+        void flushSave(userId, sanitizedRebuilt);
+        return sanitizedRebuilt;
       }
     } catch {
-      // Supabase unreachable — fall back to localStorage
-      return localStorage.getItem('flyxa-store');
+      const local = localStorage.getItem('flyxa-store');
+      return local ? sanitizeStoreValue(local) : null;
     }
 
     return null;
   },
 
   setItem: async (_key: string, value: string): Promise<void> => {
-    // Keep localStorage as a fast local cache and record when it was last written
+    const sanitizedValue = sanitizeStoreValue(value);
     try {
-      localStorage.setItem('flyxa-store', value);
+      localStorage.setItem('flyxa-store', sanitizedValue);
       localStorage.setItem(LOCAL_SAVED_AT_KEY, Date.now().toString());
     } catch { /* quota exceeded */ }
 
-    pendingValue = value;
+    const entries = extractEntries(sanitizedValue);
+    mirrorLocalEntriesSafe(entries);
+
+    pendingValue = sanitizedValue;
     if (saveTimer) clearTimeout(saveTimer);
 
     const userId = await getUserId();
@@ -174,10 +357,10 @@ export const supabaseZustandStorage: StateStorage = {
   },
 
   removeItem: async (_key: string): Promise<void> => {
+    // Only clear the local device cache — never delete cloud data.
+    // Supabase is the source of truth and must survive sign-out.
+    // LOCAL_ENTRIES_SAFE_KEY is intentionally NOT cleared here.
     localStorage.removeItem('flyxa-store');
     localStorage.removeItem(LOCAL_SAVED_AT_KEY);
-    const userId = await getUserId();
-    if (!userId) return;
-    await supabase.from('user_store').delete().eq('user_id', userId);
   },
 };

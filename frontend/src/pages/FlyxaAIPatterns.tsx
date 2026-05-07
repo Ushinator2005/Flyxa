@@ -44,143 +44,6 @@ const tinyMetaLabelStyle: CSSProperties = {
 const cardBorder = `1px solid ${colors.b0}`;
 
 
-export const patternsData: PatternItem[] = [
-  {
-    id: 'p1',
-    type: 'Risk',
-    status: 'Active',
-    title: 'Open-hour overtrading after first loss',
-    description: 'You tend to add one or two low-conviction entries in the first 30 minutes after an initial loss, which expands drawdown quickly.',
-    firstSeen: '2026-01-15',
-    sessionCount: 9,
-    totalR: -6.7,
-    tags: [
-      { label: '-6.7R total', sentiment: 'negative' },
-      { label: 'Mostly ES', sentiment: 'neutral' },
-      { label: 'After first red trade', sentiment: 'neutral' },
-    ],
-    confidence: 88,
-    instrument: 'ES',
-    session: 'RTH open',
-    sessions: [
-      { date: '2026-04-05', rOutcome: -1.2 },
-      { date: '2026-04-02', rOutcome: -0.9 },
-      { date: '2026-03-27', rOutcome: -0.8 },
-      { date: '2026-03-19', rOutcome: -1.1 },
-    ],
-  },
-  {
-    id: 'p2',
-    type: 'Behaviour',
-    status: 'Improving',
-    title: 'Early TP on clean continuation setups',
-    description: 'When in profit quickly, you trim too early and miss full target range. This has improved but still caps upside.',
-    firstSeen: '2026-02-08',
-    sessionCount: 7,
-    totalR: -2.4,
-    tags: [
-      { label: 'Improving over 3 weeks', sentiment: 'positive' },
-      { label: '-2.4R missed', sentiment: 'negative' },
-    ],
-    confidence: 64,
-    instrument: 'NQ',
-    session: 'Overlap',
-    sessions: [
-      { date: '2026-04-03', rOutcome: -0.3 },
-      { date: '2026-03-31', rOutcome: -0.2 },
-      { date: '2026-03-21', rOutcome: -0.6 },
-    ],
-  },
-  {
-    id: 'p3',
-    type: 'Edge',
-    status: 'Confirmed',
-    title: 'London/NY overlap pullback continuation',
-    description: 'Highest repeatability pattern. Entries after second pullback during overlap sessions continue to produce above-average returns.',
-    firstSeen: '2025-12-20',
-    sessionCount: 14,
-    totalR: 11.3,
-    tags: [
-      { label: '+11.3R total', sentiment: 'positive' },
-      { label: '67% win rate', sentiment: 'positive' },
-      { label: 'NQ edge', sentiment: 'neutral' },
-    ],
-    confidence: 92,
-    instrument: 'NQ',
-    session: 'Overlap',
-    sessions: [
-      { date: '2026-04-04', rOutcome: 1.8 },
-      { date: '2026-03-30', rOutcome: 1.1 },
-      { date: '2026-03-25', rOutcome: 0.9 },
-      { date: '2026-03-14', rOutcome: 1.4 },
-    ],
-  },
-  {
-    id: 'p4',
-    type: 'Psychology',
-    status: 'Active',
-    title: 'Frustration carry-over into next session',
-    description: 'After a larger red day, the first entries in the following session are often reactive and outside planned setup criteria.',
-    firstSeen: '2026-01-29',
-    sessionCount: 6,
-    totalR: -3.9,
-    tags: [
-      { label: 'Post-loss behavior', sentiment: 'negative' },
-      { label: '-3.9R impact', sentiment: 'negative' },
-    ],
-    confidence: 73,
-    instrument: 'ES',
-    session: 'RTH open',
-    sessions: [
-      { date: '2026-04-01', rOutcome: -1.0 },
-      { date: '2026-03-12', rOutcome: -0.7 },
-      { date: '2026-02-26', rOutcome: -1.1 },
-    ],
-  },
-  {
-    id: 'p5',
-    type: 'Edge',
-    status: 'Confirmed',
-    title: 'Midday mean-reversion fade at prior day extremes',
-    description: 'When midday volatility compresses, fades from prior-day extremes have produced consistent positive R with controlled downside.',
-    firstSeen: '2026-02-18',
-    sessionCount: 8,
-    totalR: 5.6,
-    tags: [
-      { label: '+5.6R earned', sentiment: 'positive' },
-      { label: 'Midday only', sentiment: 'neutral' },
-    ],
-    confidence: 81,
-    instrument: 'ES',
-    session: 'Midday',
-    sessions: [
-      { date: '2026-04-06', rOutcome: 0.9 },
-      { date: '2026-03-28', rOutcome: 0.8 },
-      { date: '2026-03-22', rOutcome: 0.6 },
-    ],
-  },
-  {
-    id: 'p6',
-    type: 'Behaviour',
-    status: 'Resolved',
-    title: 'Chasing momentum candle closes',
-    description: 'Previously entered late momentum candles without structure confirmation; no longer present in recent sessions.',
-    firstSeen: '2025-11-12',
-    sessionCount: 10,
-    totalR: -4.2,
-    tags: [
-      { label: 'Eliminated pattern', sentiment: 'positive' },
-    ],
-    confidence: 86,
-    instrument: 'NQ',
-    session: 'RTH open',
-    sessions: [
-      { date: '2026-01-20', rOutcome: -0.4 },
-      { date: '2026-01-07', rOutcome: -0.5 },
-    ],
-  },
-];
-
 function patternAccent(type: PatternType) {
   if (type === 'Risk') return '#ef4444';
   if (type === 'Edge') return '#22c55e';
@@ -213,7 +76,7 @@ function filterPillClass(active: boolean) {
 }
 
 export default function FlyxaAIPatterns() {
-  const [patterns, setPatterns] = useState<PatternItem[]>(patternsData);
+  const [patterns, setPatterns] = useState<PatternItem[]>([]);
   const [expandedPatternId, setExpandedPatternId] = useState<string | null>(null);
   const [showResolved, setShowResolved] = useState(false);
   const [selectedType, setSelectedType] = useState<'All' | PatternType>('All');
@@ -442,7 +305,11 @@ export default function FlyxaAIPatterns() {
                   </div>
                   <div className="space-y-3">
                     {costingPatterns.map(renderPatternCard)}
-                    {costingPatterns.length === 0 && <p className="text-[12px]" style={{ color: colors.t2 }}>No patterns match current filters.</p>}
+                    {costingPatterns.length === 0 && (
+                      <div className="rounded-[8px] border p-4 text-[12px]" style={{ borderColor: colors.b0, backgroundColor: colors.d2, color: colors.t2 }}>
+                        No real risk patterns detected from your current trades.
+                      </div>
+                    )}
                   </div>
                 </section>
 
@@ -453,7 +320,11 @@ export default function FlyxaAIPatterns() {
                   </div>
                   <div className="space-y-3">
                     {earningPatterns.map(renderPatternCard)}
-                    {earningPatterns.length === 0 && <p className="text-[12px]" style={{ color: colors.t2 }}>No patterns match current filters.</p>}
+                    {earningPatterns.length === 0 && (
+                      <div className="rounded-[8px] border p-4 text-[12px]" style={{ borderColor: colors.b0, backgroundColor: colors.d2, color: colors.t2 }}>
+                        No real earning patterns detected from your current trades.
+                      </div>
+                    )}
                   </div>
                 </section>
 

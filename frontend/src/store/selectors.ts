@@ -3,6 +3,15 @@ import useFlyxaStore from './flyxaStore.js';
 import { computeAchievementProgress, computeJournalStreak } from './achievements.js';
 import type { Achievement, JournalEntry, Trade } from './types.js';
 
+function withoutDeletedTrades(entries: JournalEntry[], deletedTradeIds: string[]): JournalEntry[] {
+  if (deletedTradeIds.length === 0) return entries;
+  const deleted = new Set(deletedTradeIds);
+  return entries.map((entry) => ({
+    ...entry,
+    trades: entry.trades.filter((trade) => !deleted.has(trade.id)),
+  }));
+}
+
 export function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -22,10 +31,12 @@ export function endOfToday(): Date {
 export const useActiveAccountEntries = (): JournalEntry[] => {
   const entries = useFlyxaStore((state) => state.entries);
   const activeAccountId = useFlyxaStore((state) => state.activeAccountId);
+  const deletedTradeIds = useFlyxaStore((state) => state.deletedTradeIds);
   return useMemo(() => {
-    if (!activeAccountId) return entries;
-    return entries.filter((entry) => entry.account === activeAccountId);
-  }, [activeAccountId, entries]);
+    const visibleEntries = withoutDeletedTrades(entries, deletedTradeIds);
+    if (!activeAccountId) return visibleEntries;
+    return visibleEntries.filter((entry) => entry.account === activeAccountId);
+  }, [activeAccountId, deletedTradeIds, entries]);
 };
 
 export const useAllTrades = (): Trade[] => {

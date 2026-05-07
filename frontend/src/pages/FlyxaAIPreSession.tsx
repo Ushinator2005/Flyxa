@@ -6,7 +6,7 @@ import { useAppSettings } from '../contexts/AppSettingsContext.js';
 import { useRisk } from '../contexts/RiskContext.js';
 import { useTrades } from '../hooks/useTrades.js';
 import { RiskSettings, Trade } from '../types/index.js';
-import { PatternItem, patternsData } from './FlyxaAIPatterns.js';
+import { PatternItem } from './FlyxaAIPatterns.js';
 import useFlyxaStore from '../store/flyxaStore.js';
 
 type BiasValue = 'Bull' | 'Bear' | 'Neutral';
@@ -307,7 +307,7 @@ export default function FlyxaAIPreSession() {
   }, [settings, storedRiskSettings]);
 
   const activePatterns = useMemo(
-    () => patternsData.filter(pattern => pattern.status !== 'Resolved'),
+    () => [] as PatternItem[],
     []
   );
   const activeRiskPatterns = useMemo(

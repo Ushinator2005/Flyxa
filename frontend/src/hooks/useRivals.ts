@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
 import type { Rival } from '../types/rivals.js';
-import { mockRivals } from '../data/rivals.mock.js';
 import { getMascotXP } from '../lib/mascotProgression.js';
 import { useActiveAccountEntries, useJournalStreak } from '../store/selectors.js';
 import useFlyxaStore from '../store/flyxaStore.js';
@@ -16,7 +15,7 @@ export function useRivals() {
   const entries = useActiveAccountEntries();
   const journalStreak = useJournalStreak();
 
-  const resolvedRivals = storedRivals.length > 0 ? storedRivals : mockRivals.filter((r) => !r.isMe) as Rival[];
+  const resolvedRivals = storedRivals.filter((rival) => !rival.isMe) as Rival[];
 
   const myRival = useMemo(() => {
     const last30 = [...entries]
@@ -45,7 +44,7 @@ export function useRivals() {
       isMe: true,
       mascot: {
         stage: journalStreak >= 60 ? 'apex' : journalStreak >= 30 ? 'elite' : journalStreak >= 14 ? 'veteran' : journalStreak >= 7 ? 'rookie' : 'seed',
-        name: 'Alex Chen',
+        name: 'You',
         streakDays: journalStreak,
         stats: {
           discipline: Math.round(discipline),

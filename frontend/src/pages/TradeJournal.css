@@ -1876,3 +1876,13 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* Collapsible section head arrow */
+.tj-section-head { cursor: pointer; }
+.tj-section-head:hover .tj-section-title { color: var(--amber); }
+
+/* Tab active state */
+.tj-tab.active {
+  color: var(--app-text);
+  border-bottom-color: var(--amber);
+}

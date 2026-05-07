@@ -137,103 +137,13 @@ const INITIAL_PLAN_BLOCKS: PlanBlock[] = [
   },
 ];
 
-const INITIAL_RISK_RULES: RiskRule[] = [
-  { id: 'daily-loss', label: 'Daily loss limit', value: '$500', unit: '/ day', color: 'red' },
-  { id: 'max-trades', label: 'Max trades per day', value: '3', unit: 'trades', color: 'amber' },
-  { id: 'max-contracts', label: 'Max contracts per trade', value: '2', unit: 'contracts', color: 'default' },
-  { id: 'min-rr', label: 'Minimum R:R to take a trade', value: '1:2.0 RR', unit: '', color: 'green' },
-  { id: 'max-losses', label: 'Max consecutive losses before stopping', value: '2', unit: 'in a row', color: 'red' },
-  { id: 'risk-per-trade', label: 'Risk per trade (% of account)', value: '0.5%', unit: '', color: 'default' },
-];
+const INITIAL_RISK_RULES: RiskRule[] = [];
 
-const INITIAL_SETUPS: Setup[] = [
-  {
-    id: 'setup-a-plus',
-    rank: 'A+',
-    name: 'Opening Reclaim Continuation',
-    description: 'Strong reclaim through prior session level with pullback hold and momentum confirmation.',
-    timeframe: '5m',
-    market: 'NQ',
-    avgRR: '1:2.8 RR',
-    confluences: [
-      'Reclaim above prior session high with volume expansion',
-      'Pullback respects VWAP and prior breakout level',
-      'Second push confirms momentum with no immediate rejection',
-    ],
-    isExpanded: true,
-  },
-  {
-    id: 'setup-a',
-    rank: 'A',
-    name: 'London Session Sweep Reversal',
-    description: 'Liquidity sweep into key zone followed by fast reclaim and trapped continuation.',
-    timeframe: '15m',
-    market: 'ES',
-    avgRR: '1:2.2 RR',
-    confluences: [
-      'Liquidity sweep into pre-marked demand or supply',
-      'Fast reclaim through invalidation level',
-      'Entry only after structure shift and rejection candle close',
-    ],
-    isExpanded: false,
-  },
-  {
-    id: 'setup-b',
-    rank: 'B',
-    name: 'Range Rotation Fade',
-    description: 'Fade the edge of a clean intraday range only when breadth and timing align.',
-    timeframe: '5m',
-    market: 'MNQ',
-    avgRR: '1:1.7 RR',
-    confluences: [
-      'Range boundaries tested at least twice with rejection',
-      'No immediate high-impact news risk',
-      'Entry aligned with session timing and acceptable spread',
-    ],
-    isExpanded: false,
-  },
-];
+const INITIAL_SETUPS: Setup[] = [];
 
-const INITIAL_PROP_FIRMS: PropFirm[] = [
-  {
-    id: 'apex',
-    name: 'Apex $100K',
-    phase: 'Eval',
-    params: [
-      { label: 'Daily loss limit', value: '$2,000', color: 'amber' },
-      { label: 'Trailing drawdown', value: '$3,000', color: 'amber' },
-      { label: 'Profit target', value: '$10,000', color: 'default' },
-      { label: 'Min trading days', value: '10', color: 'default' },
-      { label: 'Consistency', value: 'None', color: 'green' },
-    ],
-    progress: {
-      percent: 68,
-      currentLabel: '$6,800',
-      targetLabel: '$10,000',
-    },
-  },
-  {
-    id: 'ftmo',
-    name: 'FTMO $50K',
-    phase: 'Funded',
-    params: [
-      { label: 'Daily loss limit', value: '$1,000', color: 'amber' },
-      { label: 'Max drawdown', value: '$2,500', color: 'amber' },
-      { label: 'Payout split', value: '80%', color: 'green' },
-      { label: 'Min payout cycle', value: '30 days', color: 'default' },
-    ],
-  },
-];
+const INITIAL_PROP_FIRMS: PropFirm[] = [];
 
-const INITIAL_CHECKLIST: ChecklistItem[] = [
-  { id: 'news', text: 'Check economic calendar - no news in first 30 minutes', done: true },
-  { id: 'zones', text: 'Mark key supply and demand zones on chart', done: true },
-  { id: 'bias', text: 'Write pre-market bias in journal', done: true },
-  { id: 'loss-limit', text: 'Confirm daily loss limit is not already breached', done: false },
-  { id: 'gap', text: 'Check overnight gap - adjust levels if needed', done: false },
-  { id: 'state', text: 'Confirm mental state - clear to trade today?', done: false },
-  { id: 'alerts', text: 'Set daily loss limit alert on platform', done: false },
-];
+const INITIAL_CHECKLIST: ChecklistItem[] = [];
 
 function formatLastSaved(lastSaved: Date | null, now: number): string {
   if (!lastSaved) return 'Not saved yet';

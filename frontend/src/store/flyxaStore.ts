@@ -40,18 +40,9 @@ export const DEFAULT_NEWS_SOURCES: Record<string, boolean> = {
   Forexlive: true,
 };
 
-export const DEFAULT_RISK_RULES: RiskRule[] = [
-  { id: 'rr-1', label: 'Risk per trade', value: '1', unit: '%', color: 'amber' },
-  { id: 'rr-2', label: 'Max daily loss', value: '3', unit: 'R', color: 'red' },
-  { id: 'rr-3', label: 'Max trades', value: '4', unit: 'per day', color: 'amber' },
-];
+export const DEFAULT_RISK_RULES: RiskRule[] = [];
 
-export const DEFAULT_CHECKLIST: ChecklistItem[] = [
-  { id: 'cl-1', text: 'Only traded A/B setups', done: false },
-  { id: 'cl-2', text: 'Followed daily loss limit', done: false },
-  { id: 'cl-3', text: 'Respected position sizing rules', done: false },
-  { id: 'cl-4', text: 'No impulse entries', done: false },
-];
+export const DEFAULT_CHECKLIST: ChecklistItem[] = [];
 
 export const DEFAULT_PLAN_BLOCKS: PlanBlock[] = [
   { id: 'pb-1', name: 'Market Thesis', hint: 'How you frame session context', content: '', isOpen: true },
@@ -60,41 +51,7 @@ export const DEFAULT_PLAN_BLOCKS: PlanBlock[] = [
   { id: 'pb-4', name: 'Post-Trade Process', hint: 'Debrief checklist', content: '', isOpen: true },
 ];
 
-const DEFAULT_SETUPS: Setup[] = [
-  {
-    id: 'setup-a-plus',
-    name: 'A+ Opening Reversal',
-    description: 'Liquidity sweep and immediate reclaim.',
-    rank: 'A+',
-    timeframe: '1m-5m',
-    market: 'NQ/ES',
-    avgRR: '2.5R',
-    confluences: ['Liquidity sweep', 'VWAP reclaim', 'Structure shift'],
-    isExpanded: true,
-  },
-  {
-    id: 'setup-a',
-    name: 'A Trend Continuation',
-    description: 'Pullback into trend with confirmation.',
-    rank: 'A',
-    timeframe: '5m',
-    market: 'NQ/ES',
-    avgRR: '2.0R',
-    confluences: ['Trend alignment', 'Retest hold', 'Volume confirmation'],
-    isExpanded: false,
-  },
-  {
-    id: 'setup-b',
-    name: 'B Mean Reversion',
-    description: 'Counter trend only at major levels.',
-    rank: 'B',
-    timeframe: '1m',
-    market: 'NQ',
-    avgRR: '1.4R',
-    confluences: ['Extreme extension', 'Momentum fade'],
-    isExpanded: false,
-  },
-];
+const DEFAULT_SETUPS: Setup[] = [];
 
 interface FlyxaStateData {
   entries: JournalEntry[];
@@ -199,6 +156,42 @@ function computeResult(pnl: number, exit: number | null): TradeResult {
   if (pnl > 0) return 'win';
   if (pnl < 0) return 'loss';
   return 'open';
+}
+
+const LEGACY_DEFAULT_RISK_RULE_IDS = new Set([
+  'rr-1',
+  'rr-2',
+  'rr-3',
+  'daily-loss',
+  'max-trades',
+  'max-contracts',
+  'min-rr',
+  'max-losses',
+  'risk-per-trade',
+]);
+
+const LEGACY_DEFAULT_CHECKLIST_IDS = new Set([
+  'cl-1',
+  'cl-2',
+  'cl-3',
+  'cl-4',
+  'news',
+  'zones',
+  'bias',
+  'loss-limit',
+  'gap',
+  'state',
+  'alerts',
+]);
+
+const LEGACY_DEFAULT_SETUP_IDS = new Set([
+  'setup-a-plus',
+  'setup-a',
+  'setup-b',
+]);
+
+function removeLegacyDefaults<T extends { id: string }>(items: T[] | undefined, legacyIds: Set<string>): T[] {
+  return (items ?? []).filter((item) => !legacyIds.has(item.id));
 }
 
 function recalcTrade(trade: Trade): Trade {
@@ -355,9 +348,7 @@ function normalizeEntryUnknown(input: unknown, accountId: string): JournalEntry 
       post: asString(reflectionRaw.post, ''),
       lessons: asString(reflectionRaw.lessons, ''),
     },
-    rules: normalizedRules.length > 0
-      ? normalizedRules
-      : DEFAULT_CHECKLIST.map((item) => ({ text: item.text, state: 'unchecked' as const })),
+    rules: normalizedRules,
     psychology: {
       setupQuality: asNumber(psychologyRaw.setupQuality, 0),
       discipline: asNumber(psychologyRaw.discipline, 0),
@@ -480,10 +471,17 @@ const useFlyxaStore = create<FlyxaStore>()(
       },
 
       deleteEntry: (id) => {
-        set((state) => syncAchievements({
-          ...state,
-          entries: state.entries.filter((entry) => entry.id !== id),
-        }));
+        set((state) => {
+          const removedTradeIds = state.entries
+            .find((entry) => entry.id === id)
+            ?.trades.map((trade) => trade.id) ?? [];
+          const deletedTradeIds = Array.from(new Set([...state.deletedTradeIds, ...removedTradeIds]));
+          return syncAchievements({
+            ...state,
+            entries: state.entries.filter((entry) => entry.id !== id),
+            deletedTradeIds,
+          });
+        });
       },
 
       addTrade: (entryId, trade) => {
@@ -524,7 +522,10 @@ const useFlyxaStore = create<FlyxaStore>()(
               return withEntryDerived({ ...entry, trades: entry.trades.filter((trade) => trade.id !== tradeId) });
             })
           );
-          return syncAchievements({ ...state, entries });
+          const deletedTradeIds = state.deletedTradeIds.includes(tradeId)
+            ? state.deletedTradeIds
+            : [...state.deletedTradeIds, tradeId];
+          return syncAchievements({ ...state, entries, deletedTradeIds });
         });
       },
 
@@ -653,9 +654,9 @@ const useFlyxaStore = create<FlyxaStore>()(
               ? mergeAchievementCatalog(payload.achievements)
               : mergeAchievementCatalog(state.achievements),
             goals: payload.goals ?? state.goals,
-            setupPlaybook: payload.setupPlaybook ?? state.setupPlaybook,
-            riskRules: payload.riskRules ?? state.riskRules,
-            checklist: payload.checklist ?? state.checklist,
+            setupPlaybook: removeLegacyDefaults(payload.setupPlaybook ?? state.setupPlaybook, LEGACY_DEFAULT_SETUP_IDS),
+            riskRules: removeLegacyDefaults(payload.riskRules ?? state.riskRules, LEGACY_DEFAULT_RISK_RULE_IDS),
+            checklist: removeLegacyDefaults(payload.checklist ?? state.checklist, LEGACY_DEFAULT_CHECKLIST_IDS),
             planBlocks: payload.planBlocks ?? state.planBlocks,
             propFirms: payload.propFirms ?? state.propFirms,
             billingAccounts,
@@ -682,7 +683,9 @@ const useFlyxaStore = create<FlyxaStore>()(
         const persisted = (persistedState as Partial<FlyxaStore> | undefined) ?? {};
         const base = currentState as FlyxaStore;
         const activeAccountId = persisted.activeAccountId ?? base.activeAccountId ?? DEFAULT_ACCOUNT_ID;
-        const sanitizedEntries = withDerivedEntries(ensureAccount(persisted.entries ?? [], activeAccountId));
+        const incomingEntries = withDerivedEntries(ensureAccount(persisted.entries ?? [], activeAccountId));
+        // Never replace existing entries with fewer — protects against rehydrate wiping data
+        const sanitizedEntries = incomingEntries.length >= base.entries.length ? incomingEntries : base.entries;
         const sanitizedBilling = (persisted.billingAccounts ?? base.billingAccounts).map((account) => ({
           ...account,
           roi: asNumber(account.payoutReceived, 0) - asNumber(account.actualPrice, 0),
@@ -701,6 +704,9 @@ const useFlyxaStore = create<FlyxaStore>()(
             persisted.achievements && persisted.achievements.length ? persisted.achievements : base.achievements
           ),
           billingAccounts: sanitizedBilling,
+          setupPlaybook: removeLegacyDefaults(persisted.setupPlaybook ?? base.setupPlaybook, LEGACY_DEFAULT_SETUP_IDS),
+          riskRules: removeLegacyDefaults(persisted.riskRules ?? base.riskRules, LEGACY_DEFAULT_RISK_RULE_IDS),
+          checklist: removeLegacyDefaults(persisted.checklist ?? base.checklist, LEGACY_DEFAULT_CHECKLIST_IDS),
         };
       },
       migrate: (persistedState) => {
@@ -711,6 +717,9 @@ const useFlyxaStore = create<FlyxaStore>()(
           ...initial,
           ...state,
           entries: withDerivedEntries(ensureAccount(state.entries ?? [], state.activeAccountId ?? initial.activeAccountId ?? DEFAULT_ACCOUNT_ID)),
+          setupPlaybook: removeLegacyDefaults(state.setupPlaybook ?? initial.setupPlaybook, LEGACY_DEFAULT_SETUP_IDS),
+          riskRules: removeLegacyDefaults(state.riskRules ?? initial.riskRules, LEGACY_DEFAULT_RISK_RULE_IDS),
+          checklist: removeLegacyDefaults(state.checklist ?? initial.checklist, LEGACY_DEFAULT_CHECKLIST_IDS),
           billingAccounts: (state.billingAccounts ?? []).map((account) => ({
             ...account,
             roi: asNumber(account.payoutReceived, 0) - asNumber(account.actualPrice, 0),
@@ -726,9 +735,9 @@ const useFlyxaStore = create<FlyxaStore>()(
         activeAccountId: state.activeAccountId,
         achievements: state.achievements,
         goals: state.goals,
-        setupPlaybook: state.setupPlaybook,
-        riskRules: state.riskRules,
-        checklist: state.checklist,
+        setupPlaybook: removeLegacyDefaults(state.setupPlaybook, LEGACY_DEFAULT_SETUP_IDS),
+        riskRules: removeLegacyDefaults(state.riskRules, LEGACY_DEFAULT_RISK_RULE_IDS),
+        checklist: removeLegacyDefaults(state.checklist, LEGACY_DEFAULT_CHECKLIST_IDS),
         planBlocks: state.planBlocks,
         propFirms: state.propFirms,
         billingAccounts: state.billingAccounts,
@@ -759,7 +768,7 @@ export function createEmptyJournalEntry(date?: string, accountId?: string): Jour
     trades: [],
     screenshots: ['', '', ''],
     reflection: { pre: '', post: '', lessons: '' },
-    rules: DEFAULT_CHECKLIST.map((item) => ({ text: item.text, state: 'unchecked' as const })),
+    rules: [],
     psychology: { setupQuality: 0, discipline: 0, execution: 0 },
     emotions: [
       'Focused',
