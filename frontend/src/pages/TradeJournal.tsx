@@ -93,6 +93,7 @@ interface JournalTrade {
   behavioralFlags?: string[];
   stateOfMind?: Array<{ label: string; valence: 'positive' | 'caution' | 'negative' }>;
   processScore?: number;
+  confluences?: string[];
 }
 
 interface JournalEntry {
@@ -249,6 +250,28 @@ function formatCurrencyFixed(value: number) {
 function parsePrice(value: unknown): number | undefined {
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return undefined;
   return value;
+}
+
+function normalizeConfluences(value: unknown): string[] {
+  const rawValues = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(',')
+      : [];
+
+  const deduped = new Set<string>();
+  const normalized: string[] = [];
+  rawValues.forEach((entry) => {
+    if (typeof entry !== 'string') return;
+    const cleaned = entry.trim().replace(/\s+/g, ' ');
+    if (!cleaned) return;
+    const key = cleaned.toLowerCase();
+    if (deduped.has(key)) return;
+    deduped.add(key);
+    normalized.push(cleaned);
+  });
+
+  return normalized;
 }
 
 function getTradeEntry(trade: JournalTrade): number | undefined {
@@ -434,6 +457,7 @@ function fromLegacyRecords(value: unknown[], rulesTemplate: string[]): JournalEn
       pnl,
       result,
       screenshotUrl: typeof record.screenshot === 'string' ? record.screenshot : undefined,
+      confluences: normalizeConfluences(record.confluences),
     };
     entry.trades.push(withTradeDerivedValues(trade));
     if (trade.screenshotUrl && !entry.scannedImageUrl) entry.scannedImageUrl = trade.screenshotUrl;
@@ -527,6 +551,7 @@ function normalizeEntries(value: unknown[], rulesTemplate: string[]): JournalEnt
               .filter((item): item is NonNullable<typeof item> => Boolean(item))
             : undefined,
           processScore: typeof trade.processScore === 'number' ? trade.processScore : undefined,
+          confluences: normalizeConfluences(trade.confluences),
         };
         return withTradeDerivedValues(normalizedTrade);
       });
@@ -686,7 +711,7 @@ function AccountSelectorBlock({ trade, onMutate }: { trade: JournalTrade; onMuta
         }}
       >
         <option value="">— Select account —</option>
-        {accounts.map(account => (
+        {accounts.filter(account => account.status !== 'Blown').map(account => (
           <option key={account.id} value={account.id}>
             {account.name}
           </option>
@@ -758,7 +783,9 @@ function PriceLevelsBlock({ trade, onMutate }: PriceLevelsBlockProps) {
 
   const stopDelta = entryValue !== undefined && slValue !== undefined ? Math.abs(slValue - entryValue) : null;
   const tpDelta = entryValue !== undefined && tpValue !== undefined ? Math.abs(tpValue - entryValue) : null;
-  const exitDelta = entryValue !== undefined && exitValue !== undefined ? exitValue - entryValue : null;
+  const exitDelta = entryValue !== undefined && exitValue !== undefined
+    ? trade.direction === 'LONG' ? exitValue - entryValue : entryValue - exitValue
+    : null;
 
   const netPnl = entryValue !== undefined && exitValue !== undefined
     ? trade.direction === 'LONG'
@@ -934,6 +961,16 @@ function DailyReflectionBlock({ entry, onMutateEntry }: {
     setLocalPre(d.pre); setLocalPost(d.post); setLocalLessons(d.lessons);
   }, [entry.id]);
 
+  // Save local textarea content when section is collapsed (component unmounts)
+  const unmountRef = useRef({ localPre, localPost, localLessons, dr, onMutateEntry });
+  unmountRef.current = { localPre, localPost, localLessons, dr, onMutateEntry };
+  useEffect(() => {
+    return () => {
+      const { localPre: p, localPost: po, localLessons: l, dr: d, onMutateEntry: m } = unmountRef.current;
+      m({ dailyReflection: { ...d, pre: p, post: po, lessons: l } });
+    };
+  }, []);
+
   const update = (patch: Partial<typeof dr>) => {
     onMutateEntry({ dailyReflection: { ...dr, ...patch } });
   };
@@ -983,12 +1020,6 @@ function DailyReflectionBlock({ entry, onMutateEntry }: {
                   </button>
                 ))}
               </div>
-            </div>
-            <div>
-              <div style={{ fontSize:9, color:'var(--app-text-subtle)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:4 }}>Session Target</div>
-              <input type="number" placeholder="Daily target $" style={{ width:110, height:26, padding:'0 8px', fontSize:11, fontFamily:'var(--font-mono)', background:'var(--app-bg,var(--app-panel-strong))', border:'1px solid var(--app-border)', borderRadius:4, color:'var(--app-text)', outline:'none' }}
-                value={dr.sessionTarget ?? ''}
-                onChange={e => update({ sessionTarget: e.target.value ? Number(e.target.value) : null })} />
             </div>
           </div>
         </div>
@@ -1067,6 +1098,16 @@ function PreEntryBlock({ trade, entry, allEntries, onMutate }: {
 
   const update = (patch: Partial<typeof pe>) => onMutate({ preEntry: { ...pe, ...patch } });
 
+  // Save hesitation reason on unmount (section collapse)
+  const unmountRef = useRef({ hesReason, pe, onMutate });
+  unmountRef.current = { hesReason, pe, onMutate };
+  useEffect(() => {
+    return () => {
+      const { hesReason: h, pe: p, onMutate: m } = unmountRef.current;
+      if (h !== (p.hesitationReason ?? '')) m({ preEntry: { ...p, hesitationReason: h } });
+    };
+  }, []);
+
   const EMOTIONAL_STATES = ['Calm and focused','Slightly anxious','Excited / hyped','Frustrated (from earlier trade)','Bored / impatient','Fearful of missing','Revenge-motivated','In the zone','Distracted / not present','Overconfident'];
   const CONF_LABELS = ['','Low / forced','Uncertain','Moderate','Confident','High conviction'];
 
@@ -1087,9 +1128,6 @@ function PreEntryBlock({ trade, entry, allEntries, onMutate }: {
 
   return (
     <div style={{ background:'var(--app-panel)', border:'1px solid var(--app-border)', borderRadius:6, overflow:'hidden', marginBottom:8 }}>
-      <div style={{ background:'var(--amber-dim)', borderBottom:'1px solid var(--amber-border)', padding:'8px 14px', fontSize:11, color:'var(--app-text-muted)', fontStyle:'italic' }}>
-        Fill this in immediately after entry — before you know the outcome. Outcome bias corrupts this data if you wait.
-      </div>
 
       <div style={{ padding:'12px 14px', borderBottom:'1px solid var(--app-border)' }}>
         <div style={{ fontSize:9, color:'var(--app-text-subtle)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:2 }}>Confidence at Entry</div>
@@ -1163,11 +1201,38 @@ function PreEntryBlock({ trade, entry, allEntries, onMutate }: {
 // ── C — TradeThesisBlock ──────────────────────────────────────────────────────
 function TradeThesisBlock({ trade, onMutate }: { trade: JournalTrade; onMutate: (f: Partial<JournalTrade>) => void }) {
   const th = trade.thesis ?? { setup:'', invalidation:'', asymmetry:'', setupType:'' };
+  const confluences = normalizeConfluences(trade.confluences);
   const [local, setLocal] = useState(th);
+  const [confluenceDraft, setConfluenceDraft] = useState('');
   useEffect(() => { setLocal(trade.thesis ?? { setup:'', invalidation:'', asymmetry:'', setupType:'' }); }, [trade.id]);
+  useEffect(() => { setConfluenceDraft(''); }, [trade.id]);
 
   const update = (patch: Partial<typeof th>) => onMutate({ thesis: { ...th, ...patch } });
   const commit = (field: keyof typeof th, value: string) => update({ [field]: value });
+  const setConfluences = (next: string[]) => onMutate({ confluences: normalizeConfluences(next) });
+
+  const addConfluence = () => {
+    const next = confluenceDraft.trim();
+    if (!next) return;
+    setConfluences([...confluences, next]);
+    setConfluenceDraft('');
+  };
+
+  const removeConfluence = (indexToRemove: number) => {
+    setConfluences(confluences.filter((_, index) => index !== indexToRemove));
+  };
+
+  // Save unsaved textarea content on unmount (section collapse)
+  const unmountRef = useRef({ local, th, onMutate });
+  unmountRef.current = { local, th, onMutate };
+  useEffect(() => {
+    return () => {
+      const { local: l, th: t, onMutate: m } = unmountRef.current;
+      if (l.setup !== t.setup || l.invalidation !== t.invalidation || l.asymmetry !== t.asymmetry) {
+        m({ thesis: { ...t, setup: l.setup, invalidation: l.invalidation, asymmetry: l.asymmetry } });
+      }
+    };
+  }, []);
 
   const setups: string[] = useMemo(() => {
     try { const raw = localStorage.getItem('flyxa_setups'); return raw ? (JSON.parse(raw) as string[]) : []; } catch { return []; }
@@ -1204,6 +1269,47 @@ function TradeThesisBlock({ trade, onMutate }: { trade: JournalTrade; onMutate: 
           </button>
         ))}
       </div>
+      <div style={{ padding:'10px 14px', borderTop:'1px solid var(--app-border)' }}>
+        <div style={{ fontSize:9, color:'var(--app-text-subtle)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:8 }}>Confluences</div>
+        <div style={{ display:'flex', gap:6, marginBottom:8 }}>
+          <input
+            value={confluenceDraft}
+            onChange={(event) => setConfluenceDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                addConfluence();
+              }
+            }}
+            placeholder="Type a confluence and press Enter (e.g., FVG, HTF bias, liquidity sweep)"
+            style={{ flex:1, padding:'7px 9px', fontSize:11, fontFamily:'var(--font-sans)', background:'var(--app-panel-strong)', border:'1px solid var(--app-border)', borderRadius:4, color:'var(--app-text)', outline:'none' }}
+          />
+          <button
+            type="button"
+            onClick={addConfluence}
+            style={{ padding:'7px 10px', fontSize:10, borderRadius:4, border:'1px solid var(--amber-border)', background:'var(--amber-dim)', color:'var(--amber)', cursor:'pointer', fontFamily:'var(--font-sans)', fontWeight:600 }}
+          >
+            Add
+          </button>
+        </div>
+        {confluences.length > 0 ? (
+          <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+            {confluences.map((item, index) => (
+              <button
+                key={`${item}-${index}`}
+                type="button"
+                onClick={() => removeConfluence(index)}
+                title="Remove confluence"
+                style={{ padding:'3px 8px', fontSize:10, borderRadius:4, border:'1px solid var(--app-border)', background:'var(--app-panel-strong)', color:'var(--app-text-muted)', cursor:'pointer', fontFamily:'var(--font-sans)' }}
+              >
+                {item} ×
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div style={{ fontSize:10, color:'var(--app-text-subtle)' }}>No confluences tagged yet.</div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1214,6 +1320,16 @@ function ExecutionReviewBlock({ trade, onMutate }: { trade: JournalTrade; onMuta
   const [note, setNote] = useState(er.note ?? '');
   useEffect(() => { setNote(trade.executionReview?.note ?? ''); }, [trade.id]);
   const update = (patch: Partial<typeof er>) => onMutate({ executionReview: { ...er, ...patch } });
+
+  // Save note on unmount (section collapse)
+  const unmountRef = useRef({ note, er, onMutate });
+  unmountRef.current = { note, er, onMutate };
+  useEffect(() => {
+    return () => {
+      const { note: n, er: e, onMutate: m } = unmountRef.current;
+      if (n !== (e.note ?? '')) m({ executionReview: { ...e, note: n } });
+    };
+  }, []);
 
   const YNToggle = ({ label, field, value }: { label: string; field: keyof typeof er; value: boolean | null }) => (
     <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
@@ -1728,6 +1844,7 @@ export default function TradeJournal() {
       rr: 0,
       pnl: 0,
       result: 'open',
+      confluences: [],
     };
     mutateEntries(prev => prev.map(entry => entry.id === selectedEntry.id ? { ...entry, trades: [withTradeDerivedValues(newTrade), ...entry.trades] } : entry));
   }, [mutateEntries, selectedEntry]);
@@ -1850,6 +1967,7 @@ export default function TradeJournal() {
         pnl: 0,
         result: 'open',
         screenshotUrl,
+        confluences: [],
       };
 
       applyScannedTrade(screenshotUrl, withTradeDerivedValues(trade), tradeDate);

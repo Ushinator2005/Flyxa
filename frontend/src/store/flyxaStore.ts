@@ -151,6 +151,28 @@ function pointValue(symbol: string): number {
   return lookupContract(symbol)?.point_value ?? 1;
 }
 
+function normalizeConfluences(value: unknown): string[] {
+  const rawValues = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(',')
+      : [];
+
+  const deduped = new Set<string>();
+  const normalized: string[] = [];
+  rawValues.forEach((entry) => {
+    if (typeof entry !== 'string') return;
+    const cleaned = entry.trim().replace(/\s+/g, ' ');
+    if (!cleaned) return;
+    const key = cleaned.toLowerCase();
+    if (deduped.has(key)) return;
+    deduped.add(key);
+    normalized.push(cleaned);
+  });
+
+  return normalized;
+}
+
 function computeResult(pnl: number, exit: number | null): TradeResult {
   if (exit === null || !Number.isFinite(exit)) return 'open';
   if (pnl > 0) return 'win';
@@ -232,9 +254,9 @@ function computeEntryGrade(entry: JournalEntry): string {
   const rulePassPct = evaluated > 0 ? (ok / evaluated) * 100 : 0;
   const baseDiscipline = asNumber(entry.psychology.discipline, 0);
 
-  const gradedTrades = entry.trades.filter(trade => (trade.reflection.processGrade ?? 0) > 0);
+  const gradedTrades = entry.trades.filter(trade => (trade.reflection?.processGrade ?? 0) > 0);
   const avgProcessGrade = gradedTrades.length > 0
-    ? gradedTrades.reduce((sum, trade) => sum + trade.reflection.processGrade, 0) / gradedTrades.length
+    ? gradedTrades.reduce((sum, trade) => sum + (trade.reflection?.processGrade ?? 0), 0) / gradedTrades.length
     : 0;
 
   const weightedDiscipline = gradedTrades.length > 0
@@ -263,6 +285,9 @@ function normalizeTradeUnknown(input: unknown, entryId: string, date: string, ac
   const reflectionRaw = isRecord(input.reflection) ? input.reflection : {};
   const direction = input.direction === 'SHORT' ? 'SHORT' : 'LONG';
   const trade: Trade = {
+    // Spread all input fields first so rich JournalTrade fields (preEntry, thesis,
+    // executionReview, psychologyRatings, etc.) survive a page reload.
+    ...(input as Record<string, unknown>),
     id: asString(input.id, crypto.randomUUID()),
     entryId,
     date: asString(input.date, date),
@@ -295,6 +320,7 @@ function normalizeTradeUnknown(input: unknown, entryId: string, date: string, ac
       processGrade: asNumber(reflectionRaw.processGrade, 0),
       followedPlan: reflectionRaw.followedPlan === true || reflectionRaw.followedPlan === false ? reflectionRaw.followedPlan : null,
     },
+    confluences: normalizeConfluences(input.confluences),
     account: asString(input.account, accountId),
     createdAt: asString(input.createdAt, new Date().toISOString()),
   };
@@ -628,10 +654,46 @@ const useFlyxaStore = create<FlyxaStore>()(
       setChartHistory: (records) => set(() => ({ chartHistory: records })),
 
       setEntries: (entries) => {
-        set((state) => syncAchievements({
-          ...state,
-          entries: withDerivedEntries(ensureAccount(entries, state.activeAccountId || DEFAULT_ACCOUNT_ID)),
-        }));
+        set((state) => {
+          const accountId = state.activeAccountId || DEFAULT_ACCOUNT_ID;
+          // Preserve all fields (including rich journal fields like dailyReflection,
+          // preEntry, thesis, executionReview, etc.) — only ensure account, date,
+          // entryId, and time are set (JournalTrade uses entryTime, not time).
+          const safeEntries = (entries as unknown[])
+            .filter((e): e is Record<string, unknown> => !!e && typeof e === 'object')
+            .map(e => {
+              const entryId = typeof e.id === 'string' ? e.id : crypto.randomUUID();
+              const entryDate = typeof e.date === 'string' ? e.date : todayIso();
+              const entryAccount = (typeof e.account === 'string' && e.account) ? e.account : accountId;
+              return {
+                ...e,
+                id: entryId,
+                account: entryAccount,
+                trades: Array.isArray(e.trades)
+                  ? (e.trades as unknown[]).map(t => {
+                      if (!t || typeof t !== 'object') return t;
+                      const tr = t as Record<string, unknown>;
+                      const tradeAccount = (typeof tr.account === 'string' && tr.account) ? tr.account : entryAccount;
+                      // Ensure Trade-required fields that JournalTrade lacks are populated
+                      const tradeTime = typeof tr.time === 'string' ? tr.time
+                        : typeof tr.entryTime === 'string' ? tr.entryTime : '09:30';
+                      const tradeDate = typeof tr.date === 'string' ? tr.date : entryDate;
+                      const tradeEntryId = typeof tr.entryId === 'string' ? tr.entryId : entryId;
+                      const createdAt = typeof tr.createdAt === 'string' ? tr.createdAt : new Date().toISOString();
+                      return {
+                        ...tr,
+                        account: tradeAccount,
+                        time: tradeTime,
+                        date: tradeDate,
+                        entryId: tradeEntryId,
+                        createdAt,
+                      };
+                    })
+                  : [],
+              };
+            }) as JournalEntry[];
+          return syncAchievements({ ...state, entries: withDerivedEntries(safeEntries) });
+        });
       },
 
       hydrateSharedData: (payload) => {

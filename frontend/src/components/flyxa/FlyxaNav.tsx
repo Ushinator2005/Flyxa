@@ -14,7 +14,7 @@ const NAV_ITEMS = [
   { key: 'pattern',     label: 'Pattern library',       to: '/flyxa-ai/patterns',               end: false },
   { key: 'pre-session', label: 'Pre-session brief',     to: '/flyxa-ai/pre-session',            end: false },
   { key: 'emotional',   label: 'Emotional fingerprint', to: '/flyxa-ai/emotional-fingerprint',  end: false },
-  { key: 'ask',         label: 'Ask Flyxa',             to: '/flyxa-ai/ask',                    end: false },
+  { key: 'ask',         label: 'Ask Flyxa',             to: '/flyxa-ai',                        end: false },
 ];
 
 export default function FlyxaNav() {

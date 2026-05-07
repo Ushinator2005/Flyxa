@@ -273,7 +273,7 @@ export function computeFollowedPlanStreak(trades: Trade[]): number {
   let best = 0;
   let current = 0;
   for (const trade of ordered) {
-    if (trade.reflection.followedPlan === true) {
+    if (trade.reflection?.followedPlan === true) {
       current += 1;
       if (current > best) best = current;
     } else {

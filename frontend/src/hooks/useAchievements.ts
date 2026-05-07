@@ -29,7 +29,7 @@ function computeStreakStats(trades: Trade[]) {
       currentWinStreak = 0;
     }
 
-    if (trade.reflection.followedPlan === true) {
+    if (trade.reflection?.followedPlan === true) {
       currentDisciplineStreak += 1;
       bestDisciplineStreak = Math.max(bestDisciplineStreak, currentDisciplineStreak);
     } else {

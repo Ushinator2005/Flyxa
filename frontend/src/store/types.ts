@@ -31,6 +31,7 @@ export interface Trade {
   screenshots: string[];
   scannedImageUrl: string | null;
   reflection: TradeReflection;
+  confluences?: string[];
   account: string;
   createdAt: string;
 }

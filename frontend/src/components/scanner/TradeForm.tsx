@@ -625,7 +625,7 @@ export default function TradeForm({
                 value={form.accountId || getDefaultTradeAccountId()}
                 onChange={e => set('accountId', e.target.value)}
               >
-                {accounts.map(account => (
+                {accounts.filter(a => a.status !== 'Blown').map(account => (
                   <option key={account.id} value={account.id}>
                     {account.name} · {account.status}
                   </option>

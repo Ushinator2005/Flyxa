@@ -6,6 +6,28 @@ import { tradesApi } from '../services/api.js';
 import { persistDeletedTradeId } from '../utils/deletedTrades.js';
 import { flushSupabaseStoreNow } from '../store/supabaseStorage.js';
 
+function normalizeConfluences(value: unknown): string[] {
+  const rawValues = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(',')
+      : [];
+
+  const deduped = new Set<string>();
+  const normalized: string[] = [];
+  rawValues.forEach((entry) => {
+    if (typeof entry !== 'string') return;
+    const cleaned = entry.trim().replace(/\s+/g, ' ');
+    if (!cleaned) return;
+    const key = cleaned.toLowerCase();
+    if (deduped.has(key)) return;
+    deduped.add(key);
+    normalized.push(cleaned);
+  });
+
+  return normalized;
+}
+
 function toStoreTrade(data: Partial<ApiTrade>, entryId: string, accountId: string): StoreTrade {
   const direction = data.direction === 'Short' ? 'SHORT' : 'LONG';
   const entry = typeof data.entry_price === 'number' ? data.entry_price : 0;
@@ -39,6 +61,7 @@ function toStoreTrade(data: Partial<ApiTrade>, entryId: string, accountId: strin
       processGrade: 0,
       followedPlan: typeof data.followed_plan === 'boolean' ? data.followed_plan : null,
     },
+    confluences: normalizeConfluences(data.confluences),
     account: data.accountId ?? data.account_id ?? accountId,
     createdAt: data.created_at ?? new Date().toISOString(),
   };
@@ -51,7 +74,7 @@ function toApiTrade(trade: StoreTrade): ApiTrade {
     id: trade.id,
     user_id: 'local',
     symbol: trade.symbol,
-    screenshot_url: trade.scannedImageUrl ?? trade.screenshots[0],
+    screenshot_url: trade.scannedImageUrl ?? (trade as unknown as { screenshotUrl?: string }).screenshotUrl ?? (Array.isArray(trade.screenshots) ? trade.screenshots[0] : undefined),
     accountId: trade.account,
     account_id: trade.account,
     direction: trade.direction === 'SHORT' ? 'Short' : 'Long',
@@ -66,21 +89,22 @@ function toApiTrade(trade: StoreTrade): ApiTrade {
     trade_date: trade.date,
     trade_time: tradeTime,
     close_time: trade.exitTime,
-    trade_length_seconds: trade.duration ? trade.duration * 60 : 0,
+    trade_length_seconds: trade.duration ? trade.duration * 60 : ((trade as unknown as { durationMinutes?: number | null }).durationMinutes ?? 0) * 60,
     candle_count: 0,
     timeframe_minutes: 0,
     emotional_state: 'Calm',
-    confidence_level: trade.reflection.processGrade,
-    pre_trade_notes: trade.reflection.thesis,
-    post_trade_notes: trade.reflection.execution,
-    confluences: [],
-    followed_plan: trade.reflection.followedPlan ?? true,
+    confidence_level: trade.reflection?.processGrade,
+    pre_trade_notes: trade.reflection?.thesis,
+    post_trade_notes: trade.reflection?.execution,
+    confluences: normalizeConfluences((trade as StoreTrade).confluences),
+    followed_plan: trade.reflection?.followedPlan ?? true,
     session,
     created_at: trade.createdAt,
   };
 }
 
-function getSession(time: string): ApiTrade['session'] {
+function getSession(time: string | undefined | null): ApiTrade['session'] {
+  if (!time) return 'Other';
   const [hoursText] = time.split(':');
   const hours = Number(hoursText);
   if (!Number.isFinite(hours)) return 'Other';
@@ -157,6 +181,7 @@ export function useTrades() {
         processGrade: 0,
         followedPlan: typeof data.followed_plan === 'boolean' ? data.followed_plan : null,
       },
+      confluences: normalizeConfluences(data.confluences),
     };
 
     updateTradeInStore(entry.id, id, patch);

@@ -1,6 +1,6 @@
 import { CSSProperties, useMemo } from 'react';
 import { Clock3 } from 'lucide-react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useSearchParams } from 'react-router-dom';
 import LoadingSpinner from '../components/common/LoadingSpinner.js';
 import { useTrades } from '../hooks/useTrades.js';
 import { useAppSettings } from '../contexts/AppSettingsContext.js';
@@ -152,6 +152,15 @@ function formatWeekRange(start: Date, end: Date) {
 
 function formatSignedR(value: number, digits = 1) {
   return `${value >= 0 ? '+' : '-'}${Math.abs(value).toFixed(digits)}R`;
+}
+
+function formatCurrency(value: number) {
+  return value.toLocaleString('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }
 
 function normalizeConfluences(value: unknown): string[] {
@@ -642,6 +651,7 @@ function buildData(trades: Trade[]): WeeklyDebriefData {
 export default function FlyxaAI() {
   const { trades, loading } = useTrades();
   const { filterTradesBySelectedAccount } = useAppSettings();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const accountTrades = useMemo(
     () => filterTradesBySelectedAccount(trades),
@@ -654,6 +664,19 @@ export default function FlyxaAI() {
   const weeklyDebriefData = useMemo(
     () => buildData(safeAccountTrades),
     [safeAccountTrades]
+  );
+  const focusedTradeId = searchParams.get('tradeId');
+  const focusedTrade = useMemo(
+    () => (focusedTradeId ? safeAccountTrades.find(trade => trade.id === focusedTradeId) ?? null : null),
+    [focusedTradeId, safeAccountTrades]
+  );
+  const focusedTradeR = useMemo(
+    () => (focusedTrade ? tradeR(focusedTrade) : null),
+    [focusedTrade]
+  );
+  const focusedTradeConfluences = useMemo(
+    () => normalizeConfluences(focusedTrade?.confluences),
+    [focusedTrade]
   );
 
   const sessionsProgress = Math.min(100, (weeklyDebriefData.nextDebrief.sessionsLogged / weeklyDebriefData.nextDebrief.sessionsTarget) * 100);
@@ -765,9 +788,13 @@ export default function FlyxaAI() {
       const y = yAt(cumulative[index + 1]);
       const absDelta = Math.abs(delta);
       const rounded = Math.abs(absDelta - Math.round(absDelta)) < 0.05 ? String(Math.round(absDelta)) : absDelta.toFixed(1);
+      const isNearRightEdge = x > width - 20;
+      const isNearLeftEdge = x < 20;
       return {
         x,
         y,
+        labelX: isNearRightEdge ? x - 4 : isNearLeftEdge ? x + 4 : x,
+        textAnchor: isNearRightEdge ? 'end' as const : isNearLeftEdge ? 'start' as const : 'middle' as const,
         label: `${delta >= 0 ? '+' : '-'}${rounded}R`,
       };
     });
@@ -858,7 +885,7 @@ export default function FlyxaAI() {
               { key: 'pattern', label: 'Pattern library', to: '/flyxa-ai/patterns', end: false },
               { key: 'pre-session', label: 'Pre-session brief', to: '/flyxa-ai/pre-session', end: false },
               { key: 'emotional', label: 'Emotional fingerprint', to: '/flyxa-ai/emotional-fingerprint', end: false },
-              { key: 'ask', label: 'Ask Flyxa', to: '/flyxa-ai/ask', end: false },
+              { key: 'ask', label: 'Ask Flyxa', to: '/flyxa-ai', end: false },
             ].map(item => (
               <NavLink key={item.key} to={item.to} end={item.end}>
                 {({ isActive }) => (
@@ -904,12 +931,12 @@ export default function FlyxaAI() {
                 <div className="flex items-end gap-4">
                   <svg width={sparkline.width} height={sparkline.height} viewBox={`0 0 ${sparkline.width} ${sparkline.height}`} className="shrink-0">
                     <line x1={6} y1={sparkline.baselineY} x2={sparkline.width - 6} y2={sparkline.baselineY} stroke="rgba(255,255,255,0.05)" strokeWidth="0.5" />
-                    <path d={sparkline.areaPath} fill="rgba(34,214,138,0.07)" />
-                    <path d={sparkline.stepPath} fill="none" stroke={colors.grn} strokeWidth="1.5" />
+                    <path d={sparkline.areaPath} fill={netRNumeric >= 0 ? 'rgba(34,214,138,0.07)' : 'rgba(255,95,95,0.09)'} />
+                    <path d={sparkline.stepPath} fill="none" stroke={netRNumeric >= 0 ? colors.grn : colors.red} strokeWidth="1.5" />
                     {sparkline.dots.map(dot => (
                       <g key={`${dot.x}-${dot.y}-${dot.label}`}>
-                        <circle cx={dot.x} cy={dot.y} r={3} fill={colors.grn} />
-                        <text x={dot.x} y={dot.y - 6} textAnchor="middle" fontSize="9" style={{ fill: colors.grn, fontFamily: colors.mono }}>
+                        <circle cx={dot.x} cy={dot.y} r={3} fill={netRNumeric >= 0 ? colors.grn : colors.red} />
+                        <text x={dot.labelX} y={dot.y - 6} textAnchor={dot.textAnchor} fontSize="9" style={{ fill: netRNumeric >= 0 ? colors.grn : colors.red, fontFamily: colors.mono }}>
                           {dot.label}
                         </text>
                       </g>
@@ -926,6 +953,49 @@ export default function FlyxaAI() {
                   </div>
                 </div>
               </div>
+              {focusedTradeId && (
+                <div className="mt-4 rounded-[8px] border px-4 py-3" style={{ borderColor: colors.b1, backgroundColor: colors.d2 }}>
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <p className="text-[9.5px] uppercase tracking-[0.12em]" style={{ color: colors.t2 }}>Trade Deep Dive</p>
+                      <p className="mt-1 text-[13px] font-semibold" style={{ color: colors.t0 }}>
+                        {focusedTrade ? `${focusedTrade.symbol || 'N/A'} ${focusedTrade.direction || ''} · ${focusedTrade.trade_date || 'Unknown date'} ${focusedTrade.trade_time || ''}` : 'Trade not found in this account'}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = new URLSearchParams(searchParams);
+                        next.delete('tradeId');
+                        setSearchParams(next);
+                      }}
+                      className="text-[11px] underline-offset-2 hover:underline"
+                      style={{ color: colors.acc }}
+                    >
+                      Clear focus
+                    </button>
+                  </div>
+                  {focusedTrade ? (
+                    <div className="mt-2 grid gap-2 text-[11.5px] leading-relaxed" style={{ color: colors.t1 }}>
+                      <p>
+                        Result: <span style={{ color: focusedTradeR !== null && focusedTradeR >= 0 ? colors.grn : colors.red, fontFamily: colors.mono }}>{focusedTradeR !== null ? formatSignedR(focusedTradeR) : '0.0R'}</span>
+                        {' '}({focusedTrade.pnl > 0 ? 'win' : focusedTrade.pnl < 0 ? 'loss' : 'flat'}) · P&L <span style={{ fontFamily: colors.mono }}>{formatCurrency(Number(focusedTrade.pnl || 0))}</span>
+                      </p>
+                      <p>
+                        Plan adherence: <span style={{ color: focusedTrade.followed_plan ? colors.grn : colors.red }}>{focusedTrade.followed_plan ? 'Followed plan' : 'Plan drift flagged'}</span>
+                        {' '}· Emotion: <span style={{ color: colors.t0 }}>{focusedTrade.emotional_state || 'Not logged'}</span>
+                      </p>
+                      <p>
+                        Confluences: <span style={{ color: colors.t0 }}>{focusedTradeConfluences.length ? focusedTradeConfluences.join(', ') : 'None tagged'}</span>
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-[11.5px]" style={{ color: colors.t1 }}>
+                      This trade ID was passed from journal, but it is not available in the currently selected account filter.
+                    </p>
+                  )}
+                </div>
+              )}
             </section>
 
             <section className="border-t" style={{ borderColor: colors.b0 }}>

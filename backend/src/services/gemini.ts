@@ -2,8 +2,8 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import type { ExtractedTradeData } from '../types/index';
 
 const GEMINI_MODEL_FALLBACK_CHAIN = ['gemini-2.5-pro', 'gemini-2.5-flash'];
-const GEMINI_MAX_RETRIES_PER_MODEL = 2;
-const GEMINI_BASE_RETRY_DELAY_MS = 900;
+const GEMINI_MAX_RETRIES_PER_MODEL = 4;
+const GEMINI_BASE_RETRY_DELAY_MS = 2000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -30,8 +30,12 @@ async function generateWithFallback(
 ): Promise<{ text: string; model: string }> {
   const errors: string[] = [];
 
-  for (const modelName of GEMINI_MODEL_FALLBACK_CHAIN) {
+  for (let modelIndex = 0; modelIndex < GEMINI_MODEL_FALLBACK_CHAIN.length; modelIndex++) {
+    const modelName = GEMINI_MODEL_FALLBACK_CHAIN[modelIndex];
     const model = genAI.getGenerativeModel({ model: modelName });
+
+    // Brief pause before switching to the fallback model
+    if (modelIndex > 0) await sleep(2000);
 
     for (let attempt = 0; attempt <= GEMINI_MAX_RETRIES_PER_MODEL; attempt += 1) {
       try {
@@ -56,7 +60,8 @@ async function generateWithFallback(
           break;
         }
 
-        const delayMs = GEMINI_BASE_RETRY_DELAY_MS * (attempt + 1);
+        // Exponential backoff: 2s, 4s, 8s, 16s
+        const delayMs = GEMINI_BASE_RETRY_DELAY_MS * Math.pow(2, attempt);
         await sleep(delayMs);
       }
     }
@@ -238,6 +243,13 @@ A level is only hit if a candle wick visually reaches or crosses that exact pric
 The colored price labels on the right axis are reference markers only — their presence does NOT mean price touched that level.
 Do NOT assume a level was hit just because the label is visible. Only count it if a candle wick inside the box clearly touches or crosses the price line.
 When in doubt, set exit_reason to null rather than guessing.
+
+CRITICAL — COLORED ZONES vs ACTUAL PRICE LINES:
+The chart shows two filled colored zones that span from the entry price outward to the SL and TP levels.
+A candle entering a colored zone does NOT mean that level was hit — the candle must reach the FAR OUTER EDGE of the zone.
+- For SHORT trades: the SL line is the TOP boundary of the upper (red/pink) zone. The TP line is the BOTTOM boundary of the lower (teal/blue) zone. A candle that dips below entry and into the teal zone has NOT hit TP unless its LOW wick reaches all the way to the BOTTOM of that zone.
+- For LONG trades: the SL line is the BOTTOM boundary of the lower (red/pink) zone. The TP line is the TOP boundary of the upper (teal/green) zone. A candle that rises above entry and into the teal zone has NOT hit TP unless its HIGH wick reaches all the way to the TOP of that zone.
+Use the exact price numbers from Step 2 to anchor where each boundary is on the price axis. Only confirm a hit when the wick clearly reaches the price label for that level.
 
 For LONG trades:
 - SL hit: a candle LOW wick visibly touches or goes below the sl_price line

@@ -1097,12 +1097,14 @@ export default function MonthlyHeatmap({ trades = [] }: { trades?: Trade[] }) {
             const tradeCount = counts[day] ?? 0;
             const journalEntry = journals[day];
             const hasJournal = !!journalEntry;
+            const canOpenJournal = hasJournal || tradeCount > 0;
             const isToday = day === today.getDate()
               && month === today.getMonth() + 1
               && year === today.getFullYear();
             const title = [
               pnl !== undefined ? `${day} - ${formatPnl(pnl)}` : `${day} - No trades`,
               hasJournal ? 'Daily journal completed' : undefined,
+              !canOpenJournal ? 'No trade or journal entry' : undefined,
             ].filter(Boolean).join(' | ');
 
             return (
@@ -1110,6 +1112,7 @@ export default function MonthlyHeatmap({ trades = [] }: { trades?: Trade[] }) {
                 key={day}
                 title={title}
                 onClick={() => {
+                  if (!canOpenJournal) return;
                   const targetDate = format(new Date(year, month - 1, day), 'yyyy-MM-dd');
                   if (journalEntry) {
                     void openJournalModal(journalEntry.id, targetDate);
@@ -1137,7 +1140,9 @@ export default function MonthlyHeatmap({ trades = [] }: { trades?: Trade[] }) {
                   })();
                 }}
                 className={`relative flex flex-col border-b border-r border-slate-700/50 p-2 transition-colors last:border-r-0 ${getCellBg(pnl)} ${
-                  'cursor-pointer hover:ring-1 hover:ring-amber-400/35 hover:ring-inset'
+                  canOpenJournal
+                    ? 'cursor-pointer hover:ring-1 hover:ring-amber-400/35 hover:ring-inset'
+                    : 'cursor-default'
                 } ${
                   isToday ? 'bg-cyan-500/[0.04]' : ''
                 }`}
