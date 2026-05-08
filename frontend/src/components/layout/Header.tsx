@@ -15,6 +15,8 @@ function accountStatusColor(status: string): string {
 
 const pageNames: Record<string, string> = {
   '/': 'Dashboard',
+  '/scanner': 'Trade Scanner',
+  '/trade-scanner': 'Trade Scanner',
   '/coach': 'Flyxa AI',
   '/flyxa-ai': 'Flyxa AI',
   '/flyxa-ai/patterns': 'Pattern library',
@@ -26,6 +28,7 @@ const pageNames: Record<string, string> = {
   '/trading-plan': 'Trading Plan',
   '/psychology': 'Psychology Tracker',
   '/goals': 'Goals',
+  '/rivals': 'Rivals',
   '/billing': 'Billing',
   '/settings': 'Settings',
 };

@@ -241,6 +241,7 @@ export const marketDataApi = {
     }>>(
       `/api/market-data/chart?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&range=${encodeURIComponent(range)}`
     ),
+  getFfCalendar: () => api.get<Array<Record<string, unknown>>>('/api/market-data/ff-calendar'),
 };
 
 export interface BillingLivePricesResponse {

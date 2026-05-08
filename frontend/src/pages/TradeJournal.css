@@ -369,6 +369,12 @@
   color: var(--txt);
 }
 
+.tj-entry-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .tj-entry-sub {
   margin: 0;
   font-size: 12px;
@@ -383,6 +389,23 @@
 .tj-head-actions {
   display: flex;
   gap: 8px;
+}
+
+.tj-date-edit-row {
+  margin-top: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tj-date-edit-input {
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--txt);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-family: var(--font-sans);
 }
 
 .tj-btn-ghost {
@@ -1608,21 +1631,23 @@
 }
 
 .tj-pl-result.win {
-  background: var(--surface-2);
-  color: var(--txt-2);
-  border: 1px solid var(--border);
+  background: rgba(121, 185, 148, 0.15);
+  color: #79b994;
+  border: 1px solid rgba(121, 185, 148, 0.3);
 }
 
 .tj-pl-result.loss {
-  background: var(--surface-2);
-  color: var(--txt-2);
-  border: 1px solid var(--border);
+  background: rgba(196, 100, 100, 0.18);
+  color: #e07070;
+  border: 1px solid rgba(196, 100, 100, 0.4);
+  font-weight: 800;
+  letter-spacing: 0.04em;
 }
 
 .tj-pl-result.partial {
-  background: var(--surface-2);
-  color: var(--txt-2);
-  border: 1px solid var(--border);
+  background: rgba(184, 160, 122, 0.12);
+  color: #b8a07a;
+  border: 1px solid rgba(184, 160, 122, 0.25);
 }
 
 .tj-pl-result.open {

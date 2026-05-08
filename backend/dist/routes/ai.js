@@ -8,6 +8,7 @@ const multer_1 = __importDefault(require("multer"));
 const auth_1 = require("../middleware/auth");
 const supabase_1 = require("../services/supabase");
 const claude_1 = require("../services/claude");
+const gemini_1 = require("../services/gemini");
 const router = (0, express_1.Router)();
 const upload = (0, multer_1.default)({ storage: multer_1.default.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 // POST /scan
@@ -39,7 +40,7 @@ router.post('/scan', auth_1.authMiddleware, upload.fields([
         }));
         const base64Image = imageFile.buffer.toString('base64');
         const mimeType = imageFile.mimetype;
-        const result = await (0, claude_1.analyzeChartImage)(base64Image, mimeType, entryDate, entryTime, focusImages, scannerContext);
+        const result = await (0, gemini_1.analyzeChartImage)(base64Image, mimeType, entryDate, entryTime, focusImages, scannerContext);
         res.json(result);
     }
     catch (err) {
@@ -47,7 +48,7 @@ router.post('/scan', auth_1.authMiddleware, upload.fields([
     }
 });
 // POST /flyxa-chat
-router.post('/flyxa-chat', async (req, res, next) => {
+router.post('/flyxa-chat', auth_1.authMiddleware, async (req, res, next) => {
     try {
         const question = typeof req.body.question === 'string' ? req.body.question : '';
         const history = Array.isArray(req.body.history)
@@ -198,7 +199,7 @@ router.post('/playbook-check/:tradeId', auth_1.authMiddleware, async (req, res, 
     }
 });
 // POST /filter-news
-router.post('/filter-news', async (req, res, next) => {
+router.post('/filter-news', auth_1.authMiddleware, async (req, res, next) => {
     try {
         const { headlines } = req.body;
         if (!Array.isArray(headlines)) {

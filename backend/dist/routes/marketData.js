@@ -42,6 +42,61 @@ function normalizeYahooResponse(payload) {
     }
     return candles;
 }
+function readXmlTag(block, tag) {
+    const cdataMatch = block.match(new RegExp(`<${tag}>\\s*<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>\\s*<\\/${tag}>`, 'i'));
+    if (cdataMatch?.[1])
+        return cdataMatch[1].trim();
+    const plainMatch = block.match(new RegExp(`<${tag}>\\s*([\\s\\S]*?)\\s*<\\/${tag}>`, 'i'));
+    if (plainMatch?.[1])
+        return plainMatch[1].trim();
+    const selfClosing = block.match(new RegExp(`<${tag}\\s*/>`, 'i'));
+    if (selfClosing)
+        return '';
+    return '';
+}
+function normalizeXmlDate(raw) {
+    const text = raw.trim();
+    if (!text)
+        return '';
+    const mdy = text.match(/^(\d{2})-(\d{2})-(\d{4})$/);
+    if (mdy) {
+        const [, mm, dd, yyyy] = mdy;
+        return `${yyyy}-${mm}-${dd}`;
+    }
+    const parsed = new Date(text);
+    if (!Number.isNaN(parsed.getTime())) {
+        return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(parsed.getDate()).padStart(2, '0')}`;
+    }
+    return '';
+}
+function parseForexFactoryXml(xml) {
+    const events = [];
+    const matches = xml.matchAll(/<event>([\s\S]*?)<\/event>/gi);
+    for (const match of matches) {
+        const block = match[1] ?? '';
+        const title = readXmlTag(block, 'title');
+        const country = readXmlTag(block, 'country');
+        const date = normalizeXmlDate(readXmlTag(block, 'date'));
+        const time = readXmlTag(block, 'time');
+        const impact = readXmlTag(block, 'impact');
+        const actual = readXmlTag(block, 'actual');
+        const forecast = readXmlTag(block, 'forecast');
+        const previous = readXmlTag(block, 'previous');
+        if (!date || !country)
+            continue;
+        events.push({
+            title,
+            country,
+            date,
+            time,
+            impact,
+            actual: actual || null,
+            forecast: forecast || null,
+            previous: previous || null,
+        });
+    }
+    return events;
+}
 router.get('/chart', auth_1.authMiddleware, async (req, res, next) => {
     try {
         const symbol = String(req.query.symbol ?? '').trim();
@@ -74,6 +129,36 @@ router.get('/chart', auth_1.authMiddleware, async (req, res, next) => {
         const payload = await response.json();
         const candles = normalizeYahooResponse(payload);
         return res.json(candles);
+    }
+    catch (error) {
+        return next(error);
+    }
+});
+router.get('/ff-calendar', auth_1.authMiddleware, async (_req, res, next) => {
+    try {
+        const sources = [
+            'https://nfs.faireconomy.media/ff_calendar_thisweek.json',
+            'https://nfs.faireconomy.media/ff_calendar_nextweek.json',
+            'http://nfs.faireconomy.media/ff_calendar_thisweek.json',
+            'http://nfs.faireconomy.media/ff_calendar_nextweek.json',
+        ];
+        const settled = await Promise.allSettled(sources.map((url) => fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' } })
+            .then((response) => (response.ok ? response.json() : []))));
+        const combined = settled.flatMap((result) => (result.status === 'fulfilled' && Array.isArray(result.value) ? result.value : []));
+        if (combined.length > 0) {
+            return res.json(combined);
+        }
+        // Fallback: XML export is often available even when JSON is rate-limited.
+        const xmlResponse = await fetch('http://nfs.faireconomy.media/ff_calendar_thisweek.xml', {
+            headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/xml,text/xml,*/*' },
+        });
+        if (xmlResponse.ok) {
+            const xmlText = await xmlResponse.text();
+            const parsed = parseForexFactoryXml(xmlText);
+            if (parsed.length > 0)
+                return res.json(parsed);
+        }
+        return res.json([]);
     }
     catch (error) {
         return next(error);

@@ -11,7 +11,7 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import { aiApi, NewsFilterItem } from '../services/api.js';
+import { aiApi, marketDataApi, NewsFilterItem } from '../services/api.js';
 
 const PAGE_BG = 'var(--app-bg)';
 const S1 = 'var(--app-panel)';
@@ -264,60 +264,196 @@ interface FMPCalEvent {
 
 interface CalendarResult { events: CalendarEvent[]; isToday: boolean }
 
-async function fetchForexFactoryCalendar(): Promise<CalendarResult> {
-  if (!FMP_KEY) return { events: [], isToday: true };
+type ForexFactoryRawEvent = {
+  title?: string;
+  event?: string;
+  country?: string;
+  currency?: string;
+  date?: string;
+  time?: string;
+  impact?: string;
+  actual?: string | number | null;
+  forecast?: string | number | null;
+  previous?: string | number | null;
+};
 
+function normalizeImpact(value: unknown): ImpactLevel {
+  const text = String(value ?? '').toLowerCase();
+  if (text.includes('high')) return 'high';
+  if (text.includes('medium') || text.includes('med')) return 'medium';
+  return 'low';
+}
+
+function toStringOrUndefined(value: unknown): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  const text = String(value).trim();
+  return text.length ? text : undefined;
+}
+
+function normalizeForexFactoryDate(value: unknown): string {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  const dateOnly = raw.length >= 10 ? raw.slice(0, 10) : raw;
+  const parsed = new Date(`${dateOnly}T00:00:00`);
+  if (!Number.isNaN(parsed.getTime())) return dateOnly;
+  const parsedLoose = new Date(raw);
+  if (Number.isNaN(parsedLoose.getTime())) return '';
+  return parsedLoose.toISOString().slice(0, 10);
+}
+
+function normalizeForexFactoryTime(value: unknown): string {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  if (/^\d{2}:\d{2}/.test(raw)) return raw.slice(0, 5);
+  const parsed = new Date(`1970-01-01T${raw}`);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString().slice(11, 16);
+  }
+  return raw;
+}
+function extractTimeFromDateTime(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  const raw = value.trim();
+  if (!raw) return '';
+  const match = raw.match(/[T\s](\d{2}:\d{2})/);
+  if (match?.[1]) return match[1];
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    return String(parsed.getHours()).padStart(2, '0') + ':' + String(parsed.getMinutes()).padStart(2, '0');
+  }
+  return '';
+}
+
+function normalizeForexFactoryEvents(raw: ForexFactoryRawEvent[], todaySlice: string): CalendarResult {
+  const events: CalendarEvent[] = [];
+  let lastDate = '';
+  let lastCurrency = '';
+
+  raw.forEach((event) => {
+    const rawCurrency = String(event.country ?? event.currency ?? '').trim().toUpperCase();
+    if (rawCurrency) lastCurrency = rawCurrency;
+    const cc = rawCurrency || lastCurrency;
+
+    const parsedDate = normalizeForexFactoryDate(event.date);
+    if (parsedDate) lastDate = parsedDate;
+    const date = parsedDate || lastDate;
+
+    if (!date) return;
+    if (cc !== 'US' && cc !== 'USD') return;
+
+    events.push({
+      event: String(event.title ?? event.event ?? 'Event'),
+      date,
+      time: normalizeForexFactoryTime(event.time),
+      impact: normalizeImpact(event.impact),
+      country: 'USD',
+      actual: toStringOrUndefined(event.actual),
+      forecast: toStringOrUndefined(event.forecast),
+      previous: toStringOrUndefined(event.previous),
+    });
+  });
+
+  events.sort((a, b) => {
+    const dateDiff = a.date.localeCompare(b.date);
+    if (dateDiff !== 0) return dateDiff;
+    return impactRank(a.impact) - impactRank(b.impact);
+  });
+
+  return {
+    events,
+    isToday: events.some(event => event.date === todaySlice),
+  };
+}
+async function fetchForexFactoryCalendar(): Promise<CalendarResult> {
   const now = new Date();
   const todaySlice = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   const twoWeeksOut = new Date(now);
   twoWeeksOut.setDate(twoWeeksOut.getDate() + 14);
   const endSlice = `${twoWeeksOut.getFullYear()}-${String(twoWeeksOut.getMonth() + 1).padStart(2, '0')}-${String(twoWeeksOut.getDate()).padStart(2, '0')}`;
 
-  let raw: FMPCalEvent[] = [];
-  try {
-    const res = await fetch(
-      `https://financialmodelingprep.com/stable/economic-calendar?from=${todaySlice}&to=${endSlice}&apikey=${FMP_KEY}`
-    );
-    if (!res.ok) return { events: [], isToday: true };
-    raw = await res.json() as FMPCalEvent[];
-  } catch {
-    return { events: [], isToday: true };
+  if (FMP_KEY) {
+    try {
+      const res = await fetch(
+        `https://financialmodelingprep.com/stable/economic-calendar?from=${todaySlice}&to=${endSlice}&apikey=${FMP_KEY}`
+      );
+      if (res.ok) {
+        const raw = await res.json() as FMPCalEvent[];
+        if (Array.isArray(raw)) {
+          const rankImpact = (i: string) => {
+            const lower = i.toLowerCase();
+            return lower === 'high' ? 0 : lower === 'medium' ? 1 : 2;
+          };
+
+          const fmt = (v: number | null, unit: string): string | undefined => {
+            if (v == null) return undefined;
+            return unit ? `${v}${unit}` : String(v);
+          };
+
+          const events: CalendarEvent[] = raw
+            .filter(e => e.country === 'US')
+            .sort((a, b) => {
+              const dateDiff = a.date.slice(0, 10).localeCompare(b.date.slice(0, 10));
+              if (dateDiff !== 0) return dateDiff;
+              return rankImpact(a.impact) - rankImpact(b.impact);
+            })
+            .map(e => ({
+              event: e.event,
+              date: e.date.slice(0, 10),
+              time:
+                normalizeForexFactoryTime((e as unknown as { time?: string }).time) ||
+                extractTimeFromDateTime(e.date),
+              country: 'USD',
+              impact: (rankImpact(e.impact) === 0 ? 'high' : rankImpact(e.impact) === 1 ? 'medium' : 'low') as ImpactLevel,
+              actual: fmt(e.actual, e.unit),
+              forecast: fmt(e.estimate, e.unit),
+              previous: fmt(e.previous, e.unit),
+            }));
+
+          const hasToday = events.some(e => e.date === todaySlice);
+          if (events.length > 0) {
+            return { events, isToday: hasToday };
+          }
+        }
+      }
+    } catch {
+      // Fallbacks below
+    }
   }
 
-  if (!Array.isArray(raw)) return { events: [], isToday: true };
+  try {
+    const ffRaw = await marketDataApi.getFfCalendar();
+    if (Array.isArray(ffRaw)) {
+      const normalized = normalizeForexFactoryEvents(ffRaw as ForexFactoryRawEvent[], todaySlice);
+      if (normalized.events.length > 0) return normalized;
+    }
+  } catch {
+    // Fall through to direct fetch fallback below
+  }
 
-  const rankImpact = (i: string) => {
-    const lower = i.toLowerCase();
-    return lower === 'high' ? 0 : lower === 'medium' ? 1 : 2;
-  };
+  try {
+    const [thisWeek, nextWeek] = await Promise.allSettled([
+      fetch('https://nfs.faireconomy.media/ff_calendar_thisweek.json', {
+        headers: { Accept: 'application/json' },
+      }).then((response) => (response.ok ? response.json() : [])),
+      fetch('https://nfs.faireconomy.media/ff_calendar_nextweek.json', {
+        headers: { Accept: 'application/json' },
+      }).then((response) => (response.ok ? response.json() : [])),
+    ]);
 
-  const fmt = (v: number | null, unit: string): string | undefined => {
-    if (v == null) return undefined;
-    return unit ? `${v}${unit}` : String(v);
-  };
+    const combined = [
+      ...(thisWeek.status === 'fulfilled' && Array.isArray(thisWeek.value) ? thisWeek.value : []),
+      ...(nextWeek.status === 'fulfilled' && Array.isArray(nextWeek.value) ? nextWeek.value : []),
+    ];
 
-  const events: CalendarEvent[] = raw
-    .filter(e => e.country === 'US')
-    .sort((a, b) => {
-      const dateDiff = a.date.slice(0, 10).localeCompare(b.date.slice(0, 10));
-      if (dateDiff !== 0) return dateDiff;
-      return rankImpact(a.impact) - rankImpact(b.impact);
-    })
-    .map(e => ({
-      event: e.event,
-      date: e.date.slice(0, 10),
-      time: e.date.slice(11, 16),
-      country: 'USD',
-      impact: (rankImpact(e.impact) === 0 ? 'high' : rankImpact(e.impact) === 1 ? 'medium' : 'low') as ImpactLevel,
-      actual: fmt(e.actual, e.unit),
-      forecast: fmt(e.estimate, e.unit),
-      previous: fmt(e.previous, e.unit),
-    }));
+    if (combined.length > 0) {
+      return normalizeForexFactoryEvents(combined as ForexFactoryRawEvent[], todaySlice);
+    }
+  } catch {
+    // ignore
+  }
 
-  const hasToday = events.some(e => e.date === todaySlice);
-  return { events, isToday: hasToday };
+  return { events: [], isToday: true };
 }
-
 function rawToNewsItem(raw: RawHeadline): NewsFilterItem {
   return {
     headline: raw.headline,
@@ -506,17 +642,30 @@ function NewsCard({ item }: { item: NewsFilterItem }) {
 
 function fmtFFTime(raw: string): string {
   // Forex Factory sends times like "8:30am", "12:00pm", "All Day", "Tentative"
-  if (!raw || raw === 'All Day' || raw === 'Tentative') return raw || '—';
-  try {
-    const [timePart, meridiem] = [raw.slice(0, -2), raw.slice(-2).toLowerCase()];
-    const [h, m] = timePart.split(':').map(Number);
-    const hours24 = meridiem === 'pm' && h !== 12 ? h + 12 : meridiem === 'am' && h === 12 ? 0 : h;
-    return `${String(hours24).padStart(2, '0')}:${String(m ?? 0).padStart(2, '0')}`;
-  } catch {
-    return raw;
-  }
-}
+  if (!raw) return 'Time TBD';
+  if (raw === 'All Day' || raw === 'Tentative') return raw;
+  if (/^\d{2}:\d{2}$/.test(raw)) return raw;
 
+  const twelveHourMatch = raw.match(/^(\d{1,2}):(\d{2})(am|pm)$/i);
+  if (twelveHourMatch) {
+    const h = Number(twelveHourMatch[1]);
+    const m = Number(twelveHourMatch[2]);
+    const meridiem = twelveHourMatch[3].toLowerCase();
+    const hours24 = meridiem === 'pm' && h !== 12 ? h + 12 : meridiem === 'am' && h === 12 ? 0 : h;
+    return `${String(hours24).padStart(2, '0')}:${String(Number.isFinite(m) ? m : 0).padStart(2, '0')}`;
+  }
+
+  try {
+    const parsed = new Date(`1970-01-01T${raw}`);
+    if (!Number.isNaN(parsed.getTime())) {
+      return `${String(parsed.getHours()).padStart(2, '0')}:${String(parsed.getMinutes()).padStart(2, '0')}`;
+    }
+  } catch {
+    // fall through
+  }
+
+  return raw;
+}
 function actualColor(actual: string | undefined, forecast: string | undefined): string {
   if (!actual || !forecast) return GREEN;
   const a = parseFloat(actual.replace(/[^0-9.-]/g, ''));
@@ -534,6 +683,38 @@ function fmtCalendarDate(dateSlice: string): string {
   const tomorrowSlice = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`;
   if (dateSlice === tomorrowSlice) return 'Tomorrow';
   return new Date(dateSlice + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+}
+
+function parseDateSlice(dateSlice: string): Date {
+  const [year, month, day] = dateSlice.split('-').map(Number);
+  return new Date(year, (month ?? 1) - 1, day ?? 1);
+}
+
+function toDateSlice(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function addDays(date: Date, days: number): Date {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function startOfWeekMonday(date: Date): Date {
+  const next = new Date(date);
+  const day = (next.getDay() + 6) % 7;
+  next.setDate(next.getDate() - day);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+function formatWeekRange(start: Date): string {
+  const end = addDays(start, 6);
+  const sameMonth = start.getMonth() === end.getMonth();
+  if (sameMonth) {
+    return `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${end.toLocaleDateString('en-US', { day: 'numeric' })}`;
+  }
+  return `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
 }
 
 function selectedCalendarImpactLabel(selection: CalendarImpactSelection): string {
@@ -654,11 +835,37 @@ function CalendarPanel({
   impactSelection: CalendarImpactSelection;
   onImpactSelectionChange: (value: CalendarImpactSelection) => void;
 }) {
-  void isToday;
-  const subtitle = events.length === 0 ? 'USD' : 'USD · 2wk';
+  const todaySlice = toDateSlice(new Date());
+  const [weekOffset, setWeekOffset] = useState(0);
+  const subtitle = events.length === 0 ? 'USD' : 'USD � weekly view';
   const filteredEvents = events.filter((event) => impactSelection[event.impact]);
+  const weekStart = useMemo(() => {
+    const currentWeek = startOfWeekMonday(parseDateSlice(todaySlice));
+    return addDays(currentWeek, weekOffset * 7);
+  }, [todaySlice, weekOffset]);
+  const weekStartSlice = toDateSlice(weekStart);
+  const weekEndSlice = toDateSlice(addDays(weekStart, 6));
+  const weekEvents = filteredEvents.filter((event) => event.date >= weekStartSlice && event.date <= weekEndSlice);
+  const hasAnyPrevWeek = filteredEvents.some((event) => event.date < weekStartSlice);
+  const hasAnyNextWeek = filteredEvents.some((event) => event.date > weekEndSlice);
 
-  const byDate = filteredEvents.reduce<Record<string, CalendarEvent[]>>((acc, e) => {
+  useEffect(() => {
+    setWeekOffset(0);
+  }, [events.length]);
+
+  useEffect(() => {
+    if (weekOffset !== 0) return;
+    if (weekEvents.length > 0) return;
+    if (filteredEvents.length === 0) return;
+
+    const nextEvent = filteredEvents.find((event) => event.date > weekEndSlice);
+    if (!nextEvent) return;
+    const daysToNext = Math.floor((parseDateSlice(nextEvent.date).getTime() - weekStart.getTime()) / 86400000);
+    const offsetToNext = Math.max(1, Math.floor(daysToNext / 7));
+    setWeekOffset(offsetToNext);
+  }, [filteredEvents, weekEndSlice, weekEvents.length, weekOffset, weekStart]);
+
+  const byDate = weekEvents.reduce<Record<string, CalendarEvent[]>>((acc, e) => {
     (acc[e.date] ??= []).push(e);
     return acc;
   }, {});
@@ -670,15 +877,82 @@ function CalendarPanel({
         <p style={{ margin: 0, fontSize: 13, color: T1, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 800, minWidth: 0 }}>
           Economic Calendar
         </p>
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0, minWidth: 0 }}>
           <span style={{ fontSize: 10, color: T3 }}>{subtitle}</span>
           <CalendarImpactFilterButton value={impactSelection} onChange={onImpactSelectionChange} />
+        </div>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 12 }}>
+        <div style={{ fontSize: 10, color: T2, fontFamily: MONO, letterSpacing: '0.03em' }}>
+          {formatWeekRange(weekStart)}
+          {weekOffset === 0 && (
+            <span style={{ marginLeft: 6, color: isToday ? GREEN : T3 }}>{isToday ? 'today loaded' : 'today missing'}</span>
+          )}
+        </div>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <button
+            type="button"
+            onClick={() => setWeekOffset((current) => current - 1)}
+            disabled={!hasAnyPrevWeek}
+            style={{
+              height: 25,
+              borderRadius: 6,
+              border: `1px solid ${BORDER}`,
+              background: S2,
+              color: T2,
+              padding: '0 8px',
+              fontSize: 10,
+              fontWeight: 700,
+              cursor: hasAnyPrevWeek ? 'pointer' : 'not-allowed',
+              opacity: hasAnyPrevWeek ? 1 : 0.45,
+            }}
+          >
+            Prev
+          </button>
+          <button
+            type="button"
+            onClick={() => setWeekOffset(0)}
+            style={{
+              height: 25,
+              borderRadius: 6,
+              border: `1px solid ${weekOffset === 0 ? COBALT_BORDER : BORDER}`,
+              background: weekOffset === 0 ? COBALT_DIM : S2,
+              color: weekOffset === 0 ? COBALT : T2,
+              padding: '0 8px',
+              fontSize: 10,
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+          >
+            Today
+          </button>
+          <button
+            type="button"
+            onClick={() => setWeekOffset((current) => current + 1)}
+            disabled={!hasAnyNextWeek}
+            style={{
+              height: 25,
+              borderRadius: 6,
+              border: `1px solid ${BORDER}`,
+              background: hasAnyNextWeek ? AMBER_DIM : S2,
+              color: hasAnyNextWeek ? AMBER : T2,
+              padding: '0 8px',
+              fontSize: 10,
+              fontWeight: 700,
+              cursor: hasAnyNextWeek ? 'pointer' : 'not-allowed',
+              opacity: hasAnyNextWeek ? 1 : 0.45,
+            }}
+          >
+            Next week
+          </button>
         </div>
       </div>
       {events.length === 0 ? (
         <p style={{ margin: 0, color: T3, fontSize: 11 }}>No USD events available.</p>
       ) : filteredEvents.length === 0 ? (
         <p style={{ margin: 0, color: T3, fontSize: 11 }}>No selected USD events in the current range.</p>
+      ) : weekEvents.length === 0 ? (
+        <p style={{ margin: 0, color: T3, fontSize: 11 }}>No selected USD events for this week.</p>
       ) : (
         <div
           style={{
@@ -696,30 +970,53 @@ function CalendarPanel({
         >
           {dates.map(date => (
             <div key={date} style={{ minWidth: 0, width: '100%', maxWidth: '100%', overflow: 'hidden' }}>
-              <p style={{ margin: '0 0 7px', paddingLeft: 2, fontSize: 11, fontWeight: 800, color: AMBER, letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1.2 }}>
+              <p style={{ margin: '0 0 7px', paddingLeft: 2, fontSize: 11, fontWeight: 800, color: date === todaySlice ? COBALT : AMBER, letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1.2 }}>
                 {fmtCalendarDate(date)}
               </p>
               <div style={{ display: 'grid', gap: 5, minWidth: 0, width: '100%' }}>
                 {byDate[date].map((event, index) => {
                   const hasActual = Boolean(event.actual);
                   const aColor = actualColor(event.actual, event.forecast);
+                  const isHigh = event.impact === 'high';
                   return (
                     <div
                       key={`${event.event}-${index}`}
                       style={{
                         padding: '9px 10px',
                         borderRadius: 7,
-                        background: S2,
-                        borderLeft: `3px solid ${impactColor(event.impact)}`,
+                        background: isHigh
+                          ? `linear-gradient(90deg, rgba(240,82,82,0.16) 0%, rgba(240,82,82,0.08) 35%, ${S2} 100%)`
+                          : S2,
+                        border: isHigh ? `1px solid ${RED_BORDER}` : `1px solid ${BORDER}`,
+                        borderLeft: `4px solid ${impactColor(event.impact)}`,
                         minWidth: 0,
                         maxWidth: '100%',
                         overflow: 'hidden',
                         boxSizing: 'border-box',
+                        boxShadow: isHigh ? '0 8px 16px rgba(240,82,82,0.16)' : 'none',
                       }}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: (event.forecast || event.previous) ? 5 : 0 }}>
                         <span style={{ fontFamily: MONO, fontSize: 12, color: T1, minWidth: 44, flexShrink: 0, fontWeight: 700 }}>{fmtFFTime(event.time)}</span>
-                        <span style={{ fontSize: 12, color: T1, flex: 1, minWidth: 0, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', fontWeight: 600 }}>{event.event}</span>
+                        <span style={{ fontSize: 12, color: isHigh ? RED : T1, flex: 1, minWidth: 0, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', fontWeight: 700 }}>{event.event}</span>
+                        {isHigh && (
+                          <span
+                            style={{
+                              fontSize: 9,
+                              fontWeight: 800,
+                              letterSpacing: '0.08em',
+                              textTransform: 'uppercase',
+                              padding: '2px 5px',
+                              borderRadius: 4,
+                              color: RED,
+                              background: RED_DIM,
+                              border: `1px solid ${RED_BORDER}`,
+                              flexShrink: 0,
+                            }}
+                          >
+                            High
+                          </span>
+                        )}
                         {hasActual && (
                           <span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 700, color: aColor, flexShrink: 0 }}>{event.actual}</span>
                         )}
@@ -750,7 +1047,6 @@ function CalendarPanel({
     </section>
   );
 }
-
 function SourcesPanel({ prefs, onChange }: { prefs: SourcePrefs; onChange: (value: SourcePrefs) => void }) {
   return (
     <section style={sidebarCardStyle()}>
@@ -998,7 +1294,7 @@ export default function MarketNews() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
             {lastRefresh && <span style={{ fontSize: 10, color: T3, fontFamily: MONO }}>Updated {fmtRelative(lastRefresh.toISOString())}</span>}
             <button
-              onClick={() => fetchNews(true)}
+              onClick={() => { void fetchNews(true); void fetchSidebar(); }}
               disabled={loading}
               style={{
                 height: 30,
@@ -1269,3 +1565,11 @@ function InlineToggle({
     </div>
   );
 }
+
+
+
+
+
+
+
+

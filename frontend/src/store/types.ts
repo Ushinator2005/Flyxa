@@ -58,6 +58,25 @@ export interface JournalEntry {
   grade: string;
   account: string;
   scannedImageUrl?: string;
+  dailyReflection?: {
+    pre: string;
+    post: string;
+    lessons: string;
+    bias: 'bullish' | 'neutral' | 'bearish' | null;
+    newsRisk: 'clear' | 'caution' | 'avoid' | null;
+    sessionTarget: number | null;
+    sessionGrade: string | null;
+    marketRespectedBias: boolean | null;
+    lessonCategory: string | null;
+  };
+  physicalState?: {
+    sleep: number;
+    sleepHours: number;
+    stress: number;
+    energy: number;
+    distractions: string[];
+    environment: string;
+  };
 }
 
 export interface Account {

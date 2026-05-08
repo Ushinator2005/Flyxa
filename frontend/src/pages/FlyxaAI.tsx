@@ -28,7 +28,7 @@ type WeeklyInsight = {
 };
 
 type ProcessBreakdownItem = { label: string; value: number };
-type ConfluenceHighlight = { label: string; trades: number; winRate: number; netR: number; avgR: number };
+type ConfluenceHighlight = { label: string; trades: number; winRate: number; netPnl: number; avgPnl: number };
 
 type WeeklyDebriefData = {
   weekRange: string;
@@ -150,10 +150,6 @@ function formatWeekRange(start: Date, end: Date) {
   return `${fmt(start)} - ${fmt(end)}, ${end.getFullYear()}`;
 }
 
-function formatSignedR(value: number, digits = 1) {
-  return `${value >= 0 ? '+' : '-'}${Math.abs(value).toFixed(digits)}R`;
-}
-
 function formatCurrency(value: number) {
   return value.toLocaleString('en-US', {
     style: 'currency',
@@ -161,6 +157,20 @@ function formatCurrency(value: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+}
+
+function formatSignedCurrency(value: number) {
+  return `${value >= 0 ? '+' : '-'}${formatCurrency(Math.abs(value))}`;
+}
+
+function formatSignedCompactCurrency(value: number) {
+  const compact = new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    notation: 'compact',
+    maximumFractionDigits: 1,
+  }).format(Math.abs(value)).replace('K', 'k');
+  return `${value >= 0 ? '+' : '-'}${compact}`;
 }
 
 function normalizeConfluences(value: unknown): string[] {
@@ -210,16 +220,25 @@ function summarize(trades: Trade[]) {
   const losers = trades.filter(t => t.pnl < 0);
   const winnerRs = winners.map(tradeR);
   const loserRs = losers.map(tradeR);
+  const pnls = trades.map(trade => Number(trade.pnl ?? 0));
+  const winnerPnls = winners.map(trade => Number(trade.pnl ?? 0));
+  const loserPnls = losers.map(trade => Number(trade.pnl ?? 0));
   return {
     netR: rs.reduce((s, r) => s + r, 0),
+    netPnl: trades.reduce((sum, trade) => sum + Number(trade.pnl ?? 0), 0),
+    avgPnl: avg(pnls),
     avgR: avg(rs),
     winRate: pct(winners.length, winners.length + losers.length),
     wins: winners.length,
     losses: losers.length,
     avgWinnerR: avg(winnerRs),
     avgLoserR: avg(loserRs),
+    avgWinnerPnl: avg(winnerPnls),
+    avgLoserPnl: avg(loserPnls),
     bestR: winnerRs.length ? Math.max(...winnerRs) : 0,
     worstR: loserRs.length ? Math.min(...loserRs) : 0,
+    bestPnl: winnerPnls.length ? Math.max(...winnerPnls) : 0,
+    worstPnl: loserPnls.length ? Math.min(...loserPnls) : 0,
   };
 }
 
@@ -342,10 +361,10 @@ function buildData(trades: Trade[]): WeeklyDebriefData {
       tradeCount: 0,
       instruments: [],
       stats: {
-        netR: { label: 'Net R', value: '0.0R', subLabel: 'No trades logged this week', tone: 'neutral' },
+        netR: { label: 'Net PL', value: '$0.00', subLabel: 'No trades logged this week', tone: 'neutral' },
         winRate: { label: 'Win Rate', value: '0%', subLabel: '0W / 0L', tone: 'neutral' },
-        avgWinner: { label: 'Avg Winner', value: '0.0R', subLabel: 'Need trade samples', tone: 'neutral' },
-        avgLoser: { label: 'Avg Loser', value: '0.0R', subLabel: 'Need trade samples', tone: 'neutral' },
+        avgWinner: { label: 'Avg Winner', value: '$0.00', subLabel: 'Need trade samples', tone: 'neutral' },
+        avgLoser: { label: 'Avg Loser', value: '$0.00', subLabel: 'Need trade samples', tone: 'neutral' },
         processScore: { label: 'Process Score', value: '0/100', subLabel: 'Builds from journal behavior', tone: 'info' },
       },
       question: 'What single setup will you execute with discipline this week?',
@@ -438,7 +457,7 @@ function buildData(trades: Trade[]): WeeklyDebriefData {
   });
   const rankedStates = Array.from(stateGroups.entries())
     .map(([state, entries]) => ({ state, summary: summarize(entries) }))
-    .sort((a, b) => a.summary.netR - b.summary.netR);
+    .sort((a, b) => a.summary.netPnl - b.summary.netPnl);
   const weakestState = rankedStates[0];
   const strongestState = rankedStates[rankedStates.length - 1];
 
@@ -449,19 +468,19 @@ function buildData(trades: Trade[]): WeeklyDebriefData {
   });
   const bestSession = Array.from(sessionGroups.entries())
     .map(([session, entries]) => ({ session, entries, summary: summarize(entries) }))
-    .sort((a, b) => b.summary.netR - a.summary.netR)[0];
+    .sort((a, b) => b.summary.netPnl - a.summary.netPnl)[0];
 
   const confluenceGroups = new Map<string, {
     label: string;
     trades: number;
     wins: number;
-    netR: number;
+    netPnl: number;
   }>();
   weekly.forEach(trade => {
     const tradeConfluences = normalizeConfluences(trade.confluences);
     if (!tradeConfluences.length) return;
     const tradeConfluenceSet = new Set(tradeConfluences.map(confluence => confluence.toLowerCase()));
-    const currentR = tradeR(trade);
+    const currentPnl = Number(trade.pnl ?? 0);
 
     tradeConfluenceSet.forEach(confluenceKey => {
       const label = tradeConfluences.find(confluence => confluence.toLowerCase() === confluenceKey) ?? confluenceKey;
@@ -469,10 +488,10 @@ function buildData(trades: Trade[]): WeeklyDebriefData {
         label,
         trades: 0,
         wins: 0,
-        netR: 0,
+        netPnl: 0,
       };
       current.trades += 1;
-      current.netR += currentR;
+      current.netPnl += currentPnl;
       if (trade.pnl > 0) current.wins += 1;
       confluenceGroups.set(confluenceKey, current);
     });
@@ -481,13 +500,13 @@ function buildData(trades: Trade[]): WeeklyDebriefData {
     .map(item => ({
       ...item,
       winRate: item.trades > 0 ? pct(item.wins, item.trades) : 0,
-      avgR: item.trades > 0 ? item.netR / item.trades : 0,
+      avgPnl: item.trades > 0 ? item.netPnl / item.trades : 0,
     }))
-    .sort((a, b) => b.netR - a.netR);
+    .sort((a, b) => b.netPnl - a.netPnl);
   const topConfluence = confluenceLeaders[0];
   const weakestConfluence = [...confluenceLeaders]
-    .filter(item => item.netR < 0)
-    .sort((a, b) => a.netR - b.netR)[0];
+    .filter(item => item.netPnl < 0)
+    .sort((a, b) => a.netPnl - b.netPnl)[0];
 
   const weakestProcess = [...weeklyProcess.items].sort((a, b) => a.value - b.value)[0];
   const question = weakestProcess?.label === 'Entry patience'
@@ -497,7 +516,7 @@ function buildData(trades: Trade[]): WeeklyDebriefData {
       : weakestProcess?.label === 'Size discipline'
         ? 'Where did your size deviate from plan, and what triggered it?'
         : weakestConfluence
-          ? `How can you tighten or avoid "${weakestConfluence.label}" when it has cost ${formatSignedR(weakestConfluence.netR)} this week?`
+          ? `How can you tighten or avoid "${weakestConfluence.label}" when it has cost ${formatSignedCurrency(weakestConfluence.netPnl)} this week?`
           : 'Which losing trades came from plan drift, and what rule would have prevented them?';
 
   const insights: WeeklyInsight[] = [
@@ -507,16 +526,16 @@ function buildData(trades: Trade[]): WeeklyDebriefData {
       frequency: earlyTrades.length ? `Seen in ${earlySessions} sessions` : 'No early-session entries this week',
       title: earlyTrades.length ? 'Open-hour entries are the main risk drag this week' : 'Open-hour risk stayed controlled this week',
       body: earlyTrades.length
-        ? `You logged ${earlyTrades.length} trades before 10:00 for ${formatSignedR(earlySummary.netR)}. After 10:00, average trade improved to ${formatSignedR(lateSummary.avgR)}.`
+        ? `You logged ${earlyTrades.length} trades before 10:00 for ${formatSignedCurrency(earlySummary.netPnl)}. After 10:00, average trade improved to ${formatSignedCurrency(lateSummary.avgPnl)}.`
         : 'No trades were logged before 10:00, removing your highest-risk overtrading window.',
       keyPhrases: earlyTrades.length
-        ? [String(earlyTrades.length), 'before 10:00', formatSignedR(earlySummary.netR), 'After 10:00', formatSignedR(lateSummary.avgR)]
+        ? [String(earlyTrades.length), 'before 10:00', formatSignedCurrency(earlySummary.netPnl), 'After 10:00', formatSignedCurrency(lateSummary.avgPnl)]
         : ['before 10:00', 'highest-risk overtrading window'],
       tags: earlyTrades.length
         ? [
-            { label: `${formatSignedR(earlySummary.netR)} pre-10:00`, tone: earlySummary.netR >= 0 ? 'positive' : 'negative' },
+            { label: `${formatSignedCurrency(earlySummary.netPnl)} pre-10:00`, tone: earlySummary.netPnl >= 0 ? 'positive' : 'negative' },
             { label: `${earlyTrades.length} open-hour trades`, tone: 'neutral' },
-            { label: `${formatSignedR(lateSummary.avgR)} avg after 10:00`, tone: lateSummary.avgR >= 0 ? 'positive' : 'negative' },
+            { label: `${formatSignedCurrency(lateSummary.avgPnl)} avg after 10:00`, tone: lateSummary.avgPnl >= 0 ? 'positive' : 'negative' },
           ]
         : [
             { label: '0 pre-10:00 trades', tone: 'positive' },
@@ -530,14 +549,14 @@ function buildData(trades: Trade[]): WeeklyDebriefData {
       frequency: topSymbol ? `${topSymbolName} appeared in ${topSymbol[1].length} trades` : 'Not enough symbol data',
       title: topSymbol ? `${topSymbolName} is your dominant recurring instrument this week` : 'No recurring symbol pattern detected',
       body: topSymbol
-        ? `${topSymbolName} closed at ${formatSignedR(topSymbolSummary.netR)} with ${Math.round(topSymbolSummary.winRate)}% win rate across ${topSymbol[1].length} trades.`
+        ? `${topSymbolName} closed at ${formatSignedCurrency(topSymbolSummary.netPnl)} with ${Math.round(topSymbolSummary.winRate)}% win rate across ${topSymbol[1].length} trades.`
         : 'Log more symbol-tagged trades to activate recurring pattern detection.',
       keyPhrases: topSymbol
-        ? [topSymbolName, formatSignedR(topSymbolSummary.netR), `${Math.round(topSymbolSummary.winRate)}%`, `${topSymbol[1].length} trades`]
+        ? [topSymbolName, formatSignedCurrency(topSymbolSummary.netPnl), `${Math.round(topSymbolSummary.winRate)}%`, `${topSymbol[1].length} trades`]
         : ['symbol-tagged trades', 'pattern detection'],
       tags: topSymbol
         ? [
-            { label: `${formatSignedR(topSymbolSummary.netR)} on ${topSymbolName}`, tone: topSymbolSummary.netR >= 0 ? 'positive' : 'negative' },
+            { label: `${formatSignedCurrency(topSymbolSummary.netPnl)} on ${topSymbolName}`, tone: topSymbolSummary.netPnl >= 0 ? 'positive' : 'negative' },
             { label: `${Math.round(topSymbolSummary.winRate)}% win rate`, tone: topSymbolSummary.winRate >= 50 ? 'positive' : 'negative' },
           ]
         : [{ label: 'Need more samples', tone: 'neutral' }],
@@ -549,15 +568,15 @@ function buildData(trades: Trade[]): WeeklyDebriefData {
       frequency: `${stateGroups.size} emotional states logged`,
       title: 'Emotional state is materially impacting your outcomes',
       body: weakestState && strongestState
-        ? `"${weakestState.state}" averaged ${formatSignedR(weakestState.summary.avgR)} while "${strongestState.state}" averaged ${formatSignedR(strongestState.summary.avgR)} this week.`
+        ? `"${weakestState.state}" averaged ${formatSignedCurrency(weakestState.summary.avgPnl)} while "${strongestState.state}" averaged ${formatSignedCurrency(strongestState.summary.avgPnl)} this week.`
         : 'Add emotional_state tags to unlock behavior-performance insights.',
       keyPhrases: weakestState && strongestState
-        ? [`"${weakestState.state}"`, formatSignedR(weakestState.summary.avgR), `"${strongestState.state}"`, formatSignedR(strongestState.summary.avgR)]
+        ? [`"${weakestState.state}"`, formatSignedCurrency(weakestState.summary.avgPnl), `"${strongestState.state}"`, formatSignedCurrency(strongestState.summary.avgPnl)]
         : ['emotional_state tags', 'behavior-performance insights'],
       tags: weakestState && strongestState
         ? [
-            { label: `${weakestState.state}: ${formatSignedR(weakestState.summary.netR)}`, tone: weakestState.summary.netR >= 0 ? 'positive' : 'negative' },
-            { label: `${strongestState.state}: ${formatSignedR(strongestState.summary.netR)}`, tone: strongestState.summary.netR >= 0 ? 'positive' : 'negative' },
+            { label: `${weakestState.state}: ${formatSignedCurrency(weakestState.summary.netPnl)}`, tone: weakestState.summary.netPnl >= 0 ? 'positive' : 'negative' },
+            { label: `${strongestState.state}: ${formatSignedCurrency(strongestState.summary.netPnl)}`, tone: strongestState.summary.netPnl >= 0 ? 'positive' : 'negative' },
           ]
         : [{ label: 'Need state tags', tone: 'neutral' }],
       actionLabel: 'Create emotional reset rule ->',
@@ -568,14 +587,14 @@ function buildData(trades: Trade[]): WeeklyDebriefData {
       frequency: bestSession ? `${bestSession.session} led this week` : 'No clear session edge this week',
       title: bestSession ? `${bestSession.session} is your strongest edge window this week` : 'Session edge needs more data',
       body: bestSession
-        ? `${bestSession.session} delivered ${formatSignedR(bestSession.summary.netR)} at ${Math.round(bestSession.summary.winRate)}% over ${bestSession.entries.length} trades.`
+        ? `${bestSession.session} delivered ${formatSignedCurrency(bestSession.summary.netPnl)} at ${Math.round(bestSession.summary.winRate)}% over ${bestSession.entries.length} trades.`
         : 'Keep logging session tags to reveal your strongest time-window edge.',
       keyPhrases: bestSession
-        ? [bestSession.session, formatSignedR(bestSession.summary.netR), `${Math.round(bestSession.summary.winRate)}%`, `${bestSession.entries.length} trades`]
+        ? [bestSession.session, formatSignedCurrency(bestSession.summary.netPnl), `${Math.round(bestSession.summary.winRate)}%`, `${bestSession.entries.length} trades`]
         : ['session tags', 'time-window edge'],
       tags: bestSession
         ? [
-            { label: `${formatSignedR(bestSession.summary.netR)} net`, tone: bestSession.summary.netR >= 0 ? 'positive' : 'negative' },
+            { label: `${formatSignedCurrency(bestSession.summary.netPnl)} net`, tone: bestSession.summary.netPnl >= 0 ? 'positive' : 'negative' },
             { label: `${Math.round(bestSession.summary.winRate)}% win rate`, tone: bestSession.summary.winRate >= 50 ? 'positive' : 'negative' },
             { label: `${bestSession.entries.length} trades`, tone: 'neutral' },
           ]
@@ -586,23 +605,23 @@ function buildData(trades: Trade[]): WeeklyDebriefData {
 
   if (topConfluence) {
     insights.push({
-      type: topConfluence.netR >= 0 ? 'edge' : 'risk',
+      type: topConfluence.netPnl >= 0 ? 'edge' : 'risk',
       badge: 'Confluence Signal',
       frequency: `${topConfluence.trades} trades logged with "${topConfluence.label}"`,
-      title: topConfluence.netR >= 0
+      title: topConfluence.netPnl >= 0
         ? `"${topConfluence.label}" is your highest-conviction confluence this week`
         : `"${topConfluence.label}" needs review before reuse`,
-      body: `"${topConfluence.label}" returned ${formatSignedR(topConfluence.netR)} total (${formatSignedR(topConfluence.avgR)} avg) with ${Math.round(topConfluence.winRate)}% win rate.`,
+      body: `"${topConfluence.label}" returned ${formatSignedCurrency(topConfluence.netPnl)} total (${formatSignedCurrency(topConfluence.avgPnl)} avg) with ${Math.round(topConfluence.winRate)}% win rate.`,
       keyPhrases: [
         `"${topConfluence.label}"`,
-        formatSignedR(topConfluence.netR),
-        formatSignedR(topConfluence.avgR),
+        formatSignedCurrency(topConfluence.netPnl),
+        formatSignedCurrency(topConfluence.avgPnl),
         `${Math.round(topConfluence.winRate)}%`,
       ],
       tags: [
         { label: `${topConfluence.trades} tagged trades`, tone: 'neutral' },
         { label: `${Math.round(topConfluence.winRate)}% win rate`, tone: topConfluence.winRate >= 50 ? 'positive' : 'negative' },
-        { label: `${formatSignedR(topConfluence.netR)} net`, tone: topConfluence.netR >= 0 ? 'positive' : 'negative' },
+        { label: `${formatSignedCurrency(topConfluence.netPnl)} net`, tone: topConfluence.netPnl >= 0 ? 'positive' : 'negative' },
       ],
       actionLabel: 'Refine this confluence checklist ->',
     });
@@ -629,10 +648,10 @@ function buildData(trades: Trade[]): WeeklyDebriefData {
     tradeCount: weekly.length,
     instruments,
     stats: {
-      netR: { label: 'Net R', value: formatSignedR(weeklySummary.netR), subLabel: `vs ${formatSignedR(previousSummary.netR)} prev week`, tone: weeklySummary.netR >= 0 ? 'positive' : 'negative' },
+      netR: { label: 'Net PL', value: formatSignedCurrency(weeklySummary.netPnl), subLabel: `vs ${formatSignedCurrency(previousSummary.netPnl)} prev week`, tone: weeklySummary.netPnl >= 0 ? 'positive' : 'negative' },
       winRate: { label: 'Win Rate', value: `${Math.round(weeklySummary.winRate)}%`, subLabel: `${weeklySummary.wins}W / ${weeklySummary.losses}L`, tone: 'neutral' },
-      avgWinner: { label: 'Avg Winner', value: formatSignedR(weeklySummary.avgWinnerR), subLabel: `Best ${formatSignedR(weeklySummary.bestR)}`, tone: weeklySummary.avgWinnerR >= 0 ? 'positive' : 'neutral' },
-      avgLoser: { label: 'Avg Loser', value: formatSignedR(weeklySummary.avgLoserR), subLabel: `Worst ${formatSignedR(weeklySummary.worstR)}`, tone: weeklySummary.avgLoserR < 0 ? 'negative' : 'neutral' },
+      avgWinner: { label: 'Avg Winner', value: formatSignedCurrency(weeklySummary.avgWinnerPnl), subLabel: `Best ${formatSignedCurrency(weeklySummary.bestPnl)}`, tone: weeklySummary.avgWinnerPnl >= 0 ? 'positive' : 'neutral' },
+      avgLoser: { label: 'Avg Loser', value: formatSignedCurrency(weeklySummary.avgLoserPnl), subLabel: `Worst ${formatSignedCurrency(weeklySummary.worstPnl)}`, tone: weeklySummary.avgLoserPnl < 0 ? 'negative' : 'neutral' },
       processScore: { label: 'Process Score', value: `${weeklyProcess.score}/100`, subLabel: `${processDiff >= 0 ? '+' : ''}${processDiff} vs 30-day avg`, tone: 'info' },
     },
     question,
@@ -670,8 +689,8 @@ export default function FlyxaAI() {
     () => (focusedTradeId ? safeAccountTrades.find(trade => trade.id === focusedTradeId) ?? null : null),
     [focusedTradeId, safeAccountTrades]
   );
-  const focusedTradeR = useMemo(
-    () => (focusedTrade ? tradeR(focusedTrade) : null),
+  const focusedTradePnl = useMemo(
+    () => (focusedTrade ? Number(focusedTrade.pnl ?? 0) : null),
     [focusedTrade]
   );
   const focusedTradeConfluences = useMemo(
@@ -722,8 +741,8 @@ export default function FlyxaAI() {
     return { weeklyTrades, previousTrades };
   }, [safeAccountTrades]);
 
-  const previousWeekNetR = useMemo(
-    () => summarize(weeklyWindow.previousTrades).netR,
+  const previousWeekPnl = useMemo(
+    () => summarize(weeklyWindow.previousTrades).netPnl,
     [weeklyWindow.previousTrades]
   );
   const netRNumeric = Number.parseFloat(weeklyDebriefData.stats.netR.value.replace(/[^\d.+-]/g, '')) || 0;
@@ -765,48 +784,54 @@ export default function FlyxaAI() {
     const padTop = 4;
     const padBottom = 6;
     const chartHeight = height - padTop - padBottom;
-    const rs = weeklyWindow.weeklyTrades.map(trade => tradeR(trade));
+    const pnls = weeklyWindow.weeklyTrades.map(trade => Number(trade.pnl ?? 0));
     const cumulative: number[] = [0];
-    rs.forEach(r => cumulative.push((cumulative[cumulative.length - 1] ?? 0) + r));
+    pnls.forEach(pnl => cumulative.push((cumulative[cumulative.length - 1] ?? 0) + pnl));
     const min = Math.min(0, ...cumulative);
     const max = Math.max(0, ...cumulative);
-    const range = Math.max(1, max - min);
+    const dynamicPad = Math.max(20, Math.abs(max - min) * 0.15);
+    const scaleMin = min - dynamicPad;
+    const scaleMax = max + dynamicPad;
+    const range = Math.max(1, scaleMax - scaleMin);
     const xAt = (step: number) => padX + ((step / Math.max(1, cumulative.length - 1)) * (width - (padX * 2)));
-    const yAt = (value: number) => padTop + (((max - value) / range) * chartHeight);
+    const yAt = (value: number) => padTop + (((scaleMax - value) / range) * chartHeight);
     const baselineY = yAt(0);
 
-    let stepPath = `M ${xAt(0)} ${yAt(cumulative[0])}`;
+    let linePath = `M ${xAt(0)} ${yAt(cumulative[0])}`;
     let areaPath = `M ${xAt(0)} ${baselineY} L ${xAt(0)} ${yAt(cumulative[0])}`;
     for (let index = 1; index < cumulative.length; index += 1) {
-      stepPath += ` H ${xAt(index)} V ${yAt(cumulative[index])}`;
-      areaPath += ` H ${xAt(index)} V ${yAt(cumulative[index])}`;
+      linePath += ` L ${xAt(index)} ${yAt(cumulative[index])}`;
+      areaPath += ` L ${xAt(index)} ${yAt(cumulative[index])}`;
     }
     areaPath += ` L ${xAt(cumulative.length - 1)} ${baselineY} Z`;
 
-    const dots = rs.map((delta, index) => {
-      const x = xAt(index + 1);
-      const y = yAt(cumulative[index + 1]);
-      const absDelta = Math.abs(delta);
-      const rounded = Math.abs(absDelta - Math.round(absDelta)) < 0.05 ? String(Math.round(absDelta)) : absDelta.toFixed(1);
-      const isNearRightEdge = x > width - 20;
-      const isNearLeftEdge = x < 20;
-      return {
-        x,
-        y,
-        labelX: isNearRightEdge ? x - 4 : isNearLeftEdge ? x + 4 : x,
-        textAnchor: isNearRightEdge ? 'end' as const : isNearLeftEdge ? 'start' as const : 'middle' as const,
-        label: `${delta >= 0 ? '+' : '-'}${rounded}R`,
-      };
-    });
+    const endX = xAt(cumulative.length - 1);
+    const endY = yAt(cumulative[cumulative.length - 1] ?? 0);
+    const endValue = cumulative[cumulative.length - 1] ?? 0;
+    const isNearRightEdge = endX > width - 20;
+    const isNearLeftEdge = endX < 20;
 
-    return { width, height, baselineY, stepPath, areaPath, dots };
+    return {
+      width,
+      height,
+      baselineY,
+      linePath,
+      areaPath,
+      endDot: {
+        x: endX,
+        y: endY,
+        labelX: isNearRightEdge ? endX - 4 : isNearLeftEdge ? endX + 4 : endX,
+        textAnchor: isNearRightEdge ? 'end' as const : isNearLeftEdge ? 'start' as const : 'middle' as const,
+        label: formatSignedCompactCurrency(endValue),
+      },
+    };
   }, [weeklyWindow.weeklyTrades]);
 
   const bestTrade = useMemo(() => {
     if (!weeklyWindow.weeklyTrades.length) return null;
     const ranked = weeklyWindow.weeklyTrades
-      .map(trade => ({ trade, r: tradeR(trade) }))
-      .sort((a, b) => (b.r - a.r) || (b.trade.pnl - a.trade.pnl));
+      .map(trade => ({ trade, pnl: Number(trade.pnl ?? 0) }))
+      .sort((a, b) => b.pnl - a.pnl);
     const top = ranked[0];
     if (!top) return null;
 
@@ -818,7 +843,7 @@ export default function FlyxaAI() {
     return {
       symbol: top.trade.symbol || 'N/A',
       direction: top.trade.direction,
-      resultR: formatSignedR(top.r),
+      resultPnl: formatSignedCurrency(top.pnl),
       session: top.trade.session || 'Other',
       time: top.trade.trade_time || '--:--',
       date: dateLabel,
@@ -831,14 +856,14 @@ export default function FlyxaAI() {
     const labels = ['London', 'New York', 'Asia'] as const;
     const rows = labels.map(label => {
       const tradesForSession = weeklyWindow.weeklyTrades.filter(trade => trade.session === label);
-      const netR = tradesForSession.reduce((sum, trade) => sum + tradeR(trade), 0);
+      const netPnl = tradesForSession.reduce((sum, trade) => sum + Number(trade.pnl ?? 0), 0);
       const scored = tradesForSession.filter(trade => trade.pnl !== 0);
       const wins = scored.filter(trade => trade.pnl > 0).length;
       const winRate = scored.length ? Math.round((wins / scored.length) * 100) : 0;
-      return { label, netR, winRate, trades: tradesForSession.length };
+      return { label, netPnl, winRate, trades: tradesForSession.length };
     });
-    const maxAbs = Math.max(1, ...rows.map(row => Math.abs(row.netR)));
-    return rows.map(row => ({ ...row, barWidth: row.trades ? Math.max(8, (Math.abs(row.netR) / maxAbs) * 100) : 0 }));
+    const maxAbs = Math.max(1, ...rows.map(row => Math.abs(row.netPnl)));
+    return rows.map(row => ({ ...row, barWidth: row.trades ? Math.max(8, (Math.abs(row.netPnl) / maxAbs) * 100) : 0 }));
   }, [weeklyWindow.weeklyTrades]);
 
   const weekGrade = boundedScore >= 90 ? 'A' : boundedScore >= 75 ? 'B' : boundedScore >= 60 ? 'C' : 'D';
@@ -932,23 +957,23 @@ export default function FlyxaAI() {
                   <svg width={sparkline.width} height={sparkline.height} viewBox={`0 0 ${sparkline.width} ${sparkline.height}`} className="shrink-0">
                     <line x1={6} y1={sparkline.baselineY} x2={sparkline.width - 6} y2={sparkline.baselineY} stroke="rgba(255,255,255,0.05)" strokeWidth="0.5" />
                     <path d={sparkline.areaPath} fill={netRNumeric >= 0 ? 'rgba(34,214,138,0.07)' : 'rgba(255,95,95,0.09)'} />
-                    <path d={sparkline.stepPath} fill="none" stroke={netRNumeric >= 0 ? colors.grn : colors.red} strokeWidth="1.5" />
-                    {sparkline.dots.map(dot => (
-                      <g key={`${dot.x}-${dot.y}-${dot.label}`}>
-                        <circle cx={dot.x} cy={dot.y} r={3} fill={netRNumeric >= 0 ? colors.grn : colors.red} />
-                        <text x={dot.labelX} y={dot.y - 6} textAnchor={dot.textAnchor} fontSize="9" style={{ fill: netRNumeric >= 0 ? colors.grn : colors.red, fontFamily: colors.mono }}>
-                          {dot.label}
+                    <path d={sparkline.linePath} fill="none" stroke={netRNumeric >= 0 ? colors.grn : colors.red} strokeWidth="1.5" />
+                    {weeklyWindow.weeklyTrades.length > 0 && (
+                      <g>
+                        <circle cx={sparkline.endDot.x} cy={sparkline.endDot.y} r={3} fill={netRNumeric >= 0 ? colors.grn : colors.red} />
+                        <text x={sparkline.endDot.labelX} y={sparkline.endDot.y - 6} textAnchor={sparkline.endDot.textAnchor} fontSize="9" style={{ fill: netRNumeric >= 0 ? colors.grn : colors.red, fontFamily: colors.mono }}>
+                          {sparkline.endDot.label}
                         </text>
                       </g>
-                    ))}
+                    )}
                   </svg>
                   <div className="pb-0.5">
-                    <p className="text-[9.5px] uppercase tracking-[0.12em]" style={{ color: colors.t2 }}>Net R</p>
+                    <p className="text-[9.5px] uppercase tracking-[0.12em]" style={{ color: colors.t2 }}>Net PL</p>
                     <p className="mt-0.5 text-[36px] font-bold leading-none tracking-[-0.03em]" style={{ color: netRNumeric >= 0 ? colors.grn : colors.red, fontFamily: colors.mono }}>
                       {weeklyDebriefData.stats.netR.value}
                     </p>
                     <p className="mt-1 text-[10.5px]" style={{ color: colors.t2 }}>
-                      vs {formatSignedR(previousWeekNetR)} prev week
+                      vs {formatSignedCurrency(previousWeekPnl)} prev week
                     </p>
                   </div>
                 </div>
@@ -978,7 +1003,7 @@ export default function FlyxaAI() {
                   {focusedTrade ? (
                     <div className="mt-2 grid gap-2 text-[11.5px] leading-relaxed" style={{ color: colors.t1 }}>
                       <p>
-                        Result: <span style={{ color: focusedTradeR !== null && focusedTradeR >= 0 ? colors.grn : colors.red, fontFamily: colors.mono }}>{focusedTradeR !== null ? formatSignedR(focusedTradeR) : '0.0R'}</span>
+                        Result: <span style={{ color: focusedTradePnl !== null && focusedTradePnl >= 0 ? colors.grn : colors.red, fontFamily: colors.mono }}>{focusedTradePnl !== null ? formatSignedCurrency(focusedTradePnl) : '$0.00'}</span>
                         {' '}({focusedTrade.pnl > 0 ? 'win' : focusedTrade.pnl < 0 ? 'loss' : 'flat'}) · P&L <span style={{ fontFamily: colors.mono }}>{formatCurrency(Number(focusedTrade.pnl || 0))}</span>
                       </p>
                       <p>
@@ -1084,7 +1109,7 @@ export default function FlyxaAI() {
                       <p className="text-[11px]" style={{ color: colors.t2 }}>{bestTrade.direction}</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-[15px] font-bold" style={{ color: colors.grn, fontFamily: colors.mono }}>{bestTrade.resultR}</p>
+                      <p className="text-[15px] font-bold" style={{ color: colors.grn, fontFamily: colors.mono }}>{bestTrade.resultPnl}</p>
                       <p className="text-[11px]" style={{ color: colors.t2 }}>{bestTrade.note}</p>
                     </div>
                   </div>
@@ -1137,11 +1162,11 @@ export default function FlyxaAI() {
                     <div className="h-[3px] flex-1 rounded-[2px]" style={{ backgroundColor: colors.d4 }}>
                       <div
                         className="h-[3px] rounded-[2px]"
-                        style={{ width: `${row.barWidth}%`, backgroundColor: row.netR > 0 ? colors.grn : row.netR < 0 ? colors.red : colors.t2 }}
+                        style={{ width: `${row.barWidth}%`, backgroundColor: row.netPnl > 0 ? colors.grn : row.netPnl < 0 ? colors.red : colors.t2 }}
                       />
                     </div>
-                    <span className="w-11 text-right text-[11px]" style={{ color: row.netR > 0 ? colors.grn : colors.t2, fontFamily: colors.mono }}>
-                      {row.trades ? formatSignedR(row.netR) : '--'}
+                    <span className="w-16 text-right text-[11px]" style={{ color: row.netPnl > 0 ? colors.grn : row.netPnl < 0 ? colors.red : colors.t2, fontFamily: colors.mono }}>
+                      {row.trades ? formatSignedCompactCurrency(row.netPnl) : '--'}
                     </span>
                     <span className="w-8 text-right text-[10px]" style={{ color: colors.t2 }}>
                       {row.trades ? `${row.winRate}%` : '--'}

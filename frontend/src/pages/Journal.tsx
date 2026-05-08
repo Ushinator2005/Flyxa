@@ -27,6 +27,7 @@ import { flushSupabaseStoreNow } from '../store/supabaseStorage.js';
 
 const JOURNAL_BACKUP_STORAGE_PREFIX = 'tw-journal-backup:';
 const JOURNAL_BACKUP_VERSION = 1;
+const JOURNAL_MOODS_STORAGE_PREFIX = 'flyxa-journal-moods-v1:';
 const JOURNAL_MOODS = ['Calm', 'Focused', 'Confident', 'Tired', 'Frustrated'] as const;
 const MOOD_ICONS: Record<(typeof JOURNAL_MOODS)[number], LucideIcon> = {
   Calm: Leaf,
@@ -315,9 +316,6 @@ function EntryItem({
 
       {/* Meta */}
       <div style={{ padding: '10px 10px', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'center', gap: '6px', flexShrink: 0 }}>
-        {hasContent && (
-          <span style={{ fontSize: '10px', color: T3, fontFamily: 'var(--font-mono)' }}>{wc}w</span>
-        )}
         {mood && moodStyle && (
           <span style={{ borderRadius: '20px', fontSize: '10px', fontWeight: 600, padding: '2px 7px', background: moodStyle.bg, color: moodStyle.color, whiteSpace: 'nowrap' }}>
             {mood}
@@ -355,9 +353,14 @@ export default function Journal() {
   const titleSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const backupInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const moodsHydratedRef = useRef<string | null>(null);
   const [backupBusy, setBackupBusy] = useState<'export' | 'import' | null>(null);
   const backupStorageKey = useMemo(
     () => `${JOURNAL_BACKUP_STORAGE_PREFIX}${user?.id ?? 'anonymous'}`,
+    [user?.id]
+  );
+  const moodsStorageKey = useMemo(
+    () => `${JOURNAL_MOODS_STORAGE_PREFIX}${user?.id ?? 'anonymous'}`,
     [user?.id]
   );
 
@@ -401,6 +404,33 @@ export default function Journal() {
       // Ignore storage quota errors.
     }
   }, [backupStorageKey, entries, moodByEntryId, titleByEntryId, user?.id]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const hydrationKey = user?.id ?? 'anonymous';
+    if (moodsHydratedRef.current === hydrationKey) return;
+    moodsHydratedRef.current = hydrationKey;
+
+    try {
+      const raw = window.localStorage.getItem(moodsStorageKey);
+      if (!raw) return;
+      const parsed = normalizeStringMap(JSON.parse(raw));
+      Object.entries(parsed).forEach(([entryId, mood]) => {
+        if (!moodByEntryId[entryId]) setJournalMoodAction(entryId, mood);
+      });
+    } catch {
+      // ignore malformed local fallback cache
+    }
+  }, [moodByEntryId, moodsStorageKey, setJournalMoodAction, user?.id]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(moodsStorageKey, JSON.stringify(moodByEntryId));
+    } catch {
+      // ignore storage quota errors
+    }
+  }, [moodByEntryId, moodsStorageKey]);
 
   function updateEntryMood(entryId: string, mood: string) {
     setJournalMoodAction(entryId, mood);
@@ -886,7 +916,7 @@ export default function Journal() {
                   <p style={{ fontSize: '11px', color: T3, marginTop: '5px' }}>
                     {formatEntryDate(selected.date, 'yyyy')}
                     <span style={{ margin: '0 5px' }}>|</span>
-                    {selectedWordCount}w written
+                    {selectedWordCount} words written
                   </p>
                 </div>
 

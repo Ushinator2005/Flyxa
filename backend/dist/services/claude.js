@@ -10,7 +10,7 @@ exports.generatePsychologyReport = generatePsychologyReport;
 exports.compareTradeToPlaybook = compareTradeToPlaybook;
 exports.answerFlyxaQuestion = answerFlyxaQuestion;
 exports.filterNewsItems = filterNewsItems;
-exports.analyzeChartImage = analyzeChartImage;
+exports.analyzeJournalInsights = analyzeJournalInsights;
 const sdk_1 = __importDefault(require("@anthropic-ai/sdk"));
 const dotenv_1 = __importDefault(require("dotenv"));
 const zlib_1 = require("zlib");
@@ -2046,35 +2046,77 @@ Rules:
         return [];
     }
 }
-// ── Chart image analysis via Gemini ─────────────────────────────────────────
-const gemini_1 = require("./gemini");
-async function analyzeChartImage(base64Image, mimeType, entryDate, entryTime, focusImages = [], scannerContext) {
-    void focusImages; // reserved for future multi-image analysis
-    const colors = scannerContext?.scanner_colors;
-    const userColors = colors ? {
-        stopLoss: colors.supplyStopZone?.hex ?? '#C0392B',
-        takeProfit: colors.targetDemandZone?.hex ?? '#1A6B5A',
-        entry: colors.entryZone?.hex ?? '#E67E22',
-    } : undefined;
-    const result = await (0, gemini_1.readTradeChart)(base64Image, mimeType, userColors);
-    return {
-        symbol: result.symbol,
-        direction: result.direction,
-        entry_price: result.entry_price,
-        entry_time: result.entry_time ?? entryTime ?? null,
-        close_time: result.close_time,
-        entry_time_confidence: result.confidence,
-        sl_price: result.sl_price,
-        tp_price: result.tp_price,
-        trade_length_seconds: result.trade_length_seconds,
-        candle_count: null,
-        timeframe_minutes: result.timeframe_minutes,
-        exit_reason: result.exit_reason,
-        pnl_result: result.exit_reason === 'TP' ? 'Win' : result.exit_reason === 'SL' ? 'Loss' : null,
-        exit_confidence: result.confidence,
-        first_touch_candle_index: null,
-        first_touch_evidence: result.evidence,
-        warnings: result.warnings ?? [],
-    };
+async function analyzeJournalInsights(entries) {
+    const totalTrades = entries.reduce((n, e) => n + e.trades.length, 0);
+    if (totalTrades === 0)
+        return [];
+    const digest = entries.map(e => ({
+        date: e.date,
+        pre: e.pre?.trim() || null,
+        post: e.post?.trim() || null,
+        lessons: e.lessons?.trim() || null,
+        trades: e.trades.map(t => ({
+            symbol: t.symbol,
+            direction: t.direction,
+            result: t.result,
+            pnl: t.pnl,
+            rr: Number(t.rr?.toFixed(2)),
+            entryTime: t.entryTime,
+            followedPlan: t.followedPlan,
+            processGrade: t.processGrade,
+            thesis: t.thesis?.trim() || null,
+            execution: t.execution?.trim() || null,
+            adjustment: t.adjustment?.trim() || null,
+        })),
+    }));
+    const prompt = `You are a professional trading coach analysing a trader's complete journal.
+
+Analyse these ${totalTrades} trades across ${entries.length} trading days and identify 4–8 real behavioural and performance patterns.
+Focus heavily on the written reflections (thesis, execution, lessons) — these contain the truth about why trades won or lost.
+
+Journal data:
+${JSON.stringify(digest, null, 2)}
+
+Return ONLY a JSON array (no other text, no markdown). Each item must match exactly:
+{
+  "id": "p1",                          // unique string
+  "type": "Risk" | "Edge" | "Psychology" | "Behaviour",
+  "status": "Active" | "Improving" | "Confirmed",
+  "title": string,                     // max 70 chars, specific
+  "description": string,               // 2–3 sentences referencing actual journal text
+  "confidence": number,                // 50–99 integer
+  "tradeDates": string[],              // dates (YYYY-MM-DD) where this pattern appears
+  "tags": [{ "label": string, "sentiment": "positive"|"negative"|"neutral" }],
+  "instrument": string,                // e.g. "NQ" or "Mixed"
+  "session": "RTH open" | "Overlap" | "Midday"
+}
+
+Rules:
+- "Edge" type = consistently profitable behaviours to reinforce
+- "Risk" type = behaviours costing money
+- "Psychology" type = emotional or cognitive patterns
+- "Behaviour" type = execution or process patterns
+- Only report patterns with at least 2 data points in the journal
+- Be specific — reference actual entry times, symbols, written notes where possible
+- Return at minimum 2 Edge patterns and 2 Risk/Psychology patterns`;
+    const response = await anthropic.messages.create({
+        model: MODEL,
+        temperature: 0.3,
+        max_tokens: 4096,
+        messages: [{ role: 'user', content: prompt }],
+    });
+    const content = response.content[0];
+    if (content.type !== 'text')
+        return [];
+    try {
+        const raw = content.text.trim().replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed))
+            return [];
+        return parsed.filter(p => p.id && p.type && p.title && p.description && Array.isArray(p.tradeDates));
+    }
+    catch {
+        return [];
+    }
 }
 //# sourceMappingURL=claude.js.map

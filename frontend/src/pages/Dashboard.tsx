@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  TrendingUp, Target, BarChart2,
+  TrendingUp,
   ArrowUpRight, ArrowDownRight, Eye, Filter, ChevronLeft, ChevronRight, Trash2,
 } from 'lucide-react';
 import {
@@ -21,14 +21,14 @@ import LoadingSpinner from '../components/common/LoadingSpinner.js';
 import { Trade } from '../types/index.js';
 
 // ── Design tokens ────────────────────────────────────────────────
-const COBALT      = '#1E6FFF';
-const COBALT_DIM  = 'rgba(30,111,255,0.10)';
+const COBALT      = '#60a5fa';
+const COBALT_DIM  = 'rgba(96,165,250,0.12)';
 const AMBER       = '#f59e0b';
-const AMBER_DIM   = 'rgba(245,158,11,0.10)';
-const GREEN       = '#22c55e';
-const GREEN_DIM   = 'rgba(34,197,94,0.10)';
-const RED         = '#ef4444';
-const RED_DIM     = 'rgba(239,68,68,0.10)';
+const AMBER_DIM   = 'rgba(245,158,11,0.12)';
+const GREEN       = '#34d399';
+const GREEN_DIM   = 'rgba(52,211,153,0.12)';
+const RED         = '#f87171';
+const RED_DIM     = 'rgba(248,113,113,0.12)';
 const S1          = 'var(--app-panel)';
 const S2          = 'var(--app-panel-strong)';
 const BORDER      = 'var(--app-border)';
@@ -36,6 +36,7 @@ const BSUB        = 'rgba(255,255,255,0.04)';
 const T1          = 'var(--app-text)';
 const T2          = 'var(--app-text-muted)';
 const T3          = 'var(--app-text-subtle)';
+const CHIP_BG     = 'rgba(255,255,255,0.035)';
 const MONO        = 'var(--font-mono)';
 const SANS        = 'var(--font-sans)';
 
@@ -62,48 +63,30 @@ function winRateBadge(winRate: number): string {
 
 // ── Sub-components ───────────────────────────────────────────────
 
-function EquityCurveIcon() {
-  return (
-    <svg width="17" height="17" viewBox="0 0 17 17" fill="none" aria-hidden="true">
-      <path d="M2 14H15" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" opacity="0.45" />
-      <path d="M2 11L6 8L9 9L12 5L15 3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function RiskRewardIcon() {
-  return (
-    <svg width="17" height="17" viewBox="0 0 17 17" fill="none" aria-hidden="true">
-      <rect x="2" y="4" width="5.5" height="9" rx="1.2" fill={RED} fillOpacity="0.55" />
-      <rect x="9.5" y="4" width="5.5" height="9" rx="1.2" fill={GREEN} fillOpacity="0.75" />
-      <path d="M8.5 3V14" stroke="rgba(255,255,255,0.45)" strokeWidth="1.2" strokeLinecap="round" />
-    </svg>
-  );
-}
-
 type BadgeTone = 'positive' | 'negative' | 'neutral';
 
 function DeltaBadge({ label, tone = 'neutral' }: { label?: string; tone?: BadgeTone }) {
   if (label === undefined) return null;
+  const toneColor = tone === 'positive' ? GREEN : tone === 'negative' ? RED : T3;
   if (tone === 'neutral') {
     return (
       <span style={{
         fontSize: 11, fontFamily: MONO, color: T3,
-        background: 'rgba(255,255,255,0.05)',
-        padding: '2px 7px', borderRadius: 3,
+        background: CHIP_BG,
+        border: `1px solid ${BSUB}`,
+        padding: '2px 7px', borderRadius: 4,
       }}>{label}</span>
     );
   }
-  const pos = tone === 'positive';
   return (
     <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 2,
+      display: 'inline-flex', alignItems: 'center',
       fontSize: 11, fontFamily: MONO, fontVariantNumeric: 'tabular-nums',
-      color: pos ? GREEN : RED,
-      background: pos ? GREEN_DIM : RED_DIM,
-      padding: '2px 7px', borderRadius: 3,
+      color: toneColor,
+      background: CHIP_BG,
+      border: `1px solid ${BSUB}`,
+      padding: '2px 7px', borderRadius: 4,
     }}>
-      {pos ? <ArrowUpRight size={10} /> : <ArrowDownRight size={10} />}
       {label}
     </span>
   );
@@ -162,28 +145,42 @@ function CardHeader({ title, sub, right }: { title: string; sub?: string; right?
   );
 }
 
-function StatCard({ color, label, value, badgeLabel, badgeTone = 'neutral' }: {
-  icon: React.ReactNode; color: string; dim: string;
+function StatCard({ color, label, value, badgeLabel, badgeTone = 'neutral', valueTone = 'neutral' }: {
+  color: string;
   label: string; value: string;
   badgeLabel?: string; badgeTone?: BadgeTone;
+  valueTone?: BadgeTone;
 }) {
+  const valueColor = valueTone === 'positive' ? GREEN : valueTone === 'negative' ? RED : T1;
   return (
-    <Card style={{ borderTop: `2px solid ${color}` }}>
-      <div style={{ padding: '16px 18px' }}>
-        <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: T2, marginBottom: 8 }}>
-          {label}
-        </p>
+    <div style={{
+      background: S1,
+      border: `1px solid ${BORDER}`,
+      borderRadius: 8,
+      overflow: 'hidden',
+      position: 'relative',
+    }}>
+      {/* Top accent line */}
+      <div style={{ height: 2, background: `linear-gradient(90deg, ${color}, transparent)` }} />
+      <div style={{ padding: '14px 16px 16px' }}>
+        {/* Header row: label */}
+        <div style={{ marginBottom: 12 }}>
+          <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: T2, margin: 0 }}>
+            {label}
+          </p>
+        </div>
+        {/* Value */}
         <p style={{
-          fontSize: 26, fontWeight: 700, fontFamily: MONO,
+          fontSize: 26, fontWeight: 500, fontFamily: MONO,
           fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.03em',
           fontFeatureSettings: "'zero' 1",
-          lineHeight: 1, marginBottom: 8, color,
+          lineHeight: 1, marginBottom: 10, color: valueColor,
         }}>
           {value}
         </p>
         <DeltaBadge label={badgeLabel} tone={badgeTone} />
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -273,7 +270,7 @@ export default function Dashboard() {
             <p style={{ fontSize: 12, color: T3, margin: '3px 0 0' }}>
               {format(new Date(), 'EEEE, MMMM d')}
               {' · '}
-              <span style={{ color: AMBER }}>{acctName}</span>
+              <span style={{ color: T2 }}>{acctName}</span>
             </p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -289,7 +286,7 @@ export default function Dashboard() {
                   color: T1, outline: 'none', cursor: 'pointer',
                   minWidth: 170,
                 }}
-                onFocus={e => { e.currentTarget.style.borderColor = 'rgba(245,158,11,0.35)'; }}
+                onFocus={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.16)'; }}
                 onBlur={e =>  { e.currentTarget.style.borderColor = BORDER; }}
               >
                 <option value={ALL_ACCOUNTS_ID}>All Accounts</option>
@@ -303,7 +300,7 @@ export default function Dashboard() {
               onClick={() => navigate('/trade-scanner')}
               style={{
                 height: 34, padding: '0 14px',
-                background: AMBER, border: 'none', borderRadius: 5,
+                background: '#f59e0b', border: 'none', borderRadius: 5,
                 fontSize: 12, fontWeight: 600, color: '#000', cursor: 'pointer',
                 fontFamily: SANS, display: 'flex', alignItems: 'center', gap: 6,
                 transition: 'opacity 0.15s',
@@ -320,31 +317,35 @@ export default function Dashboard() {
         {/* Stat cards */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, flexShrink: 0 }}>
           <StatCard
-            icon={<EquityCurveIcon />} color={AMBER} dim={AMBER_DIM}
+            color={AMBER}
             label="Net P&L"
             value={fmtUSD(summary.netPnL)}
             badgeLabel={todayTrades.length > 0 ? `Today ${fmtSignedCompactUSD(todayPnL)}` : 'No trades today'}
             badgeTone={todayTrades.length === 0 ? 'neutral' : todayPnL >= 0 ? 'positive' : 'negative'}
+            valueTone={summary.netPnL > 0 ? 'positive' : summary.netPnL < 0 ? 'negative' : 'neutral'}
           />
           <StatCard
-            icon={<Target size={17} />} color={COBALT} dim={COBALT_DIM}
+            color={COBALT}
             label="Win Rate"
             value={fmtPct(summary.winRate)}
             badgeLabel={summary.totalTrades > 0 ? winRateBadge(summary.winRate) : 'No closed trades'}
             badgeTone={summary.totalTrades === 0 ? 'neutral' : summary.winRate >= 50 ? 'positive' : 'negative'}
+            valueTone="neutral"
           />
           <StatCard
-            icon={<RiskRewardIcon />} color={GREEN} dim={GREEN_DIM}
+            color={GREEN}
             label="Avg R:R"
             value={fmtRR(summary.avgRR)}
             badgeLabel={summary.avgRR > 0 ? (summary.avgRR >= 1 ? 'Above 1:1' : 'Below 1:1') : 'No ratio yet'}
             badgeTone={summary.avgRR === 0 ? 'neutral' : summary.avgRR >= 1 ? 'positive' : 'negative'}
+            valueTone="neutral"
           />
           <StatCard
-            icon={<BarChart2 size={17} />} color={RED} dim={RED_DIM}
+            color={RED}
             label="Trades"
             value={String(summary.totalTrades)}
             badgeLabel={`${todayTrades.length} Today`}
+            valueTone="neutral"
           />
         </div>
 

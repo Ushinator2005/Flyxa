@@ -116,7 +116,7 @@ app.use('/api/billing', billing_1.default);
 // Error handler
 app.use(errorHandler_1.errorHandler);
 app.listen(PORT, () => {
-    console.log(`TradeWise backend running on port ${PORT}`);
+    console.log(`Flyxa AI backend running on port ${PORT}`);
 });
 exports.default = app;
 //# sourceMappingURL=index.js.map

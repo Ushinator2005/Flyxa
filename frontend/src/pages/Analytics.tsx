@@ -239,7 +239,11 @@ export default function Analytics() {
     const winRate = scoredTrades > 0 ? (wins.length / scoredTrades) * 100 : 0;
     const profitFactor = grossLoss === 0 ? (grossProfit > 0 ? 999 : 0) : grossProfit / grossLoss;
     const avgWin = wins.length > 0 ? grossProfit / wins.length : 0;
-    const expectedValue = totalTrades > 0 ? netPnL / totalTrades : 0;
+    const avgLoss = losses.length > 0 ? losses.reduce((sum, trade) => sum + trade.pnl, 0) / losses.length : 0;
+    const avgPnL = totalTrades > 0 ? netPnL / totalTrades : 0;
+    const winRateDecimal = scoredTrades > 0 ? wins.length / scoredTrades : 0;
+    const lossRateDecimal = scoredTrades > 0 ? losses.length / scoredTrades : 0;
+    const expectedValue = (winRateDecimal * avgWin) + (lossRateDecimal * avgLoss);
     const activeDays = new Set(filteredTrades.map(trade => trade.trade_date)).size;
     const tradesPerDay = activeDays > 0 ? totalTrades / activeDays : 0;
     const avgWinHold = safeAverage(wins.map(trade => trade.trade_length_seconds || 0));
@@ -254,6 +258,7 @@ export default function Analytics() {
       winRate,
       profitFactor,
       avgWin,
+      avgPnL,
       expectedValue,
       tradesPerDay,
       avgWinHold,
@@ -546,15 +551,15 @@ export default function Analytics() {
           valueClassName={metrics.profitFactor >= 1 ? 'text-[var(--accent)]' : 'text-[#f87171]'}
         />
         <MetricCard
-          label="Avg Win"
-          value={formatSignedCurrency(metrics.avgWin)}
-          subtitle={`vs ${formatCurrency(metrics.losses.length ? Math.abs(safeAverage(metrics.losses.map(trade => trade.pnl))) : 0)} avg loss`}
-          valueClassName="text-emerald-400"
+          label="Avg PL"
+          value={formatSignedCurrency(metrics.avgPnL)}
+          subtitle={`${metrics.totalTrades} trade${metrics.totalTrades === 1 ? '' : 's'} average`}
+          valueClassName={metrics.avgPnL >= 0 ? 'text-emerald-400' : 'text-red-400'}
         />
         <MetricCard
           label="Exp. Value"
           value={formatSignedCurrency(metrics.expectedValue)}
-          subtitle="Per trade"
+          subtitle="Expectancy per trade"
           valueClassName={metrics.expectedValue >= 0 ? 'text-emerald-400' : 'text-red-400'}
         />
         <MetricCard

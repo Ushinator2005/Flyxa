@@ -365,6 +365,9 @@ function normalizeEntryUnknown(input: unknown, accountId: string): JournalEntry 
   while (screenshots.length < 3) screenshots.push('');
 
   return {
+    // Spread all input fields first so rich JournalEntry fields (dailyReflection,
+    // physicalState, etc.) survive a page reload — mirrors normalizeTradeUnknown.
+    ...(input as Record<string, unknown>),
     id: entryId,
     date,
     trades: normalizedTrades,
@@ -384,7 +387,7 @@ function normalizeEntryUnknown(input: unknown, accountId: string): JournalEntry 
     grade: asString(input.grade, 'C'),
     account: asString(input.account, accountId),
     scannedImageUrl: typeof input.scannedImageUrl === 'string' ? input.scannedImageUrl : undefined,
-  };
+  } as unknown as JournalEntry;
 }
 
 function ensureAccount(entries: unknown[], accountId: string): JournalEntry[] {

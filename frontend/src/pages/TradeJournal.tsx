@@ -24,6 +24,7 @@ import { lookupContract } from '../constants/futuresContracts.js';
 import { buildScannerAssets, inferSymbolFromFileName, normalizeResolvedSymbol } from '../utils/tradeScannerPipeline.js';
 import { scanChart } from '../utils/scanChart.js';
 import { uploadScreenshot } from '../utils/uploadScreenshot.js';
+import { flushSupabaseStoreNow } from '../store/supabaseStorage.js';
 import './TradeJournal.css';
 
 type RuleState = 'ok' | 'fail' | 'unchecked';
@@ -143,20 +144,13 @@ const DEFAULT_RULES = [
   'Stopped after 3 consecutive losses',
 ];
 
-const TAGS = [
-  'Focused',
-  'Calm',
-  'Patient',
-  'Slightly rushed',
-  'Confident',
-  'Hesitant',
-  'Overconfident',
-  'Revenge trading',
-  'FOMO',
-  'In the zone',
-  'Distracted',
-  'Anxious',
-];
+const STATE_OF_MIND_TAGS = {
+  positive: ['In the zone', 'Calm', 'Focused', 'Patient', 'Confident', 'Clear-headed', 'Decisive', 'Composed'],
+  caution: ['Slightly anxious', 'Slightly rushed', 'Mildly frustrated', 'Uncertain', 'Distracted', 'Tired', 'Impatient'],
+  negative: ['Revenge trading', 'FOMO', 'Overconfident', 'Fearful', 'Reckless', 'Frustrated', 'Desperate', 'Emotionally numb'],
+} as const;
+
+const TAGS = Array.from(new Set(Object.values(STATE_OF_MIND_TAGS).flat()));
 
 function getTodayIso() {
   return new Date().toISOString().split('T')[0];
@@ -201,6 +195,17 @@ function formatDurationLabel(minutes?: number | null): string {
 function parseDate(value: string) {
   const parsed = new Date(`${value}T00:00:00`);
   return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+}
+
+function isValidIsoDate(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [yearText, monthText, dayText] = value.split('-');
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return false;
+  const parsed = new Date(year, month - 1, day);
+  return parsed.getFullYear() === year && parsed.getMonth() === month - 1 && parsed.getDate() === day;
 }
 
 function formatMonth(value: Date) {
@@ -593,6 +598,19 @@ function normalizeEntries(value: unknown[], rulesTemplate: string[]): JournalEnt
           ? valueEmotion.state
           : 'neutral';
         emotionMap.set(valueEmotion.label, state);
+      });
+      // Backward compatibility: recover day-level tags from older trade-level stateOfMind data.
+      trades.forEach((trade) => {
+        (trade.stateOfMind ?? []).forEach((tag) => {
+          const mappedState: EmotionState = tag.valence === 'positive'
+            ? 'green'
+            : tag.valence === 'negative'
+              ? 'red'
+              : 'amber';
+          if (!emotionMap.has(tag.label) || emotionMap.get(tag.label) === 'neutral') {
+            emotionMap.set(tag.label, mappedState);
+          }
+        });
       });
       const emotions = TAGS.map(label => ({
         label,
@@ -1478,12 +1496,6 @@ function BehavioralFlagsBlock({ trade, onMutate }: { trade: JournalTrade; onMuta
 }
 
 // ── G — StateOfMindBlock ──────────────────────────────────────────────────────
-const STATE_OF_MIND_TAGS = {
-  positive: ['In the zone','Calm','Focused','Patient','Confident','Clear-headed','Decisive','Composed'],
-  caution:  ['Slightly anxious','Slightly rushed','Mildly frustrated','Uncertain','Distracted','Tired','Impatient'],
-  negative: ['Revenge trading','FOMO','Overconfident','Fearful','Reckless','Frustrated','Desperate','Emotionally numb'],
-};
-
 function StateOfMindBlock({ entry, activeTrade, onMutateEntry, onMutateTrade }: {
   entry: JournalEntry;
   activeTrade: JournalTrade | null;
@@ -1491,23 +1503,30 @@ function StateOfMindBlock({ entry, activeTrade, onMutateEntry, onMutateTrade }: 
   onMutateTrade?: (f: Partial<JournalTrade>) => void;
 }) {
   const emotions = entry.emotions;
-  const tradesom = activeTrade?.stateOfMind;
-
-  const selectedFor = (label: string, _valence: 'positive' | 'caution' | 'negative') => {
-    if (tradesom) return tradesom.some(t => t.label === label);
-    return emotions.some(e => e.label === label && e.state !== 'neutral');
-  };
+  const selectedFor = (label: string, _valence: 'positive' | 'caution' | 'negative') =>
+    emotions.some(e => e.label === label && e.state !== 'neutral');
 
   const toggle = (label: string, valence: 'positive' | 'caution' | 'negative') => {
+    const nextEmotions: JournalEntry['emotions'] = emotions.map((e) =>
+      e.label === label
+        ? {
+            ...e,
+            state: e.state === 'neutral'
+              ? (valence === 'positive' ? 'green' : valence === 'caution' ? 'amber' : 'red') as EmotionState
+              : 'neutral',
+          }
+        : e
+    );
+    onMutateEntry({ emotions: nextEmotions });
+
+    // Keep selected-trade tags in sync as a convenience, but persist day tags as source of truth.
     if (onMutateTrade && activeTrade) {
-      const current = activeTrade.stateOfMind ?? [];
-      const exists = current.find(t => t.label === label);
-      const next = exists ? current.filter(t => t.label !== label) : [...current, { label, valence }];
-      onMutateTrade({ stateOfMind: next });
-    } else {
-      onMutateEntry({ emotions: emotions.map(e =>
-        e.label === label ? { ...e, state: e.state === 'neutral' ? (valence === 'positive' ? 'green' : valence === 'caution' ? 'amber' : 'red') : 'neutral' } : e
-      )});
+      const selected = nextEmotions.filter((emotion) => emotion.state !== 'neutral');
+      const nextTradeSom = selected.map((emotion) => ({
+        label: emotion.label,
+        valence: emotion.state === 'green' ? 'positive' as const : emotion.state === 'amber' ? 'caution' as const : 'negative' as const,
+      }));
+      onMutateTrade({ stateOfMind: nextTradeSom });
     }
   };
 
@@ -1688,6 +1707,8 @@ export default function TradeJournal() {
   const [deleteTradeId, setDeleteTradeId] = useState<string | null>(null);
   const [deleteEntryConfirm, setDeleteEntryConfirm] = useState(false);
   const [isScreenshotFullscreen, setIsScreenshotFullscreen] = useState(false);
+  const [isDateEditorOpen, setIsDateEditorOpen] = useState(false);
+  const [entryDateDraft, setEntryDateDraft] = useState(getTodayIso());
 
   // Collapsible section state — persisted to localStorage
   const COLLAPSE_KEY = 'flyxa-journal-sections';
@@ -1705,11 +1726,15 @@ export default function TradeJournal() {
   const scanInputRef = useRef<HTMLInputElement>(null);
   const screenshotInputRef = useRef<HTMLInputElement>(null);
   const screenshotSlotRef = useRef<number | null>(null);
+  const dateEditInputRef = useRef<HTMLInputElement>(null);
 
   const mutateEntries = useCallback((updater: (prev: JournalEntry[]) => JournalEntry[]) => {
     const current = normalizeEntries(useFlyxaStore.getState().entries as unknown[], rulesTemplate);
     const next = updater(current);
     setEntriesInStore(next as unknown as StoreJournalEntry[]);
+    void flushSupabaseStoreNow().catch(() => {
+      // Best effort: local persist already happened; cloud sync can retry on next write.
+    });
   }, [rulesTemplate, setEntriesInStore]);
 
   const mutateTradeFields = useCallback((tradeId: string, fields: Partial<JournalTrade>) => {
@@ -1786,6 +1811,12 @@ export default function TradeJournal() {
     [entries, selectedEntryId],
   );
 
+  useEffect(() => {
+    if (!selectedEntry) return;
+    setEntryDateDraft(selectedEntry.date);
+    setIsDateEditorOpen(false);
+  }, [selectedEntry?.id, selectedEntry?.date]);
+
   const activeTrade = useMemo(() => {
     if (!selectedEntry || !selectedEntry.trades.length) return null;
     return selectedEntry.trades.find(trade => trade.id === activeTradeId) ?? selectedEntry.trades[0];
@@ -1818,6 +1849,33 @@ export default function TradeJournal() {
     mutateEntries(prev => [blank, ...prev]);
     setSelectedEntryId(blank.id);
   }, [entries, mutateEntries, rulesTemplate, selectedEntry?.date]);
+
+  const saveEntryDate = useCallback(() => {
+    if (!selectedEntry) return;
+    const nextDate = entryDateDraft.trim();
+    if (!isValidIsoDate(nextDate)) {
+      pushToast({ tone: 'red', durationMs: 3000, message: 'Enter a valid date (YYYY-MM-DD).' });
+      return;
+    }
+    if (nextDate > getTodayIso()) {
+      pushToast({ tone: 'red', durationMs: 3000, message: 'Trade date cannot be in the future.' });
+      return;
+    }
+    if (nextDate === selectedEntry.date) {
+      setIsDateEditorOpen(false);
+      return;
+    }
+    const existingSameDate = entries.find(entry => entry.id !== selectedEntry.id && entry.date === nextDate);
+    if (existingSameDate) {
+      pushToast({ tone: 'red', durationMs: 3000, message: 'A journal day already exists for that date.' });
+      return;
+    }
+    mutateEntries(prev => prev.map(entry => entry.id === selectedEntry.id ? { ...entry, date: nextDate } : entry));
+    const parsed = parseDate(nextDate);
+    setMonthCursor(new Date(parsed.getFullYear(), parsed.getMonth(), 1));
+    setIsDateEditorOpen(false);
+    pushToast({ tone: 'green', durationMs: 3000, message: 'Trade day date updated.' });
+  }, [entries, entryDateDraft, mutateEntries, selectedEntry]);
 
   const goToScanner = useCallback(() => {
     setShowScanner(true);
@@ -2183,7 +2241,28 @@ export default function TradeJournal() {
           <>
             <div className="tj-sticky-head">
               <div>
-                <p className="tj-entry-title">{formatDateTitle(selectedEntry.date)}</p>
+                <div className="tj-entry-title-row">
+                  <p className="tj-entry-title">{formatDateTitle(selectedEntry.date)}</p>
+                  {!deleteEntryConfirm && (
+                    <button
+                      type="button"
+                      className="tj-mini-btn"
+                      onClick={() => {
+                        setEntryDateDraft(selectedEntry.date);
+                        setIsDateEditorOpen(true);
+                        requestAnimationFrame(() => {
+                          const input = dateEditInputRef.current;
+                          if (!input) return;
+                          input.focus();
+                          const pickerInput = input as HTMLInputElement & { showPicker?: () => void };
+                          pickerInput.showPicker?.();
+                        });
+                      }}
+                    >
+                      Edit date
+                    </button>
+                  )}
+                </div>
                 <p className="tj-entry-sub">
                   {(() => {
                     const acctId = activeTrade?.accountId;
@@ -2191,6 +2270,25 @@ export default function TradeJournal() {
                     return acct ? `${acct.name} | ${acct.type}` : null;
                   })()} | <strong>{formatSignedCurrency(computeEntryStats(selectedEntry).pnl)}</strong> | Grade {computeEntryStats(selectedEntry).grade}
                 </p>
+                {isDateEditorOpen && !deleteEntryConfirm && (
+                  <div className="tj-date-edit-row">
+                    <input
+                      ref={dateEditInputRef}
+                      type="date"
+                      className="tj-date-edit-input"
+                      value={entryDateDraft}
+                      onChange={event => setEntryDateDraft(event.target.value)}
+                      max={getTodayIso()}
+                    />
+                    <button type="button" className="tj-mini-btn" onClick={saveEntryDate}>Save</button>
+                    <button type="button" className="tj-mini-btn" onClick={() => {
+                      setEntryDateDraft(selectedEntry.date);
+                      setIsDateEditorOpen(false);
+                    }}>
+                      Cancel
+                    </button>
+                  </div>
+                )}
               </div>
               <div className="tj-head-actions">
                 {deleteEntryConfirm ? (

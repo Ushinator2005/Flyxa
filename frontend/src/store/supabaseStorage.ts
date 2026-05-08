@@ -253,22 +253,25 @@ export const supabaseZustandStorage: StateStorage = {
         const localSavedMs = parseInt(localStorage.getItem(LOCAL_SAVED_AT_KEY) ?? '0', 10);
         const local = localStorage.getItem('flyxa-store');
 
-        // Always pick the source with more journal entries to avoid data loss.
+        // Always pick the most complete/newer source to avoid data loss.
         if (local) {
           try {
             const localParsed = JSON.parse(local) as { state?: { entries?: unknown[] } };
             const remoteParsed = data.flyxa_data as { state?: { entries?: unknown[] } };
             const localEntryCount = localParsed?.state?.entries?.length ?? 0;
             const remoteEntryCount = remoteParsed?.state?.entries?.length ?? 0;
+            const sanitizedLocal = sanitizeStoreValue(local);
+            const sanitizedRemote = sanitizeStoreValue(JSON.stringify(data.flyxa_data));
 
             if (localEntryCount > remoteEntryCount) {
-              const sanitizedLocal = sanitizeStoreValue(local);
               void flushSave(userId, sanitizedLocal);
               return sanitizedLocal;
             }
 
-            if (localEntryCount === remoteEntryCount && localSavedMs > supabaseMs + 2000) {
-              const sanitizedLocal = sanitizeStoreValue(local);
+            // If local was saved more recently and differs from remote, trust local.
+            // This preserves fast edits (e.g. journal tags/moods) when a refresh
+            // happens before debounced cloud sync completes.
+            if (localSavedMs >= supabaseMs && sanitizedLocal !== sanitizedRemote) {
               void flushSave(userId, sanitizedLocal);
               return sanitizedLocal;
             }
@@ -337,6 +340,18 @@ export const supabaseZustandStorage: StateStorage = {
 
   setItem: async (_key: string, value: string): Promise<void> => {
     const sanitizedValue = sanitizeStoreValue(value);
+
+    // Guard: never overwrite existing journal data with an empty-entry state.
+    // This protects against hot-module-reload in development (and any other scenario
+    // where the store is transiently initialised with no entries) clobbering real data.
+    const incomingEntries = extractEntries(sanitizedValue);
+    if (incomingEntries.length === 0) {
+      try {
+        const existing = localStorage.getItem('flyxa-store');
+        if (existing && extractEntries(existing).length > 0) return;
+      } catch { /* ignore */ }
+    }
+
     try {
       localStorage.setItem('flyxa-store', sanitizedValue);
       localStorage.setItem(LOCAL_SAVED_AT_KEY, Date.now().toString());
