@@ -46,6 +46,7 @@ type EmotionStats = {
   avgPnL: number;
   planRate: number;
   avgConfidence: number;
+  confidenceSamples: number;
 };
 
 function computeEmotionStats(trades: Trade[]): EmotionStats[] {
@@ -62,8 +63,12 @@ function computeEmotionStats(trades: Trade[]): EmotionStats[] {
       const { trades: et } = map.get(emotion)!;
       const wins = et.filter(t => t.pnl > 0).length;
       const netPnL = et.reduce((s, t) => s + t.pnl, 0);
-      const planCount = et.filter(t => t.followed_plan).length;
-      const confSum = et.reduce((s, t) => s + (t.confidence_level ?? 0), 0);
+      const planLogged = et.filter(t => typeof t.followed_plan === 'boolean');
+      const planCount = planLogged.filter(t => t.followed_plan === true).length;
+      const confidenceValues = et
+        .map(t => t.confidence_level)
+        .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+      const confSum = confidenceValues.reduce((s, value) => s + value, 0);
       return {
         emotion,
         trades: et.length,
@@ -71,8 +76,9 @@ function computeEmotionStats(trades: Trade[]): EmotionStats[] {
         winRate: et.length > 0 ? (wins / et.length) * 100 : 0,
         netPnL,
         avgPnL: et.length > 0 ? netPnL / et.length : 0,
-        planRate: et.length > 0 ? (planCount / et.length) * 100 : 0,
-        avgConfidence: et.length > 0 ? confSum / et.length : 0,
+        planRate: planLogged.length > 0 ? (planCount / planLogged.length) * 100 : 0,
+        avgConfidence: confidenceValues.length > 0 ? confSum / confidenceValues.length : 0,
+        confidenceSamples: confidenceValues.length,
       };
     });
 }
@@ -122,7 +128,7 @@ function EmotionCard({ stat }: { stat: EmotionStats }) {
         <StatPill label="Win rate"    value={pct(stat.winRate)}          tone={stat.winRate >= 50 ? 'pos' : 'neg'} />
         <StatPill label="Avg P&L"     value={currency(stat.avgPnL)}       tone={pnlTone} />
         <StatPill label="Plan rate"   value={pct(stat.planRate)}          tone={stat.planRate >= 70 ? 'pos' : stat.planRate >= 40 ? 'neutral' : 'neg'} />
-        <StatPill label="Avg confid." value={`${stat.avgConfidence.toFixed(1)}/10`} tone="neutral" />
+        <StatPill label="Avg confid." value={stat.confidenceSamples > 0 ? `${stat.avgConfidence.toFixed(1)}/10` : 'Not logged'} tone="neutral" />
       </div>
 
       <div>

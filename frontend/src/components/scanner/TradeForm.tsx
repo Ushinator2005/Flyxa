@@ -116,12 +116,12 @@ const defaultForm: Partial<Trade> = {
   trade_length_seconds: 0,
   candle_count: 0,
   timeframe_minutes: 1,
-  emotional_state: 'Calm',
-  confidence_level: 7,
+  emotional_state: null,
+  confidence_level: null,
   pre_trade_notes: '',
   post_trade_notes: '',
   confluences: [],
-  followed_plan: true,
+  followed_plan: null,
 };
 
 function buildFormState(initialData?: Partial<Trade>): Partial<Trade> {
@@ -737,15 +737,20 @@ export default function TradeForm({
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div>
               <label className="label">Emotional State</label>
-              <select className="input-field h-9" value={form.emotional_state || 'Calm'} onChange={e => set('emotional_state', e.target.value)}>
+              <select
+                className="input-field h-9"
+                value={form.emotional_state ?? ''}
+                onChange={e => set('emotional_state', e.target.value ? e.target.value : null)}
+              >
+                <option value="">Not logged</option>
                 {emotionalStates.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
             <div>
-              <label className="label">Confidence ({form.confidence_level}/10)</label>
+              <label className="label">Confidence ({typeof form.confidence_level === 'number' ? `${form.confidence_level}/10` : 'Not logged'})</label>
               <input
                 type="range" min={1} max={10}
-                value={form.confidence_level || 7}
+                value={typeof form.confidence_level === 'number' ? form.confidence_level : 5}
                 onChange={e => set('confidence_level', parseInt(e.target.value))}
                 style={{ width: '100%', marginTop: 6, accentColor: AMBER }}
               />
@@ -756,11 +761,15 @@ export default function TradeForm({
             <div>
               <label className="label">Followed Trading Plan?</label>
               <div style={{ display: 'flex', gap: 6 }}>
-                {[true, false].map(v => (
-                  <button key={String(v)} type="button" onClick={() => set('followed_plan', v)} style={toggleBtn(form.followed_plan === v, v ? 'green' : 'red')}>
-                    {v ? 'Yes' : 'No'}
-                  </button>
-                ))}
+                <button type="button" onClick={() => set('followed_plan', true)} style={toggleBtn(form.followed_plan === true, 'green')}>
+                  Yes
+                </button>
+                <button type="button" onClick={() => set('followed_plan', false)} style={toggleBtn(form.followed_plan === false, 'red')}>
+                  No
+                </button>
+                <button type="button" onClick={() => set('followed_plan', null)} style={toggleBtn(form.followed_plan == null, 'amber')}>
+                  Not logged
+                </button>
               </div>
             </div>
           </div>
@@ -927,5 +936,4 @@ export default function TradeForm({
     </form>
   );
 }
-
 

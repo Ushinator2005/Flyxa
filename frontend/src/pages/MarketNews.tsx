@@ -997,7 +997,7 @@ function CalendarPanel({
                       }}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: (event.forecast || event.previous) ? 5 : 0 }}>
-                        <span style={{ fontFamily: MONO, fontSize: 12, color: T1, minWidth: 44, flexShrink: 0, fontWeight: 700 }}>{fmtFFTime(event.time)}</span>
+                        <span style={{ fontFamily: MONO, fontSize: 12, color: T1, minWidth: 44, flexShrink: 0, fontWeight: 600 }}>{fmtFFTime(event.time)}</span>
                         <span style={{ fontSize: 12, color: isHigh ? RED : T1, flex: 1, minWidth: 0, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', fontWeight: 700 }}>{event.event}</span>
                         {isHigh && (
                           <span
@@ -1565,6 +1565,7 @@ function InlineToggle({
     </div>
   );
 }
+
 
 
 

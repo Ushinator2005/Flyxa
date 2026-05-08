@@ -9,6 +9,7 @@ export interface TradeReflection {
   adjustment: string;
   processGrade: number;
   followedPlan: boolean | null;
+  followedPlanLogged?: boolean;
 }
 
 export interface Trade {
@@ -30,6 +31,8 @@ export interface Trade {
   duration: number | null;
   screenshots: string[];
   scannedImageUrl: string | null;
+  emotionalState?: string | null;
+  confidenceLevel?: number | null;
   reflection: TradeReflection;
   confluences?: string[];
   account: string;

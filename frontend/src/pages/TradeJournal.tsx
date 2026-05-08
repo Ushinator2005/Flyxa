@@ -35,6 +35,7 @@ type DayFilter = 'all' | 'win' | 'loss' | 'untagged';
 
 interface JournalTrade {
   id: string;
+  date?: string;
   symbol: string;
   direction: TradeDirection;
   entryTime: string;
@@ -318,6 +319,12 @@ function withTradeDerivedValues(trade: JournalTrade): JournalTrade {
   };
 }
 
+function getTradeDateValue(trade: JournalTrade | null | undefined, fallbackDate: string): string {
+  if (!trade) return fallbackDate;
+  if (typeof trade.date === 'string' && isValidIsoDate(trade.date)) return trade.date;
+  return fallbackDate;
+}
+
 function shiftMonth(current: Date, delta: number) {
   return new Date(current.getFullYear(), current.getMonth() + delta, 1);
 }
@@ -441,6 +448,7 @@ function fromLegacyRecords(value: unknown[], rulesTemplate: string[]): JournalEn
 
     const trade: JournalTrade = {
       id: typeof record.id === 'string' ? record.id : crypto.randomUUID(),
+      date,
       symbol,
       direction,
       entryTime: typeof record.time === 'string' ? record.time.slice(0, 5) : '09:30',
@@ -508,6 +516,7 @@ function normalizeEntries(value: unknown[], rulesTemplate: string[]): JournalEnt
         })();
         const normalizedTrade: JournalTrade = {
           id: typeof trade.id === 'string' ? trade.id : crypto.randomUUID(),
+          date: typeof trade.date === 'string' && isValidIsoDate(trade.date) ? trade.date : date,
           symbol,
           direction,
           entryTime: typeof trade.entryTime === 'string' ? trade.entryTime : typeof trade.time === 'string' ? trade.time : '09:30',
@@ -1707,8 +1716,8 @@ export default function TradeJournal() {
   const [deleteTradeId, setDeleteTradeId] = useState<string | null>(null);
   const [deleteEntryConfirm, setDeleteEntryConfirm] = useState(false);
   const [isScreenshotFullscreen, setIsScreenshotFullscreen] = useState(false);
-  const [isDateEditorOpen, setIsDateEditorOpen] = useState(false);
-  const [entryDateDraft, setEntryDateDraft] = useState(getTodayIso());
+  const [isTradeDateEditorOpen, setIsTradeDateEditorOpen] = useState(false);
+  const [tradeDateDraft, setTradeDateDraft] = useState(getTodayIso());
 
   // Collapsible section state — persisted to localStorage
   const COLLAPSE_KEY = 'flyxa-journal-sections';
@@ -1726,7 +1735,7 @@ export default function TradeJournal() {
   const scanInputRef = useRef<HTMLInputElement>(null);
   const screenshotInputRef = useRef<HTMLInputElement>(null);
   const screenshotSlotRef = useRef<number | null>(null);
-  const dateEditInputRef = useRef<HTMLInputElement>(null);
+  const tradeDateEditInputRef = useRef<HTMLInputElement>(null);
 
   const mutateEntries = useCallback((updater: (prev: JournalEntry[]) => JournalEntry[]) => {
     const current = normalizeEntries(useFlyxaStore.getState().entries as unknown[], rulesTemplate);
@@ -1811,16 +1820,16 @@ export default function TradeJournal() {
     [entries, selectedEntryId],
   );
 
-  useEffect(() => {
-    if (!selectedEntry) return;
-    setEntryDateDraft(selectedEntry.date);
-    setIsDateEditorOpen(false);
-  }, [selectedEntry?.id, selectedEntry?.date]);
-
   const activeTrade = useMemo(() => {
     if (!selectedEntry || !selectedEntry.trades.length) return null;
     return selectedEntry.trades.find(trade => trade.id === activeTradeId) ?? selectedEntry.trades[0];
   }, [activeTradeId, selectedEntry]);
+
+  useEffect(() => {
+    if (!selectedEntry || !activeTrade) return;
+    setTradeDateDraft(getTradeDateValue(activeTrade, selectedEntry.date));
+    setIsTradeDateEditorOpen(false);
+  }, [activeTrade?.id, selectedEntry?.id, selectedEntry?.date]);
 
   const monthSummary = useMemo(() => {
     const dayPnL = entriesInMonth.map(entry => computeEntryStats(entry).pnl);
@@ -1850,9 +1859,9 @@ export default function TradeJournal() {
     setSelectedEntryId(blank.id);
   }, [entries, mutateEntries, rulesTemplate, selectedEntry?.date]);
 
-  const saveEntryDate = useCallback(() => {
-    if (!selectedEntry) return;
-    const nextDate = entryDateDraft.trim();
+  const saveTradeDate = useCallback(() => {
+    if (!selectedEntry || !activeTrade) return;
+    const nextDate = tradeDateDraft.trim();
     if (!isValidIsoDate(nextDate)) {
       pushToast({ tone: 'red', durationMs: 3000, message: 'Enter a valid date (YYYY-MM-DD).' });
       return;
@@ -1861,21 +1870,55 @@ export default function TradeJournal() {
       pushToast({ tone: 'red', durationMs: 3000, message: 'Trade date cannot be in the future.' });
       return;
     }
-    if (nextDate === selectedEntry.date) {
-      setIsDateEditorOpen(false);
+
+    const currentTradeDate = getTradeDateValue(activeTrade, selectedEntry.date);
+    if (nextDate === currentTradeDate) {
+      setIsTradeDateEditorOpen(false);
       return;
     }
-    const existingSameDate = entries.find(entry => entry.id !== selectedEntry.id && entry.date === nextDate);
-    if (existingSameDate) {
-      pushToast({ tone: 'red', durationMs: 3000, message: 'A journal day already exists for that date.' });
-      return;
+
+    let nextSelectedId: string | null = null;
+    mutateEntries((prev) => {
+      let movedTrade: JournalTrade | null = null;
+      const withoutTrade = prev.map((entry) => {
+        const tradeIdx = entry.trades.findIndex((trade) => trade.id === activeTrade.id);
+        if (tradeIdx < 0) return entry;
+        movedTrade = entry.trades[tradeIdx];
+        return {
+          ...entry,
+          trades: entry.trades.filter((trade) => trade.id !== activeTrade.id),
+        };
+      });
+
+      if (!movedTrade) return prev;
+      const tradeToMove = movedTrade as JournalTrade;
+      const movedWithDate = withTradeDerivedValues({ ...tradeToMove, date: nextDate });
+      const target = withoutTrade.find((entry) => entry.date === nextDate);
+
+      if (target) {
+        nextSelectedId = target.id;
+        return withoutTrade.map((entry) => (
+          entry.id === target.id
+            ? { ...entry, trades: [movedWithDate, ...entry.trades] }
+            : entry
+        ));
+      }
+
+      const created = createEmptyEntry(nextDate, rulesTemplate);
+      created.trades = [movedWithDate];
+      nextSelectedId = created.id;
+      return [created, ...withoutTrade];
+    });
+
+    if (nextSelectedId) {
+      setSelectedEntryId(nextSelectedId);
+      setActiveTradeId(activeTrade.id);
     }
-    mutateEntries(prev => prev.map(entry => entry.id === selectedEntry.id ? { ...entry, date: nextDate } : entry));
     const parsed = parseDate(nextDate);
     setMonthCursor(new Date(parsed.getFullYear(), parsed.getMonth(), 1));
-    setIsDateEditorOpen(false);
-    pushToast({ tone: 'green', durationMs: 3000, message: 'Trade day date updated.' });
-  }, [entries, entryDateDraft, mutateEntries, selectedEntry]);
+    setIsTradeDateEditorOpen(false);
+    pushToast({ tone: 'green', durationMs: 3000, message: 'Trade moved to selected date.' });
+  }, [activeTrade, mutateEntries, rulesTemplate, selectedEntry, tradeDateDraft]);
 
   const goToScanner = useCallback(() => {
     setShowScanner(true);
@@ -1887,6 +1930,7 @@ export default function TradeJournal() {
     const basePrice = 0;
     const newTrade: JournalTrade = {
       id: crypto.randomUUID(),
+      date: selectedEntry.date,
       symbol: 'NQ',
       direction: 'LONG',
       entryTime: getNowTime(),
@@ -2007,6 +2051,7 @@ export default function TradeJournal() {
 
       const trade: JournalTrade = {
         id: crypto.randomUUID(),
+        date: tradeDate,
         symbol: normalizedSymbol,
         direction,
         entryTime,
@@ -2243,25 +2288,6 @@ export default function TradeJournal() {
               <div>
                 <div className="tj-entry-title-row">
                   <p className="tj-entry-title">{formatDateTitle(selectedEntry.date)}</p>
-                  {!deleteEntryConfirm && (
-                    <button
-                      type="button"
-                      className="tj-mini-btn"
-                      onClick={() => {
-                        setEntryDateDraft(selectedEntry.date);
-                        setIsDateEditorOpen(true);
-                        requestAnimationFrame(() => {
-                          const input = dateEditInputRef.current;
-                          if (!input) return;
-                          input.focus();
-                          const pickerInput = input as HTMLInputElement & { showPicker?: () => void };
-                          pickerInput.showPicker?.();
-                        });
-                      }}
-                    >
-                      Edit date
-                    </button>
-                  )}
                 </div>
                 <p className="tj-entry-sub">
                   {(() => {
@@ -2270,20 +2296,44 @@ export default function TradeJournal() {
                     return acct ? `${acct.name} | ${acct.type}` : null;
                   })()} | <strong>{formatSignedCurrency(computeEntryStats(selectedEntry).pnl)}</strong> | Grade {computeEntryStats(selectedEntry).grade}
                 </p>
-                {isDateEditorOpen && !deleteEntryConfirm && (
+                {activeTrade && !deleteEntryConfirm && (
+                  <div className="tj-date-edit-row">
+                    <span className="tj-entry-sub" style={{ margin: 0 }}>
+                      Trade date: {getTradeDateValue(activeTrade, selectedEntry.date)}
+                    </span>
+                    <button
+                      type="button"
+                      className="tj-mini-btn"
+                      onClick={() => {
+                        setTradeDateDraft(getTradeDateValue(activeTrade, selectedEntry.date));
+                        setIsTradeDateEditorOpen(true);
+                        requestAnimationFrame(() => {
+                          const input = tradeDateEditInputRef.current;
+                          if (!input) return;
+                          input.focus();
+                          const pickerInput = input as HTMLInputElement & { showPicker?: () => void };
+                          pickerInput.showPicker?.();
+                        });
+                      }}
+                    >
+                      Edit trade date
+                    </button>
+                  </div>
+                )}
+                {isTradeDateEditorOpen && activeTrade && !deleteEntryConfirm && (
                   <div className="tj-date-edit-row">
                     <input
-                      ref={dateEditInputRef}
+                      ref={tradeDateEditInputRef}
                       type="date"
                       className="tj-date-edit-input"
-                      value={entryDateDraft}
-                      onChange={event => setEntryDateDraft(event.target.value)}
+                      value={tradeDateDraft}
+                      onChange={event => setTradeDateDraft(event.target.value)}
                       max={getTodayIso()}
                     />
-                    <button type="button" className="tj-mini-btn" onClick={saveEntryDate}>Save</button>
+                    <button type="button" className="tj-mini-btn" onClick={saveTradeDate}>Save</button>
                     <button type="button" className="tj-mini-btn" onClick={() => {
-                      setEntryDateDraft(selectedEntry.date);
-                      setIsDateEditorOpen(false);
+                      setTradeDateDraft(getTradeDateValue(activeTrade, selectedEntry.date));
+                      setIsTradeDateEditorOpen(false);
                     }}>
                       Cancel
                     </button>

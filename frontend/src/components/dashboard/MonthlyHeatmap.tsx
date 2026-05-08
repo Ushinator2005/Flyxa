@@ -1006,16 +1006,23 @@ export default function MonthlyHeatmap({ trades = [] }: { trades?: Trade[] }) {
     const dayTrades = trades.filter(trade => trade.trade_date === activeJournalDate);
     const pnl = dayTrades.reduce((sum, trade) => sum + trade.pnl, 0);
 
-    const followedPlanCount = dayTrades.filter(trade => trade.followed_plan).length;
-    const discipline = dayTrades.length > 0
-      ? Number((1 + ((followedPlanCount / dayTrades.length) * 4)).toFixed(1))
+    const tradesWithPlanLogged = dayTrades.filter(trade => typeof trade.followed_plan === 'boolean');
+    const followedPlanCount = tradesWithPlanLogged.filter(trade => trade.followed_plan === true).length;
+    const discipline = tradesWithPlanLogged.length > 0
+      ? Number((1 + ((followedPlanCount / tradesWithPlanLogged.length) * 4)).toFixed(1))
       : 0;
-    const disciplineNote = dayTrades.length > 0
-      ? `${followedPlanCount}/${dayTrades.length} followed plan`
+    const disciplineNote = tradesWithPlanLogged.length > 0
+      ? `${followedPlanCount}/${tradesWithPlanLogged.length} followed plan`
       : 'No trades logged';
 
-    const emotionLabels = Array.from(new Set([
-      ...dayTrades.map(trade => trade.emotional_state).filter(Boolean),
+    const emotionLabelsFromTrades: string[] = [];
+    dayTrades.forEach((trade) => {
+      if (typeof trade.emotional_state === 'string' && trade.emotional_state.trim().length > 0) {
+        emotionLabelsFromTrades.push(trade.emotional_state);
+      }
+    });
+    const emotionLabels = Array.from(new Set<string>([
+      ...emotionLabelsFromTrades,
       'Focused',
       'Calm',
       'Anxious',

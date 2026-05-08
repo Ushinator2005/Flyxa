@@ -6,6 +6,22 @@ import { tradesApi } from '../services/api.js';
 import { persistDeletedTradeId } from '../utils/deletedTrades.js';
 import { flushSupabaseStoreNow } from '../store/supabaseStorage.js';
 
+const EMOTIONAL_STATES = new Set([
+  'Calm',
+  'Confident',
+  'Anxious',
+  'Revenge Trading',
+  'FOMO',
+  'Overconfident',
+  'Tired',
+]);
+
+function normalizeEmotion(value: unknown): ApiTrade['emotional_state'] {
+  if (typeof value !== 'string') return null;
+  const next = value.trim();
+  return EMOTIONAL_STATES.has(next) ? next as ApiTrade['emotional_state'] : null;
+}
+
 function normalizeConfluences(value: unknown): string[] {
   const rawValues = Array.isArray(value)
     ? value
@@ -60,7 +76,10 @@ function toStoreTrade(data: Partial<ApiTrade>, entryId: string, accountId: strin
       adjustment: '',
       processGrade: 0,
       followedPlan: typeof data.followed_plan === 'boolean' ? data.followed_plan : null,
+      followedPlanLogged: typeof data.followed_plan === 'boolean',
     },
+    emotionalState: normalizeEmotion(data.emotional_state),
+    confidenceLevel: typeof data.confidence_level === 'number' && Number.isFinite(data.confidence_level) ? data.confidence_level : null,
     confluences: normalizeConfluences(data.confluences),
     account: data.accountId ?? data.account_id ?? accountId,
     createdAt: data.created_at ?? new Date().toISOString(),
@@ -70,6 +89,11 @@ function toStoreTrade(data: Partial<ApiTrade>, entryId: string, accountId: strin
 function toApiTrade(trade: StoreTrade): ApiTrade {
   const session = getSession(trade.time);
   const tradeTime = trade.time || (trade as unknown as { entryTime?: string }).entryTime || '09:30';
+  const emotionalState = normalizeEmotion((trade as StoreTrade).emotionalState);
+  const confidenceLevelRaw = (trade as StoreTrade).confidenceLevel;
+  const confidenceLevel = typeof confidenceLevelRaw === 'number' && Number.isFinite(confidenceLevelRaw) ? confidenceLevelRaw : null;
+  const followedPlan = trade.reflection?.followedPlan;
+  const followedPlanLogged = trade.reflection?.followedPlanLogged === true;
   return {
     id: trade.id,
     user_id: 'local',
@@ -92,12 +116,12 @@ function toApiTrade(trade: StoreTrade): ApiTrade {
     trade_length_seconds: trade.duration ? trade.duration * 60 : ((trade as unknown as { durationMinutes?: number | null }).durationMinutes ?? 0) * 60,
     candle_count: 0,
     timeframe_minutes: 0,
-    emotional_state: 'Calm',
-    confidence_level: trade.reflection?.processGrade,
+    emotional_state: emotionalState,
+    confidence_level: confidenceLevel,
     pre_trade_notes: trade.reflection?.thesis,
     post_trade_notes: trade.reflection?.execution,
     confluences: normalizeConfluences((trade as StoreTrade).confluences),
-    followed_plan: trade.reflection?.followedPlan ?? true,
+    followed_plan: followedPlanLogged && typeof followedPlan === 'boolean' ? followedPlan : null,
     session,
     created_at: trade.createdAt,
   };
@@ -180,7 +204,12 @@ export function useTrades() {
         adjustment: '',
         processGrade: 0,
         followedPlan: typeof data.followed_plan === 'boolean' ? data.followed_plan : null,
+        followedPlanLogged: typeof data.followed_plan === 'boolean',
       },
+      emotionalState: data.emotional_state === null ? null : (typeof data.emotional_state === 'string' ? normalizeEmotion(data.emotional_state) : undefined),
+      confidenceLevel: data.confidence_level === null
+        ? null
+        : (typeof data.confidence_level === 'number' && Number.isFinite(data.confidence_level) ? data.confidence_level : undefined),
       confluences: normalizeConfluences(data.confluences),
     };
 

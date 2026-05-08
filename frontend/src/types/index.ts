@@ -20,12 +20,12 @@ export interface Trade {
   trade_length_seconds: number;
   candle_count: number;
   timeframe_minutes: number;
-  emotional_state: 'Calm' | 'Confident' | 'Anxious' | 'Revenge Trading' | 'FOMO' | 'Overconfident' | 'Tired';
-  confidence_level: number;
+  emotional_state?: 'Calm' | 'Confident' | 'Anxious' | 'Revenge Trading' | 'FOMO' | 'Overconfident' | 'Tired' | null;
+  confidence_level?: number | null;
   pre_trade_notes: string;
   post_trade_notes: string;
   confluences?: string[];
-  followed_plan: boolean;
+  followed_plan?: boolean | null;
   session: 'Asia' | 'London' | 'Pre Market' | 'New York' | 'Other';
   created_at: string;
 }

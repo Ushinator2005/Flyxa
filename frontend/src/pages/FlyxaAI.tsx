@@ -255,7 +255,10 @@ function processBreakdown(trades: Trade[]) {
     };
   }
 
-  const plan = Math.round(pct(trades.filter(t => t.followed_plan).length, trades.length));
+  const tradesWithPlanLogged = trades.filter(t => typeof t.followed_plan === 'boolean');
+  const plan = tradesWithPlanLogged.length
+    ? Math.round(pct(tradesWithPlanLogged.filter(t => t.followed_plan === true).length, tradesWithPlanLogged.length))
+    : 0;
   const sizes = trades.map(t => Math.max(1, t.contract_size));
   const sortedSizes = [...sizes].sort((a, b) => a - b);
   const mid = Math.floor(sortedSizes.length / 2);
@@ -280,8 +283,11 @@ function processBreakdown(trades: Trade[]) {
     const minsBetween = ((parseTradeDateTime(curr)?.getTime() ?? 0) - (parseTradeDateTime(prev)?.getTime() ?? 0)) / (1000 * 60);
     const sizeOk = curr.contract_size <= prev.contract_size ? 1 : 0;
     const waitOk = minsBetween >= 15 ? 1 : 0;
-    const planOk = curr.followed_plan ? 1 : 0;
-    postLossTotal += ((sizeOk + waitOk + planOk) / 3) * 100;
+    const checks = [sizeOk, waitOk];
+    if (typeof curr.followed_plan === 'boolean') {
+      checks.push(curr.followed_plan ? 1 : 0);
+    }
+    postLossTotal += (avg(checks) * 100);
   }
   const postLoss = opportunities ? Math.round(postLossTotal / opportunities) : 70;
   const score = Math.round((plan * 0.35) + (size * 0.2) + (patience * 0.25) + (postLoss * 0.2));
@@ -1007,7 +1013,11 @@ export default function FlyxaAI() {
                         {' '}({focusedTrade.pnl > 0 ? 'win' : focusedTrade.pnl < 0 ? 'loss' : 'flat'}) · P&L <span style={{ fontFamily: colors.mono }}>{formatCurrency(Number(focusedTrade.pnl || 0))}</span>
                       </p>
                       <p>
-                        Plan adherence: <span style={{ color: focusedTrade.followed_plan ? colors.grn : colors.red }}>{focusedTrade.followed_plan ? 'Followed plan' : 'Plan drift flagged'}</span>
+                        Plan adherence: <span style={{ color: typeof focusedTrade.followed_plan !== 'boolean' ? colors.t2 : (focusedTrade.followed_plan ? colors.grn : colors.red) }}>
+                          {typeof focusedTrade.followed_plan !== 'boolean'
+                            ? 'Not logged'
+                            : (focusedTrade.followed_plan ? 'Followed plan' : 'Plan drift flagged')}
+                        </span>
                         {' '}· Emotion: <span style={{ color: colors.t0 }}>{focusedTrade.emotional_state || 'Not logged'}</span>
                       </p>
                       <p>

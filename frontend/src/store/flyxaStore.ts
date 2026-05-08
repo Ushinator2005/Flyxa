@@ -284,6 +284,16 @@ function normalizeTradeUnknown(input: unknown, entryId: string, date: string, ac
   if (!isRecord(input)) return null;
   const reflectionRaw = isRecord(input.reflection) ? input.reflection : {};
   const direction = input.direction === 'SHORT' ? 'SHORT' : 'LONG';
+  const emotionalState = typeof input.emotionalState === 'string'
+    ? input.emotionalState.trim()
+    : typeof input.emotional_state === 'string'
+      ? input.emotional_state.trim()
+      : '';
+  const confidenceLevel = typeof input.confidenceLevel === 'number' && Number.isFinite(input.confidenceLevel)
+    ? input.confidenceLevel
+    : typeof input.confidence_level === 'number' && Number.isFinite(input.confidence_level)
+      ? input.confidence_level
+      : null;
   const trade: Trade = {
     // Spread all input fields first so rich JournalTrade fields (preEntry, thesis,
     // executionReview, psychologyRatings, etc.) survive a page reload.
@@ -313,12 +323,15 @@ function normalizeTradeUnknown(input: unknown, entryId: string, date: string, ac
       ? input.screenshots.filter((shot): shot is string => typeof shot === 'string')
       : [],
     scannedImageUrl: typeof input.scannedImageUrl === 'string' ? input.scannedImageUrl : typeof input.screenshotUrl === 'string' ? input.screenshotUrl : null,
+    emotionalState: emotionalState.length > 0 ? emotionalState : null,
+    confidenceLevel,
     reflection: {
       thesis: asString(reflectionRaw.thesis, ''),
       execution: asString(reflectionRaw.execution, ''),
       adjustment: asString(reflectionRaw.adjustment, ''),
       processGrade: asNumber(reflectionRaw.processGrade, 0),
       followedPlan: reflectionRaw.followedPlan === true || reflectionRaw.followedPlan === false ? reflectionRaw.followedPlan : null,
+      followedPlanLogged: reflectionRaw.followedPlanLogged === true,
     },
     confluences: normalizeConfluences(input.confluences),
     account: asString(input.account, accountId),
