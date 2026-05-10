@@ -318,7 +318,22 @@ function normalizeTradeUnknown(input: unknown, entryId: string, date: string, ac
     result: input.result === 'win' || input.result === 'loss' || input.result === 'open' ? input.result : 'open',
     time: asString(typeof input.time === 'string' ? input.time : input.entryTime, '09:30').slice(0, 5),
     exitTime: typeof input.exitTime === 'string' ? input.exitTime.slice(0, 5) : null,
-    duration: typeof input.duration === 'number' && Number.isFinite(input.duration) ? input.duration : null,
+    duration: (() => {
+      if (typeof input.duration === 'number' && Number.isFinite(input.duration)) return input.duration;
+      if (typeof input.durationMinutes === 'number' && Number.isFinite(input.durationMinutes)) return input.durationMinutes;
+      if (typeof input.trade_length_seconds === 'number' && Number.isFinite(input.trade_length_seconds)) {
+        return Math.max(1, Math.round(input.trade_length_seconds / 60));
+      }
+      return null;
+    })(),
+    durationMinutes: (() => {
+      if (typeof input.durationMinutes === 'number' && Number.isFinite(input.durationMinutes)) return input.durationMinutes;
+      if (typeof input.duration === 'number' && Number.isFinite(input.duration)) return input.duration;
+      if (typeof input.trade_length_seconds === 'number' && Number.isFinite(input.trade_length_seconds)) {
+        return Math.max(1, Math.round(input.trade_length_seconds / 60));
+      }
+      return null;
+    })(),
     screenshots: Array.isArray(input.screenshots)
       ? input.screenshots.filter((shot): shot is string => typeof shot === 'string')
       : [],

@@ -12,6 +12,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { aiApi, marketDataApi, NewsFilterItem } from '../services/api.js';
+import { useAppSettings } from '../contexts/AppSettingsContext.js';
 
 const PAGE_BG = 'var(--app-bg)';
 const S1 = 'var(--app-panel)';
@@ -39,9 +40,13 @@ const FINNHUB_KEY = import.meta.env.VITE_FINNHUB_KEY as string | undefined;
 const POLYGON_KEY = import.meta.env.VITE_POLYGON_KEY as string | undefined;
 const FMP_KEY = import.meta.env.VITE_FMP_KEY as string | undefined;
 const CACHE_KEY = 'flyxa_news_cache_v2';
+const CALENDAR_CACHE_KEY = 'flyxa_calendar_cache_v4';
 const SOURCES_KEY = 'flyxa_news_sources';
 const CACHE_TTL = 15 * 60 * 1000;
+const CALENDAR_CACHE_TTL = 12 * 60 * 60 * 1000;
 const REFRESH_INTERVAL = 3 * 60 * 1000;
+const DEFAULT_CALENDAR_TIME_ZONE = 'America/New_York';
+const FEED_CALENDAR_TIME_ZONE = 'UTC';
 
 type ImpactLevel = 'high' | 'medium' | 'low';
 type ImpactFilter = 'all' | ImpactLevel;
@@ -69,6 +74,13 @@ interface CalendarEvent {
 interface NewsCache {
   items: NewsFilterItem[];
   fetchedAt: number;
+}
+
+interface CalendarCache {
+  events: CalendarEvent[];
+  fetchedAt: number;
+  isToday: boolean;
+  timeZone: string;
 }
 
 interface SourcePrefs {
@@ -100,6 +112,34 @@ function writeCache(items: NewsFilterItem[]) {
   }
 }
 
+function readCalendarCache(timeZone: string): CalendarResult | null {
+  try {
+    const raw = localStorage.getItem(CALENDAR_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<CalendarCache>;
+    if (parsed.timeZone !== timeZone) return null;
+    if (typeof parsed.fetchedAt !== 'number' || Date.now() - parsed.fetchedAt > CALENDAR_CACHE_TTL) return null;
+    if (!Array.isArray(parsed.events) || parsed.events.length === 0) return null;
+    return { events: parsed.events as CalendarEvent[], isToday: parsed.isToday === true };
+  } catch {
+    return null;
+  }
+}
+
+function writeCalendarCache(result: CalendarResult, timeZone: string) {
+  if (!result.events.length) return;
+  try {
+    localStorage.setItem(CALENDAR_CACHE_KEY, JSON.stringify({
+      events: result.events,
+      fetchedAt: Date.now(),
+      isToday: result.isToday,
+      timeZone,
+    }));
+  } catch {
+    // ignore storage failures
+  }
+}
+
 function readSourcePrefs(): SourcePrefs {
   const defaults: SourcePrefs = { finnhub: true, polygon: false, economicCalendar: true, aiFilter: true };
   try {
@@ -119,6 +159,16 @@ function readSourcePrefs(): SourcePrefs {
 
 function writeSourcePrefs(prefs: SourcePrefs) {
   localStorage.setItem(SOURCES_KEY, JSON.stringify(prefs));
+}
+
+function normalizeCalendarTimeZone(timeZone: string | undefined | null): string {
+  if (!timeZone) return DEFAULT_CALENDAR_TIME_ZONE;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone }).format(new Date());
+    return timeZone;
+  } catch {
+    return DEFAULT_CALENDAR_TIME_ZONE;
+  }
 }
 
 
@@ -290,6 +340,46 @@ function toStringOrUndefined(value: unknown): string | undefined {
   return text.length ? text : undefined;
 }
 
+function isUsCalendarCountry(value: unknown): boolean {
+  const text = String(value ?? '').trim().toLowerCase();
+  return text === 'us' || text === 'usa' || text === 'usd' || text === 'united states' || text === 'united states of america';
+}
+
+function getCalendarDateText(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+function calendarDateHasClock(value: unknown): boolean {
+  return /[T\s]\d{1,2}:\d{2}/.test(getCalendarDateText(value).trim());
+}
+
+
+function convertFmpCalendarDateTime(event: FMPCalEvent, targetTimeZone: string): { date: string; time: string } {
+  // FMP returns datetimes in US Eastern time (no timezone indicator).
+  // Parse the date+time as ET wall-time, then convert to targetTimeZone.
+  const raw = getCalendarDateText(event.date).trim();
+  if (calendarDateHasClock(event.date)) {
+    const normalized = raw.replace(' ', 'T');
+    const dateSlice = normalized.slice(0, 10);
+    const timePart = normalized.length > 11 ? normalized.slice(11, 16) : '00:00';
+    const instant = zonedWallTimeToDate(dateSlice, timePart, 'America/New_York');
+    if (instant) return getTimeZoneParts(instant, targetTimeZone);
+  }
+
+  // Separate time field fallback — also treat as ET
+  const separateRawTime = (event as unknown as { time?: unknown }).time;
+  const normalizedSepTime = normalizeForexFactoryTime(separateRawTime);
+  if (normalizedSepTime && /^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const instant = zonedWallTimeToDate(raw, normalizedSepTime, 'America/New_York');
+    if (instant) return getTimeZoneParts(instant, targetTimeZone);
+  }
+
+  const fallbackDate = raw.slice(0, 10);
+  // Date-only: midnight ET → display timezone
+  const fallbackInstant = zonedWallTimeToDate(fallbackDate, '00:00', 'America/New_York');
+  return getTimeZoneParts(fallbackInstant ?? new Date(), targetTimeZone);
+}
+
 function normalizeForexFactoryDate(value: unknown): string {
   const raw = String(value ?? '').trim();
   if (!raw) return '';
@@ -311,20 +401,98 @@ function normalizeForexFactoryTime(value: unknown): string {
   }
   return raw;
 }
-function extractTimeFromDateTime(value: unknown): string {
-  if (typeof value !== 'string') return '';
-  const raw = value.trim();
-  if (!raw) return '';
-  const match = raw.match(/[T\s](\d{2}:\d{2})/);
-  if (match?.[1]) return match[1];
-  const parsed = new Date(raw);
-  if (!Number.isNaN(parsed.getTime())) {
-    return String(parsed.getHours()).padStart(2, '0') + ':' + String(parsed.getMinutes()).padStart(2, '0');
-  }
-  return '';
+
+function getTimeZoneParts(date: Date, timeZone = DEFAULT_CALENDAR_TIME_ZONE): {
+  date: string;
+  time: string;
+} {
+  const safeTimeZone = normalizeCalendarTimeZone(timeZone);
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: safeTimeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find(item => item.type === type)?.value ?? '00';
+  return {
+    date: `${part('year')}-${part('month')}-${part('day')}`,
+    time: `${part('hour')}:${part('minute')}`,
+  };
 }
 
-function normalizeForexFactoryEvents(raw: ForexFactoryRawEvent[], todaySlice: string): CalendarResult {
+
+function getTimeZoneOffsetMs(date: Date, timeZone: string): number {
+  const safeTimeZone = normalizeCalendarTimeZone(timeZone);
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: safeTimeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+
+  const part = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find(item => item.type === type)?.value ?? 0);
+  const zonedAsUtc = Date.UTC(part('year'), part('month') - 1, part('day'), part('hour'), part('minute'), part('second'));
+  return zonedAsUtc - date.getTime();
+}
+
+function parseCalendarClockTime(value: unknown): string {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  const twentyFourHour = raw.match(/^(\d{1,2}):(\d{2})/);
+  if (twentyFourHour) {
+    const hour = Number(twentyFourHour[1]);
+    const minute = Number(twentyFourHour[2]);
+    if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+      return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+    }
+  }
+
+  const twelveHour = raw.match(/^(\d{1,2}):(\d{2})\s*(am|pm)$/i);
+  if (!twelveHour) return '';
+  const hour = Number(twelveHour[1]);
+  const minute = Number(twelveHour[2]);
+  if (hour < 1 || hour > 12 || minute < 0 || minute > 59) return '';
+  const meridiem = twelveHour[3].toLowerCase();
+  const hour24 = meridiem === 'pm' && hour !== 12 ? hour + 12 : meridiem === 'am' && hour === 12 ? 0 : hour;
+  return `${String(hour24).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
+function zonedWallTimeToDate(dateSlice: string, time: string, sourceTimeZone = DEFAULT_CALENDAR_TIME_ZONE): Date | null {
+  const dateMatch = dateSlice.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const normalizedTime = parseCalendarClockTime(time);
+  const timeMatch = normalizedTime.match(/^(\d{2}):(\d{2})$/);
+  if (!dateMatch || !timeMatch) return null;
+
+  const desiredWallTime = Date.UTC(
+    Number(dateMatch[1]),
+    Number(dateMatch[2]) - 1,
+    Number(dateMatch[3]),
+    Number(timeMatch[1]),
+    Number(timeMatch[2]),
+  );
+  const firstPass = new Date(desiredWallTime - getTimeZoneOffsetMs(new Date(desiredWallTime), sourceTimeZone));
+  return new Date(desiredWallTime - getTimeZoneOffsetMs(firstPass, sourceTimeZone));
+}
+
+function convertCalendarWallTime(dateSlice: string, time: string, targetTimeZone: string, sourceTimeZone = DEFAULT_CALENDAR_TIME_ZONE): { date: string; time: string } | null {
+  const instant = zonedWallTimeToDate(dateSlice, time, sourceTimeZone);
+  return instant ? getTimeZoneParts(instant, targetTimeZone) : null;
+}
+
+function normalizeForexFactoryEvents(
+  raw: ForexFactoryRawEvent[],
+  todaySlice: string,
+  timeZone = DEFAULT_CALENDAR_TIME_ZONE,
+  sourceTimeZone = FEED_CALENDAR_TIME_ZONE,
+): CalendarResult {
   const events: CalendarEvent[] = [];
   let lastDate = '';
   let lastCurrency = '';
@@ -339,12 +507,17 @@ function normalizeForexFactoryEvents(raw: ForexFactoryRawEvent[], todaySlice: st
     const date = parsedDate || lastDate;
 
     if (!date) return;
-    if (cc !== 'US' && cc !== 'USD') return;
+    if (!isUsCalendarCountry(cc)) return;
+
+    const normalizedTime = normalizeForexFactoryTime(event.time);
+    const converted = normalizedTime
+      ? convertCalendarWallTime(date, normalizedTime, timeZone, sourceTimeZone)
+      : null;
 
     events.push({
       event: String(event.title ?? event.event ?? 'Event'),
-      date,
-      time: normalizeForexFactoryTime(event.time),
+      date: converted?.date ?? date,
+      time: converted?.time ?? normalizedTime,
       impact: normalizeImpact(event.impact),
       country: 'USD',
       actual: toStringOrUndefined(event.actual),
@@ -364,17 +537,20 @@ function normalizeForexFactoryEvents(raw: ForexFactoryRawEvent[], todaySlice: st
     isToday: events.some(event => event.date === todaySlice),
   };
 }
-async function fetchForexFactoryCalendar(): Promise<CalendarResult> {
+async function fetchForexFactoryCalendar(timeZone = DEFAULT_CALENDAR_TIME_ZONE, weeksAhead = 4): Promise<CalendarResult> {
+  const safeTimeZone = normalizeCalendarTimeZone(timeZone);
   const now = new Date();
-  const todaySlice = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  const twoWeeksOut = new Date(now);
-  twoWeeksOut.setDate(twoWeeksOut.getDate() + 14);
-  const endSlice = `${twoWeeksOut.getFullYear()}-${String(twoWeeksOut.getMonth() + 1).padStart(2, '0')}-${String(twoWeeksOut.getDate()).padStart(2, '0')}`;
+  const todaySlice = getTimeZoneParts(now, safeTimeZone).date;
+  // Fetch from the start of last week through (weeksAhead) weeks ahead so
+  // prev-week and multi-week-ahead navigation works without a re-fetch.
+  const thisWeekStart = startOfWeekMonday(parseDateSlice(todaySlice));
+  const fromSlice = toDateSlice(addDays(thisWeekStart, -7));                    // prev week Monday
+  const endSlice  = toDateSlice(addDays(thisWeekStart, Math.max(28, weeksAhead * 7))); // at least 4 weeks
 
   if (FMP_KEY) {
     try {
       const res = await fetch(
-        `https://financialmodelingprep.com/stable/economic-calendar?from=${todaySlice}&to=${endSlice}&apikey=${FMP_KEY}`
+        `https://financialmodelingprep.com/stable/economic-calendar?from=${fromSlice}&to=${endSlice}&apikey=${FMP_KEY}`
       );
       if (res.ok) {
         const raw = await res.json() as FMPCalEvent[];
@@ -390,24 +566,25 @@ async function fetchForexFactoryCalendar(): Promise<CalendarResult> {
           };
 
           const events: CalendarEvent[] = raw
-            .filter(e => e.country === 'US')
+            .filter(e => isUsCalendarCountry(e.country))
             .sort((a, b) => {
-              const dateDiff = a.date.slice(0, 10).localeCompare(b.date.slice(0, 10));
+              const dateDiff = getCalendarDateText(a.date).slice(0, 10).localeCompare(getCalendarDateText(b.date).slice(0, 10));
               if (dateDiff !== 0) return dateDiff;
               return rankImpact(a.impact) - rankImpact(b.impact);
             })
-            .map(e => ({
-              event: e.event,
-              date: e.date.slice(0, 10),
-              time:
-                normalizeForexFactoryTime((e as unknown as { time?: string }).time) ||
-                extractTimeFromDateTime(e.date),
-              country: 'USD',
-              impact: (rankImpact(e.impact) === 0 ? 'high' : rankImpact(e.impact) === 1 ? 'medium' : 'low') as ImpactLevel,
-              actual: fmt(e.actual, e.unit),
-              forecast: fmt(e.estimate, e.unit),
-              previous: fmt(e.previous, e.unit),
-            }));
+            .map(e => {
+              const converted = convertFmpCalendarDateTime(e, safeTimeZone);
+              return {
+                event: e.event,
+                date: converted.date,
+                time: converted.time,
+                country: 'USD',
+                impact: (rankImpact(e.impact) === 0 ? 'high' : rankImpact(e.impact) === 1 ? 'medium' : 'low') as ImpactLevel,
+                actual: fmt(e.actual, e.unit),
+                forecast: fmt(e.estimate, e.unit),
+                previous: fmt(e.previous, e.unit),
+              };
+            });
 
           const hasToday = events.some(e => e.date === todaySlice);
           if (events.length > 0) {
@@ -423,7 +600,7 @@ async function fetchForexFactoryCalendar(): Promise<CalendarResult> {
   try {
     const ffRaw = await marketDataApi.getFfCalendar();
     if (Array.isArray(ffRaw)) {
-      const normalized = normalizeForexFactoryEvents(ffRaw as ForexFactoryRawEvent[], todaySlice);
+      const normalized = normalizeForexFactoryEvents(ffRaw as ForexFactoryRawEvent[], todaySlice, safeTimeZone);
       if (normalized.events.length > 0) return normalized;
     }
   } catch {
@@ -446,7 +623,7 @@ async function fetchForexFactoryCalendar(): Promise<CalendarResult> {
     ];
 
     if (combined.length > 0) {
-      return normalizeForexFactoryEvents(combined as ForexFactoryRawEvent[], todaySlice);
+      return normalizeForexFactoryEvents(combined as ForexFactoryRawEvent[], todaySlice, safeTimeZone);
     }
   } catch {
     // ignore
@@ -674,13 +851,12 @@ function actualColor(actual: string | undefined, forecast: string | undefined): 
   return a >= f ? GREEN : RED;
 }
 
-function fmtCalendarDate(dateSlice: string): string {
+function fmtCalendarDate(dateSlice: string, timeZone = DEFAULT_CALENDAR_TIME_ZONE): string {
   const now = new Date();
-  const todaySlice = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const todaySlice = getTimeZoneParts(now, timeZone).date;
   if (dateSlice === todaySlice) return 'Today';
-  const tomorrow = new Date(now);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const tomorrowSlice = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`;
+  const tomorrow = addDays(parseDateSlice(todaySlice), 1);
+  const tomorrowSlice = toDateSlice(tomorrow);
   if (dateSlice === tomorrowSlice) return 'Tomorrow';
   return new Date(dateSlice + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
 }
@@ -829,15 +1005,21 @@ function CalendarPanel({
   isToday,
   impactSelection,
   onImpactSelectionChange,
+  displayTimezone,
+  weekOffset,
+  onWeekOffsetChange: setWeekOffset,
 }: {
   events: CalendarEvent[];
   isToday: boolean;
   impactSelection: CalendarImpactSelection;
   onImpactSelectionChange: (value: CalendarImpactSelection) => void;
+  displayTimezone: string;
+  weekOffset: number;
+  onWeekOffsetChange: (offset: number | ((prev: number) => number)) => void;
 }) {
-  const todaySlice = toDateSlice(new Date());
-  const [weekOffset, setWeekOffset] = useState(0);
-  const subtitle = events.length === 0 ? 'USD' : 'USD � weekly view';
+  const safeDisplayTimezone = normalizeCalendarTimeZone(displayTimezone);
+  const todaySlice = getTimeZoneParts(new Date(), safeDisplayTimezone).date;
+  const subtitle = events.length === 0 ? 'USD' : 'USD weekly view';
   const filteredEvents = events.filter((event) => impactSelection[event.impact]);
   const weekStart = useMemo(() => {
     const currentWeek = startOfWeekMonday(parseDateSlice(todaySlice));
@@ -846,13 +1028,8 @@ function CalendarPanel({
   const weekStartSlice = toDateSlice(weekStart);
   const weekEndSlice = toDateSlice(addDays(weekStart, 6));
   const weekEvents = filteredEvents.filter((event) => event.date >= weekStartSlice && event.date <= weekEndSlice);
-  const hasAnyPrevWeek = filteredEvents.some((event) => event.date < weekStartSlice);
-  const hasAnyNextWeek = filteredEvents.some((event) => event.date > weekEndSlice);
 
-  useEffect(() => {
-    setWeekOffset(0);
-  }, [events.length]);
-
+  // Auto-navigate to the first week with events when weekOffset is 0 and current week is empty.
   useEffect(() => {
     if (weekOffset !== 0) return;
     if (weekEvents.length > 0) return;
@@ -863,7 +1040,7 @@ function CalendarPanel({
     const daysToNext = Math.floor((parseDateSlice(nextEvent.date).getTime() - weekStart.getTime()) / 86400000);
     const offsetToNext = Math.max(1, Math.floor(daysToNext / 7));
     setWeekOffset(offsetToNext);
-  }, [filteredEvents, weekEndSlice, weekEvents.length, weekOffset, weekStart]);
+  }, [filteredEvents, weekEndSlice, weekEvents.length, weekOffset, weekStart, setWeekOffset]);
 
   const byDate = weekEvents.reduce<Record<string, CalendarEvent[]>>((acc, e) => {
     (acc[e.date] ??= []).push(e);
@@ -893,7 +1070,6 @@ function CalendarPanel({
           <button
             type="button"
             onClick={() => setWeekOffset((current) => current - 1)}
-            disabled={!hasAnyPrevWeek}
             style={{
               height: 25,
               borderRadius: 6,
@@ -903,11 +1079,10 @@ function CalendarPanel({
               padding: '0 8px',
               fontSize: 10,
               fontWeight: 700,
-              cursor: hasAnyPrevWeek ? 'pointer' : 'not-allowed',
-              opacity: hasAnyPrevWeek ? 1 : 0.45,
+              cursor: 'pointer',
             }}
           >
-            Prev
+            ← Prev
           </button>
           <button
             type="button"
@@ -924,26 +1099,24 @@ function CalendarPanel({
               cursor: 'pointer',
             }}
           >
-            Today
+            This week
           </button>
           <button
             type="button"
             onClick={() => setWeekOffset((current) => current + 1)}
-            disabled={!hasAnyNextWeek}
             style={{
               height: 25,
               borderRadius: 6,
-              border: `1px solid ${BORDER}`,
-              background: hasAnyNextWeek ? AMBER_DIM : S2,
-              color: hasAnyNextWeek ? AMBER : T2,
+              border: `1px solid ${AMBER_BORDER}`,
+              background: AMBER_DIM,
+              color: AMBER,
               padding: '0 8px',
               fontSize: 10,
               fontWeight: 700,
-              cursor: hasAnyNextWeek ? 'pointer' : 'not-allowed',
-              opacity: hasAnyNextWeek ? 1 : 0.45,
+              cursor: 'pointer',
             }}
           >
-            Next week
+            Next →
           </button>
         </div>
       </div>
@@ -971,7 +1144,7 @@ function CalendarPanel({
           {dates.map(date => (
             <div key={date} style={{ minWidth: 0, width: '100%', maxWidth: '100%', overflow: 'hidden' }}>
               <p style={{ margin: '0 0 7px', paddingLeft: 2, fontSize: 11, fontWeight: 800, color: date === todaySlice ? COBALT : AMBER, letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1.2 }}>
-                {fmtCalendarDate(date)}
+                {fmtCalendarDate(date, safeDisplayTimezone)}
               </p>
               <div style={{ display: 'grid', gap: 5, minWidth: 0, width: '100%' }}>
                 {byDate[date].map((event, index) => {
@@ -1109,6 +1282,7 @@ function SourcesPanel({ prefs, onChange }: { prefs: SourcePrefs; onChange: (valu
 }
 
 export default function MarketNews() {
+  const { preferences } = useAppSettings();
   const [items, setItems] = useState<NewsFilterItem[]>([]);
   const [calendar, setCalendar] = useState<CalendarEvent[]>([]);
   const [calendarIsToday, setCalendarIsToday] = useState(true);
@@ -1125,6 +1299,7 @@ export default function MarketNews() {
   const [prefs, setPrefs] = useState<SourcePrefs>(readSourcePrefs);
   const [query, setQuery] = useState('');
   const [sortBy, setSortBy] = useState<'impact' | 'newest'>('impact');
+  const [calendarWeekOffset, setCalendarWeekOffset] = useState(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchNews = useCallback(async (force = false) => {
@@ -1200,13 +1375,32 @@ export default function MarketNews() {
     }
   }, [prefs]);
 
-  const fetchSidebar = useCallback(async () => {
-    const calendarResult = prefs.economicCalendar
-      ? await fetchForexFactoryCalendar()
-      : { events: [] as CalendarEvent[], isToday: true };
-    setCalendar(calendarResult.events);
-    setCalendarIsToday(calendarResult.isToday);
-  }, [prefs.economicCalendar]);
+  const fetchSidebar = useCallback(async (weeksAhead = 4) => {
+    const safeTimeZone = normalizeCalendarTimeZone(preferences.timezone);
+    if (!prefs.economicCalendar) {
+      setCalendar([]);
+      setCalendarIsToday(true);
+      return;
+    }
+
+    try {
+      const calendarResult = await fetchForexFactoryCalendar(safeTimeZone, weeksAhead);
+      if (calendarResult.events.length > 0) {
+        writeCalendarCache(calendarResult, safeTimeZone);
+        setCalendar(calendarResult.events);
+        setCalendarIsToday(calendarResult.isToday);
+        return;
+      }
+
+      const cached = readCalendarCache(safeTimeZone);
+      setCalendar(cached?.events ?? []);
+      setCalendarIsToday(cached?.isToday ?? true);
+    } catch {
+      const cached = readCalendarCache(safeTimeZone);
+      setCalendar(cached?.events ?? []);
+      setCalendarIsToday(cached?.isToday ?? true);
+    }
+  }, [prefs.economicCalendar, preferences.timezone]);
 
   useEffect(() => {
     fetchNews();
@@ -1223,6 +1417,17 @@ export default function MarketNews() {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
   }, [fetchNews, fetchSidebar]);
+
+  // When the user navigates forward, check if we have events for that week.
+  // If not, re-fetch with a wider range so FMP can cover it.
+  const loadedWeeksAheadRef = useRef(4);
+  useEffect(() => {
+    if (calendarWeekOffset <= 0) return;
+    const neededWeeks = calendarWeekOffset + 2; // pad by 2 extra weeks
+    if (neededWeeks <= loadedWeeksAheadRef.current) return;
+    loadedWeeksAheadRef.current = neededWeeks;
+    fetchSidebar(neededWeeks);
+  }, [calendarWeekOffset, fetchSidebar]);
 
   const handlePrefsChange = (next: SourcePrefs) => {
     setPrefs(next);
@@ -1486,14 +1691,15 @@ export default function MarketNews() {
           }}
         >
           <div style={{ display: 'grid', gap: 10 }}>
-            {prefs.economicCalendar && (
-              <CalendarPanel
+            <CalendarPanel
                 events={calendar}
                 isToday={calendarIsToday}
                 impactSelection={calendarImpactSelection}
                 onImpactSelectionChange={setCalendarImpactSelection}
+                displayTimezone={preferences.timezone}
+                weekOffset={calendarWeekOffset}
+                onWeekOffsetChange={setCalendarWeekOffset}
               />
-            )}
             <SourcesPanel prefs={prefs} onChange={handlePrefsChange} />
           </div>
         </aside>

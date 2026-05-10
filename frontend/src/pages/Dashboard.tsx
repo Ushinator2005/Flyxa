@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   TrendingUp,
@@ -10,6 +10,7 @@ import {
 import { format } from 'date-fns';
 import { useTrades } from '../hooks/useTrades.js';
 import { useAppSettings, ALL_ACCOUNTS_ID } from '../contexts/AppSettingsContext.js';
+import { useHighImpactAlerts } from '../hooks/useHighImpactAlerts.js';
 import {
   buildAnalyticsSummary,
   buildRecentTrades,
@@ -19,6 +20,7 @@ import { formatRiskRewardRatio } from '../utils/riskReward.js';
 import MonthlyHeatmap from '../components/dashboard/MonthlyHeatmap.js';
 import LoadingSpinner from '../components/common/LoadingSpinner.js';
 import { Trade } from '../types/index.js';
+import { useBreakingNewsAlert } from '../hooks/useBreakingNewsAlert.js';
 
 // ── Design tokens ────────────────────────────────────────────────
 const COBALT      = '#60a5fa';
@@ -190,7 +192,48 @@ export default function Dashboard() {
   const { trades, loading, deleteTrade } = useTrades();
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [weekOffset, setWeekOffset] = useState(0);
-  const { accounts, selectedAccountId, setSelectedAccountId, filterTradesBySelectedAccount } = useAppSettings();
+  const { accounts, selectedAccountId, setSelectedAccountId, filterTradesBySelectedAccount, preferences } = useAppSettings();
+
+  // Fire bottom-right toast notifications when high-impact events are imminent.
+  useHighImpactAlerts(preferences?.timezone ?? 'America/New_York');
+
+  // Breaking news bubble — persists until user dismisses it.
+  const [newsBubble, setNewsBubble] = useState<{ text: string; source: string; timestamp: string } | null>(null);
+  const handleNewsAlert = useCallback(
+    (headline: { text: string; source: string; timestamp: string }) => {
+      setNewsBubble(headline);
+      return () => setNewsBubble(null);
+    },
+    [],
+  );
+  useBreakingNewsAlert(handleNewsAlert);
+
+  // Read today's high-impact calendar events from the local cache.
+  interface CachedCalEvent { event: string; date: string; time: string; impact: string; country?: string; actual?: string; forecast?: string; previous?: string; }
+  const [todayHighImpact, setTodayHighImpact] = useState<CachedCalEvent[]>([]);
+  useEffect(() => {
+    function load() {
+      try {
+        const raw = localStorage.getItem('flyxa_calendar_cache_v4');
+        if (!raw) { setTodayHighImpact([]); return; }
+        const parsed = JSON.parse(raw) as { events?: unknown[]; timeZone?: string };
+        if (!Array.isArray(parsed.events)) { setTodayHighImpact([]); return; }
+        // Dates in the cache are in the calendar's display timezone — match using that same timezone.
+        const tz = parsed.timeZone ?? 'America/New_York';
+        const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+        const get = (t: string) => parts.find(p => p.type === t)?.value ?? '00';
+        const todayInTz = `${get('year')}-${get('month')}-${get('day')}`;
+        setTodayHighImpact(
+          (parsed.events as CachedCalEvent[])
+            .filter(e => e.impact === 'high' && e.date === todayInTz)
+            .sort((a, b) => a.time.localeCompare(b.time))
+        );
+      } catch { setTodayHighImpact([]); }
+    }
+    load();
+    const id = window.setInterval(load, 60_000);
+    return () => window.clearInterval(id);
+  }, []);
   const filteredTrades = useMemo(
     () => filterTradesBySelectedAccount(trades),
     [filterTradesBySelectedAccount, trades],
@@ -615,6 +658,39 @@ export default function Dashboard() {
               </div>
             </Card>
 
+            {/* High-impact economic events today */}
+            <Card style={{ padding: 16, flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <p style={{ fontSize: 12, fontWeight: 600, color: T1, margin: 0 }}>High Impact Today</p>
+                <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '2px 6px', borderRadius: 3, color: RED, background: RED_DIM, border: `1px solid ${RED_DIM}` }}>USD</span>
+              </div>
+              {todayHighImpact.length === 0 ? (
+                <p style={{ fontSize: 11, color: T3, margin: 0, padding: '6px 0' }}>No high-impact events today.</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                  {todayHighImpact.map((ev, i) => {
+                    const released = Boolean(ev.actual);
+                    return (
+                      <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '7px 8px', borderRadius: 5, background: released ? 'transparent' : 'rgba(248,113,113,0.06)', borderLeft: `3px solid ${released ? 'rgba(255,255,255,0.08)' : RED}` }}>
+                        <span style={{ fontSize: 10, fontFamily: MONO, color: T3, flexShrink: 0, paddingTop: 1, minWidth: 36 }}>{ev.time}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 11, fontWeight: 500, color: released ? T2 : T1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.event}</div>
+                          {released ? (
+                            <div style={{ fontSize: 10, color: T3, marginTop: 2 }}>
+                              <span style={{ color: ev.actual && ev.forecast && ev.actual >= ev.forecast ? GREEN : RED, fontFamily: MONO, fontWeight: 600 }}>{ev.actual}</span>
+                              {ev.forecast && <span style={{ color: T3 }}> · est {ev.forecast}</span>}
+                            </div>
+                          ) : (
+                            ev.forecast && <div style={{ fontSize: 10, color: T3, marginTop: 2 }}>Est {ev.forecast}</div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </Card>
+
             {/* Daily trade log */}
             <Card style={{ padding: 16, flex: 1 }}>
               <p style={{ fontSize: 12, fontWeight: 600, color: T1, marginBottom: 12 }}>Today's Log</p>
@@ -652,6 +728,74 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* ── Breaking news bubble ─────────────────────────────────── */}
+      {newsBubble && (() => {
+        const ageMs   = Date.now() - new Date(newsBubble.timestamp).getTime();
+        const ageMins = Math.round(ageMs / 60_000);
+        const ageLabel = ageMins < 1 ? 'just now' : ageMins === 1 ? '1 min ago' : `${ageMins} min ago`;
+        return (
+          <div
+            role="alert"
+            aria-live="assertive"
+            style={{
+              position: 'fixed',
+              bottom: 24,
+              right: 24,
+              zIndex: 190,
+              width: 380,
+              maxWidth: 'calc(100vw - 48px)',
+              background: 'var(--app-panel)',
+              border: `1px solid ${COBALT}`,
+              borderRadius: 8,
+              boxShadow: `0 0 0 1px ${COBALT_DIM}, 0 12px 36px rgba(0,0,0,0.45)`,
+              padding: '14px 16px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+            }}
+          >
+            {/* Header row */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                <span style={{
+                  width: 7, height: 7, borderRadius: '50%', background: COBALT, flexShrink: 0,
+                  boxShadow: `0 0 6px ${COBALT}`,
+                }} />
+                <span style={{
+                  fontSize: 10, fontWeight: 700, letterSpacing: '0.09em',
+                  textTransform: 'uppercase', color: COBALT, fontFamily: SANS,
+                }}>
+                  Breaking News
+                </span>
+                <span style={{ fontSize: 10, color: T3, fontFamily: MONO }}>{ageLabel}</span>
+              </div>
+              <button
+                type="button"
+                aria-label="Dismiss news alert"
+                onClick={() => setNewsBubble(null)}
+                style={{
+                  border: 'none', background: 'transparent', cursor: 'pointer',
+                  color: T3, padding: 2, lineHeight: 0, flexShrink: 0,
+                }}
+              >
+                ✕
+              </button>
+            </div>
+            {/* Headline */}
+            <p style={{
+              margin: 0, fontSize: 13, fontWeight: 500, color: T1,
+              fontFamily: SANS, lineHeight: 1.45,
+            }}>
+              {newsBubble.text}
+            </p>
+            {/* Source */}
+            <p style={{ margin: 0, fontSize: 11, color: T3, fontFamily: MONO }}>
+              via {newsBubble.source}
+            </p>
+          </div>
+        );
+      })()}
     </div>
   );
 }

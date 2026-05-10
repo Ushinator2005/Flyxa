@@ -1,6 +1,6 @@
-import { CSSProperties, useMemo } from 'react';
-import { Clock3 } from 'lucide-react';
-import { NavLink, useSearchParams } from 'react-router-dom';
+import { CSSProperties, useMemo, useState } from 'react';
+import { Clock3, AlertTriangle } from 'lucide-react';
+import { NavLink, useSearchParams, useNavigate } from 'react-router-dom';
 import LoadingSpinner from '../components/common/LoadingSpinner.js';
 import { useTrades } from '../hooks/useTrades.js';
 import { useAppSettings } from '../contexts/AppSettingsContext.js';
@@ -329,6 +329,13 @@ function breakdownColor(value: number) {
   return colors.red;
 }
 
+function gradeColor(grade: string) {
+  if (grade === 'A') return colors.grn;
+  if (grade === 'B') return '#60a5fa';
+  if (grade === 'C') return colors.amb;
+  return colors.red;
+}
+
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -344,20 +351,6 @@ function renderBodyWithHighlights(body: string, keyPhrases: string[]) {
   ));
 }
 
-function rewriteInsightDescription(insight: WeeklyInsight): string {
-  const anchor = insight.tags[0]?.label ?? insight.frequency;
-
-  if (insight.type === 'risk') {
-    return `This pattern is creating avoidable downside. Use "${anchor}" as a hard caution trigger and wait for full confirmation before committing size.`;
-  }
-  if (insight.type === 'pattern') {
-    return 'This setup is repeating often enough to systematize. Build a checklist from this signal and only execute when every condition is present.';
-  }
-  if (insight.type === 'psychology') {
-    return 'Your emotional state is shifting outcomes. Define a reset rule for this state, pause entries when it appears, and re-enter only after objective criteria return.';
-  }
-  return 'This is a repeatable edge. Prioritize this context in your session plan and keep risk constant so the edge can compound cleanly.';
-}
 
 function buildData(trades: Trade[]): WeeklyDebriefData {
   if (!trades.length) {
@@ -464,8 +457,10 @@ function buildData(trades: Trade[]): WeeklyDebriefData {
   const rankedStates = Array.from(stateGroups.entries())
     .map(([state, entries]) => ({ state, summary: summarize(entries) }))
     .sort((a, b) => a.summary.netPnl - b.summary.netPnl);
-  const weakestState = rankedStates[0];
-  const strongestState = rankedStates[rankedStates.length - 1];
+  const meaningfulStates = rankedStates.filter(s => (s.state as string) !== 'Unspecified');
+  const hasEnoughPsychData = meaningfulStates.length >= 2;
+  const psychWeakest = meaningfulStates[0];
+  const psychStrongest = meaningfulStates[meaningfulStates.length - 1];
 
   const sessionGroups = new Map<string, Trade[]>();
   weekly.forEach(trade => {
@@ -527,21 +522,51 @@ function buildData(trades: Trade[]): WeeklyDebriefData {
 
   const insights: WeeklyInsight[] = [
     {
-      type: 'risk',
-      badge: 'Risk Flag',
-      frequency: earlyTrades.length ? `Seen in ${earlySessions} sessions` : 'No early-session entries this week',
-      title: earlyTrades.length ? 'Open-hour entries are the main risk drag this week' : 'Open-hour risk stayed controlled this week',
-      body: earlyTrades.length
-        ? `You logged ${earlyTrades.length} trades before 10:00 for ${formatSignedCurrency(earlySummary.netPnl)}. After 10:00, average trade improved to ${formatSignedCurrency(lateSummary.avgPnl)}.`
-        : 'No trades were logged before 10:00, removing your highest-risk overtrading window.',
+      type: (() => {
+        if (!earlyTrades.length) return 'edge' as const;
+        if (earlySummary.netPnl < 0) return 'risk' as const;
+        const hasLate = lateTrades.length > 0;
+        if (hasLate && earlySummary.avgPnl < lateSummary.avgPnl) return 'risk' as const;
+        return 'pattern' as const;
+      })(),
+      badge: (() => {
+        if (!earlyTrades.length) return 'Open Hour';
+        if (earlySummary.netPnl < 0) return 'Risk Flag';
+        if (lateTrades.length > 0 && earlySummary.avgPnl >= lateSummary.avgPnl) return 'Session Note';
+        return 'Risk Flag';
+      })(),
+      frequency: earlyTrades.length ? `${earlyTrades.length} trades before 10:00 · ${earlySessions} sessions` : 'No early-session entries this week',
+      title: (() => {
+        if (!earlyTrades.length) return 'Open-hour risk stayed controlled this week';
+        if (earlySummary.netPnl < 0) return 'Pre-10:00 entries are bleeding your P&L — stop trading the open';
+        if (lateTrades.length > 0 && earlySummary.avgPnl > lateSummary.avgPnl) return 'Your pre-10:00 edge outperformed late session — worth monitoring';
+        if (lateTrades.length > 0 && earlySummary.avgPnl < lateSummary.avgPnl) return 'Open-hour entries are underperforming your late-session edge';
+        return `${earlyTrades.length} open-hour entries — no clear session drag detected`;
+      })(),
+      body: (() => {
+        if (!earlyTrades.length) return 'No trades were logged before 10:00, removing your highest-risk overtrading window.';
+        const earlyAvg = earlySummary.avgPnl;
+        const lateAvg = lateSummary.avgPnl;
+        const hasLate = lateTrades.length > 0;
+        if (earlySummary.netPnl < 0) {
+          return `${earlyTrades.length} trades before 10:00 cost you ${formatSignedCurrency(Math.abs(earlySummary.netPnl))}${hasLate ? `, while your after-10:00 avg was ${formatSignedCurrency(lateAvg)}. The open is clearly your weakest window — stop entering until 10:00.` : '. No after-10:00 trades to compare.'}`;
+        }
+        if (!hasLate) {
+          return `All ${earlyTrades.length} of your trades were before 10:00, totalling ${formatSignedCurrency(earlySummary.netPnl)} (${formatSignedCurrency(earlyAvg)}/trade avg). No late-session trades to compare against.`;
+        }
+        if (earlyAvg >= lateAvg) {
+          return `Pre-10:00 avg was ${formatSignedCurrency(earlyAvg)} vs ${formatSignedCurrency(lateAvg)} after 10:00 — your early entries actually outperformed this week. That's unusual. Confirm whether these were genuinely high-quality setups or lucky noise before making this a habit.`;
+        }
+        return `${earlyTrades.length} trades before 10:00 averaged ${formatSignedCurrency(earlyAvg)}, underperforming your after-10:00 avg of ${formatSignedCurrency(lateAvg)}. Your edge is stronger later in the session — delay first entries.`;
+      })(),
       keyPhrases: earlyTrades.length
-        ? [String(earlyTrades.length), 'before 10:00', formatSignedCurrency(earlySummary.netPnl), 'After 10:00', formatSignedCurrency(lateSummary.avgPnl)]
+        ? [String(earlyTrades.length), 'before 10:00', formatSignedCurrency(earlySummary.netPnl), formatSignedCurrency(earlySummary.avgPnl)]
         : ['before 10:00', 'highest-risk overtrading window'],
       tags: earlyTrades.length
         ? [
             { label: `${formatSignedCurrency(earlySummary.netPnl)} pre-10:00`, tone: earlySummary.netPnl >= 0 ? 'positive' : 'negative' },
             { label: `${earlyTrades.length} open-hour trades`, tone: 'neutral' },
-            { label: `${formatSignedCurrency(lateSummary.avgPnl)} avg after 10:00`, tone: lateSummary.avgPnl >= 0 ? 'positive' : 'negative' },
+            ...(lateTrades.length > 0 ? [{ label: `${formatSignedCurrency(lateSummary.avgPnl)} avg after 10:00`, tone: lateSummary.avgPnl > 0 ? 'positive' as const : lateSummary.avgPnl < 0 ? 'negative' as const : 'neutral' as const }] : []),
           ]
         : [
             { label: '0 pre-10:00 trades', tone: 'positive' },
@@ -555,7 +580,22 @@ function buildData(trades: Trade[]): WeeklyDebriefData {
       frequency: topSymbol ? `${topSymbolName} appeared in ${topSymbol[1].length} trades` : 'Not enough symbol data',
       title: topSymbol ? `${topSymbolName} is your dominant recurring instrument this week` : 'No recurring symbol pattern detected',
       body: topSymbol
-        ? `${topSymbolName} closed at ${formatSignedCurrency(topSymbolSummary.netPnl)} with ${Math.round(topSymbolSummary.winRate)}% win rate across ${topSymbol[1].length} trades.`
+        ? (() => {
+            const netPnl = topSymbolSummary.netPnl;
+            const count = topSymbol[1].length;
+            const wr = Math.round(topSymbolSummary.winRate);
+            const avgPnl = netPnl / Math.max(1, count);
+            const isBreakeven = Math.abs(netPnl) < 25 && count >= 2;
+            const pnlPhrase = isBreakeven
+              ? `essentially breakeven at ${formatSignedCurrency(netPnl)} total — no edge showing across ${count} trade${count !== 1 ? 's' : ''}`
+              : `returned ${formatSignedCurrency(netPnl)} net across ${count} trade${count !== 1 ? 's' : ''} (${formatSignedCurrency(avgPnl)}/trade avg)`;
+            const addendum = wr < 45 && netPnl < 0
+              ? ` This instrument is costing you — either the setup has broken down or your execution is off. Consider pausing ${topSymbolName} until the edge is validated.`
+              : wr >= 60 && netPnl > 50
+                ? ` Edge is confirming on ${topSymbolName}. Keep conditions tight and risk consistent.`
+                : '';
+            return `${topSymbolName}: ${wr}% win rate, ${pnlPhrase}.${addendum}`;
+          })()
         : 'Log more symbol-tagged trades to activate recurring pattern detection.',
       keyPhrases: topSymbol
         ? [topSymbolName, formatSignedCurrency(topSymbolSummary.netPnl), `${Math.round(topSymbolSummary.winRate)}%`, `${topSymbol[1].length} trades`]
@@ -571,20 +611,37 @@ function buildData(trades: Trade[]): WeeklyDebriefData {
     {
       type: 'psychology',
       badge: 'Psychology',
-      frequency: `${stateGroups.size} emotional states logged`,
-      title: 'Emotional state is materially impacting your outcomes',
-      body: weakestState && strongestState
-        ? `"${weakestState.state}" averaged ${formatSignedCurrency(weakestState.summary.avgPnl)} while "${strongestState.state}" averaged ${formatSignedCurrency(strongestState.summary.avgPnl)} this week.`
-        : 'Add emotional_state tags to unlock behavior-performance insights.',
-      keyPhrases: weakestState && strongestState
-        ? [`"${weakestState.state}"`, formatSignedCurrency(weakestState.summary.avgPnl), `"${strongestState.state}"`, formatSignedCurrency(strongestState.summary.avgPnl)]
-        : ['emotional_state tags', 'behavior-performance insights'],
-      tags: weakestState && strongestState
+      frequency: hasEnoughPsychData
+        ? `${meaningfulStates.length} emotional states logged`
+        : meaningfulStates.length === 1
+          ? '1 state — need more variety'
+          : 'No emotional states tagged',
+      title: hasEnoughPsychData && psychWeakest && psychStrongest
+        ? `"${psychWeakest.state}" is your biggest performance liability this week`
+        : 'Emotional data too thin — you are flying blind',
+      body: (() => {
+        if (meaningfulStates.length === 0) {
+          return 'You logged zero emotional states this week. Flyxa cannot tell you if your mood is costing you money without this data. Tag every single trade honestly — this is non-negotiable for real AI feedback.';
+        }
+        if (!hasEnoughPsychData) {
+          return `You only logged one emotional state ("${meaningfulStates[0]?.state}") across all your trades this week. Log different states honestly so Flyxa can find the patterns that are costing you real money.`;
+        }
+        if (!psychWeakest || !psychStrongest) return 'Add emotional_state tags to unlock behavior-performance insights.';
+        const gap = Math.abs(psychStrongest.summary.avgPnl - psychWeakest.summary.avgPnl);
+        const hardStop = gap > 30
+          ? ` That ${formatSignedCurrency(gap)} gap per trade is not noise — you should not be entering trades when you feel "${psychWeakest.state}".`
+          : ` Track this over more sessions to confirm if "${psychWeakest.state}" needs a hard no-trade rule.`;
+        return `"${psychWeakest.state}" averaged ${formatSignedCurrency(psychWeakest.summary.avgPnl)} vs "${psychStrongest.state}" at ${formatSignedCurrency(psychStrongest.summary.avgPnl)} this week.${hardStop}`;
+      })(),
+      keyPhrases: hasEnoughPsychData && psychWeakest && psychStrongest
+        ? [`"${psychWeakest.state}"`, formatSignedCurrency(psychWeakest.summary.avgPnl), `"${psychStrongest.state}"`, formatSignedCurrency(psychStrongest.summary.avgPnl)]
+        : ['emotional states', 'tag every trade'],
+      tags: hasEnoughPsychData && psychWeakest && psychStrongest
         ? [
-            { label: `${weakestState.state}: ${formatSignedCurrency(weakestState.summary.netPnl)}`, tone: weakestState.summary.netPnl >= 0 ? 'positive' : 'negative' },
-            { label: `${strongestState.state}: ${formatSignedCurrency(strongestState.summary.netPnl)}`, tone: strongestState.summary.netPnl >= 0 ? 'positive' : 'negative' },
+            { label: `${psychWeakest.state}: ${formatSignedCurrency(psychWeakest.summary.netPnl)}`, tone: psychWeakest.summary.netPnl >= 0 ? 'positive' : 'negative' },
+            { label: `${psychStrongest.state}: ${formatSignedCurrency(psychStrongest.summary.netPnl)}`, tone: psychStrongest.summary.netPnl >= 0 ? 'positive' : 'negative' },
           ]
-        : [{ label: 'Need state tags', tone: 'neutral' }],
+        : [{ label: meaningfulStates.length === 0 ? 'No states logged' : 'Need 2+ distinct states', tone: 'neutral' }],
       actionLabel: 'Create emotional reset rule ->',
     },
     {
@@ -677,6 +734,9 @@ export default function FlyxaAI() {
   const { trades, loading } = useTrades();
   const { filterTradesBySelectedAccount } = useAppSettings();
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const [respondOpen, setRespondOpen] = useState(false);
+  const [respondText, setRespondText] = useState('');
 
   const accountTrades = useMemo(
     () => filterTradesBySelectedAccount(trades),
@@ -751,6 +811,20 @@ export default function FlyxaAI() {
     () => summarize(weeklyWindow.previousTrades).netPnl,
     [weeklyWindow.previousTrades]
   );
+
+  const dataCompleteness = useMemo(() => {
+    const wt = weeklyWindow.weeklyTrades;
+    if (!wt.length) return null;
+    const withEmotion = wt.filter(t => t.emotional_state && (t.emotional_state as string) !== 'Unspecified').length;
+    const withPlan = wt.filter(t => typeof t.followed_plan === 'boolean').length;
+    const withNotes = wt.filter(t => t.post_trade_notes?.trim()).length;
+    return {
+      total: wt.length,
+      emotionPct: Math.round((withEmotion / wt.length) * 100),
+      planPct: Math.round((withPlan / wt.length) * 100),
+      notesPct: Math.round((withNotes / wt.length) * 100),
+    };
+  }, [weeklyWindow.weeklyTrades]);
   const netRNumeric = Number.parseFloat(weeklyDebriefData.stats.netR.value.replace(/[^\d.+-]/g, '')) || 0;
   const weakestProcess = useMemo(
     () => [...weeklyDebriefData.processBreakdown].sort((a, b) => a.value - b.value)[0],
@@ -1054,11 +1128,64 @@ export default function FlyxaAI() {
                     <Clock3 size={13} color={colors.acc} />
                   </div>
                   <p className="flex-1 text-[12.5px] leading-relaxed" style={{ color: colors.t1 }}>{weeklyDebriefData.question}</p>
-                  <button type="button" className="shrink-0 cursor-pointer text-[11.5px]" style={{ color: colors.acc }}>
-                    {'Respond '}&rarr;
+                  <button
+                    type="button"
+                    className="shrink-0 cursor-pointer text-[11.5px]"
+                    style={{ color: colors.acc }}
+                    onClick={() => setRespondOpen(prev => !prev)}
+                  >
+                    {respondOpen ? 'Cancel' : 'Respond →'}
                   </button>
                 </div>
+                {respondOpen && (
+                  <div className="mt-2">
+                    <textarea
+                      className="w-full resize-none rounded-[6px] text-[12px] leading-relaxed"
+                      style={{
+                        backgroundColor: colors.d3,
+                        border: `1px solid ${colors.b1}`,
+                        color: colors.t0,
+                        padding: '10px 12px',
+                        fontFamily: 'var(--font-sans)',
+                        outline: 'none',
+                        minHeight: 76,
+                      }}
+                      placeholder="Write your honest answer here..."
+                      value={respondText}
+                      onChange={e => setRespondText(e.target.value)}
+                    />
+                    {respondText.trim() && (
+                      <div className="mt-1.5 flex justify-end">
+                        <button
+                          type="button"
+                          className="rounded-[4px] px-3 py-1 text-[11px]"
+                          style={{ backgroundColor: 'rgba(245,158,11,0.15)', color: colors.acc, border: '1px solid rgba(245,158,11,0.3)' }}
+                          onClick={() => { setRespondOpen(false); setRespondText(''); }}
+                        >
+                          Save reflection
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </section>
+
+              {dataCompleteness && (dataCompleteness.emotionPct < 80 || dataCompleteness.planPct < 80) && (
+                <div className="mt-3 flex items-start gap-2.5 rounded-[8px] border px-[14px] py-3" style={{ borderColor: 'rgba(245,158,11,0.3)', backgroundColor: 'rgba(245,158,11,0.06)' }}>
+                  <AlertTriangle size={13} color={colors.amb} style={{ flexShrink: 0, marginTop: 1 }} />
+                  <p className="min-w-0 flex-1 text-[12px] leading-relaxed" style={{ color: colors.amb }}>
+                    Debrief accuracy limited —{dataCompleteness.emotionPct < 80 && ` emotion tagged on ${dataCompleteness.emotionPct}% of trades`}{dataCompleteness.emotionPct < 80 && dataCompleteness.planPct < 80 && ','}{dataCompleteness.planPct < 80 && ` plan logged on ${dataCompleteness.planPct}%`}. Fill in the gaps for real AI insights.
+                  </p>
+                  <button
+                    type="button"
+                    className="shrink-0 text-[11px] whitespace-nowrap"
+                    style={{ color: colors.amb }}
+                    onClick={() => navigate('/journal')}
+                  >
+                    Fill gaps →
+                  </button>
+                </div>
+              )}
 
               <section className="mt-4">
                 <p style={tinyMetaLabelStyle}>AI insights &middot; {displayedInsights.length} found this week</p>
@@ -1082,7 +1209,7 @@ export default function FlyxaAI() {
                           </div>
                           <h3 className="mb-1 mt-1 text-[14px] font-semibold leading-snug" style={{ color: colors.t0 }}>{insight.title}</h3>
                           <p className="mb-2 text-[12px] leading-relaxed" style={{ color: colors.t1 }}>
-                            {renderBodyWithHighlights(rewriteInsightDescription(insight), insight.keyPhrases)}
+                            {renderBodyWithHighlights(insight.body, insight.keyPhrases)}
                           </p>
                           <div className="flex items-center justify-between gap-2">
                             <div className="flex flex-wrap gap-1.5">
@@ -1092,7 +1219,18 @@ export default function FlyxaAI() {
                                 </span>
                               ))}
                             </div>
-                            <button type="button" className="shrink-0 cursor-pointer text-[11px] opacity-75 transition-opacity hover:opacity-100" style={{ color: colors.acc }}>
+                            <button
+                              type="button"
+                              className="shrink-0 cursor-pointer text-[11px] opacity-75 transition-opacity hover:opacity-100 flex items-center gap-0.5"
+                              style={{ color: colors.acc }}
+                              onClick={() => {
+                                const label = insight.actionLabel.toLowerCase();
+                                if (label.includes('pre-session')) navigate('/flyxa-ai/pre-session');
+                                else if (label.includes('pattern library') || label.includes('confluence')) navigate('/flyxa-ai/patterns');
+                                else if (label.includes('emotional') || label.includes('emotion')) navigate('/flyxa-ai/emotional-fingerprint');
+                                else navigate('/journal');
+                              }}
+                            >
                               {insight.actionLabel}
                             </button>
                           </div>
@@ -1133,7 +1271,7 @@ export default function FlyxaAI() {
         <aside className="min-h-0 overflow-y-auto border-l px-4 py-[18px]" style={{ backgroundColor: colors.d1, borderColor: colors.b0 }}>
           <section className="rounded-[8px] px-[14px] py-[14px]" style={{ backgroundColor: colors.d2, border: cardBorder }}>
             <div className="flex items-center gap-[14px]">
-              <p className="text-[52px] font-bold leading-none" style={{ color: colors.grn, fontFamily: colors.mono }}>{weekGrade}</p>
+              <p className="text-[52px] font-bold leading-none" style={{ color: gradeColor(weekGrade), fontFamily: colors.mono }}>{weekGrade}</p>
               <div>
                 <p className="text-[9.5px] uppercase tracking-[0.12em]" style={{ color: colors.t2 }}>Process score</p>
                 <p className="mt-1 text-[14px] font-bold" style={{ color: colors.t0, fontFamily: colors.mono }}>{boundedScore}/100</p>

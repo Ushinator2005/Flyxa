@@ -25,6 +25,7 @@ import ToastStack from './components/common/Toast.js';
 import useFlyxaStore from './store/flyxaStore.js';
 import { useDailyLossUsed } from './store/selectors.js';
 import { pushToast } from './store/toastStore.js';
+import { useBackgroundNewsPoller } from './hooks/useBackgroundNewsPoller.js';
 
 function ProtectedRoute() {
   const { user, loading } = useAuth();
@@ -51,6 +52,11 @@ export default function App() {
   const hasWarned80 = useRef(false);
   const hasWarnedHit = useRef(false);
   const dailyLoss = useDailyLossUsed();
+
+  // Silently poll Finnhub every 5 min; write AI-confirmed breaking news to
+  // flyxa_breaking_cache_v1 so the Dashboard bubble fires without the user
+  // having to open the Market News page first.
+  useBackgroundNewsPoller(!!user);
 
   useEffect(() => {
     if (!user || typeof window === 'undefined') return;

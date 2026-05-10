@@ -341,11 +341,25 @@ export const supabaseZustandStorage: StateStorage = {
   setItem: async (_key: string, value: string): Promise<void> => {
     const sanitizedValue = sanitizeStoreValue(value);
 
-    // Guard: never overwrite existing journal data with an empty-entry state.
+    // Guard: never overwrite existing journal data with a blank/default state.
     // This protects against hot-module-reload in development (and any other scenario
-    // where the store is transiently initialised with no entries) clobbering real data.
+    // where the store is transiently initialised with no data) clobbering real data.
+    // We only skip when entries AND all user-data fields (moods, titles, trades) are empty —
+    // a partial state (e.g. moods set but no entries) is intentional and must be saved.
     const incomingEntries = extractEntries(sanitizedValue);
-    if (incomingEntries.length === 0) {
+    const incomingHasUserData = (() => {
+      try {
+        const parsed = JSON.parse(sanitizedValue) as { state?: Record<string, unknown> };
+        const st = parsed?.state ?? {};
+        const moods = st.journalMoods;
+        const titles = st.journalTitles;
+        return (
+          (moods != null && typeof moods === 'object' && Object.keys(moods).length > 0) ||
+          (titles != null && typeof titles === 'object' && Object.keys(titles).length > 0)
+        );
+      } catch { return false; }
+    })();
+    if (incomingEntries.length === 0 && !incomingHasUserData) {
       try {
         const existing = localStorage.getItem('flyxa-store');
         if (existing && extractEntries(existing).length > 0) return;

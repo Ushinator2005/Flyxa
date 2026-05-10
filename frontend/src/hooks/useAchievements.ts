@@ -9,6 +9,7 @@ export interface Achievement {
   icon: string;
   category: 'milestone' | 'streak' | 'discipline' | 'session' | 'consistency';
   rarity: 'common' | 'rare' | 'epic' | 'legendary';
+  progress: number;
   unlocked: boolean;
   unlockedAt: string | null;
 }
@@ -117,6 +118,7 @@ function mapAchievement(item: StoreAchievement): Achievement {
     icon: mapIcon(item.icon),
     category: mapCategory(item.id),
     rarity: mapRarity(item.progress),
+    progress: Math.max(0, Math.min(100, item.progress)),
     unlocked: Boolean(item.unlockedAt),
     unlockedAt: item.unlockedAt,
   };

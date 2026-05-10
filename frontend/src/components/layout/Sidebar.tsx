@@ -221,9 +221,9 @@ function SidebarContent({ onNavClick, collapsed }: { onNavClick?: () => void; co
                 </button>
               </div>
             )}
-            {accountsCollapsed ? null : collapsed ? (
+            {collapsed ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'center' }}>
-                {accounts.map(acct => {
+                {!accountsCollapsed && accounts.map(acct => {
                   const sel = selectedAccountId === acct.id;
                   return (
                     <button
@@ -257,7 +257,7 @@ function SidebarContent({ onNavClick, collapsed }: { onNavClick?: () => void; co
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                {accounts.map(acct => {
+                {!accountsCollapsed && accounts.map(acct => {
                   const sel = selectedAccountId === acct.id;
                   return (
                     <button

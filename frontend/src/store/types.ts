@@ -29,6 +29,7 @@ export interface Trade {
   time: string;
   exitTime: string | null;
   duration: number | null;
+  durationMinutes?: number | null;
   screenshots: string[];
   scannedImageUrl: string | null;
   emotionalState?: string | null;

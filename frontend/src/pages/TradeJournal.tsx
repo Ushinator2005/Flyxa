@@ -193,6 +193,24 @@ function formatDurationLabel(minutes?: number | null): string {
   return `${Math.round(minutes ?? 0)}m`;
 }
 
+function resolveTradeDurationMinutes(trade?: Partial<JournalTrade> | null): number | null {
+  if (!trade) return null;
+  const record = trade as Partial<JournalTrade> & {
+    duration?: number | null;
+    trade_length_seconds?: number | null;
+  };
+  if (typeof record.durationMinutes === 'number' && Number.isFinite(record.durationMinutes)) {
+    return record.durationMinutes;
+  }
+  if (typeof record.duration === 'number' && Number.isFinite(record.duration)) {
+    return record.duration;
+  }
+  if (typeof record.trade_length_seconds === 'number' && Number.isFinite(record.trade_length_seconds)) {
+    return Math.max(1, Math.round(record.trade_length_seconds / 60));
+  }
+  return null;
+}
+
 function parseDate(value: string) {
   const parsed = new Date(`${value}T00:00:00`);
   return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
@@ -521,14 +539,7 @@ function normalizeEntries(value: unknown[], rulesTemplate: string[]): JournalEnt
           direction,
           entryTime: typeof trade.entryTime === 'string' ? trade.entryTime : typeof trade.time === 'string' ? trade.time : '09:30',
           exitTime: typeof trade.exitTime === 'string' ? trade.exitTime : '09:45',
-          durationMinutes:
-            typeof trade.durationMinutes === 'number'
-              ? trade.durationMinutes
-              : typeof trade.duration === 'number'
-                ? trade.duration
-                : typeof trade.trade_length_seconds === 'number'
-                  ? Math.round(trade.trade_length_seconds / 60)
-                  : null,
+          durationMinutes: resolveTradeDurationMinutes(trade),
           entryPrice,
           exitPrice,
           entry: parsePrice(trade.entry) ?? parsePrice(entryPrice),
@@ -1799,9 +1810,14 @@ export default function TradeJournal() {
     [entries, monthCursor],
   );
 
+  const tradedEntriesInMonth = useMemo(
+    () => entriesInMonth.filter(entry => entry.trades.length > 0),
+    [entriesInMonth],
+  );
+
   const visibleEntries = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    return entriesInMonth
+    return tradedEntriesInMonth
       .filter(entry => {
         const stats = computeEntryStats(entry);
         if (dayFilter === 'win' && stats.pnl <= 0) return false;
@@ -1813,7 +1829,7 @@ export default function TradeJournal() {
         return symbolMatch || noteMatch;
       })
       .sort((a, b) => b.date.localeCompare(a.date));
-  }, [dayFilter, entriesInMonth, query]);
+  }, [dayFilter, query, tradedEntriesInMonth]);
 
   const selectedEntry = useMemo(
     () => entries.find(entry => entry.id === selectedEntryId) ?? null,
@@ -1832,20 +1848,20 @@ export default function TradeJournal() {
   }, [activeTrade?.id, selectedEntry?.id, selectedEntry?.date]);
 
   const monthSummary = useMemo(() => {
-    const dayPnL = entriesInMonth.map(entry => computeEntryStats(entry).pnl);
+    const dayPnL = tradedEntriesInMonth.map(entry => computeEntryStats(entry).pnl);
     const monthPnl = dayPnL.reduce((sum, pnl) => sum + pnl, 0);
-    const daysTraded = entriesInMonth.filter(entry => entry.trades.length > 0).length;
+    const daysTraded = tradedEntriesInMonth.length;
     let wins = 0;
     let losses = 0;
-    entriesInMonth.forEach(entry => {
+    tradedEntriesInMonth.forEach(entry => {
       const stats = computeEntryStats(entry);
       wins += stats.wins;
       losses += stats.losses;
     });
     const winRate = wins + losses > 0 ? (wins / (wins + losses)) * 100 : 0;
-    const bestDay = findBestDay(entriesInMonth);
+    const bestDay = findBestDay(tradedEntriesInMonth);
     return { monthPnl, daysTraded, winRate, bestDay };
-  }, [entriesInMonth]);
+  }, [tradedEntriesInMonth]);
 
   const addBlankDay = useCallback(() => {
     const date = selectedEntry?.date ?? getTodayIso();
@@ -2384,7 +2400,7 @@ export default function TradeJournal() {
                 </div>
                 <div className="tj-stat">
                   <div className="tj-stat-label">Trade Length</div>
-                  <div className="tj-stat-value">{formatDurationLabel(activeTrade?.durationMinutes)}</div>
+                  <div className="tj-stat-value">{formatDurationLabel(resolveTradeDurationMinutes(activeTrade))}</div>
                 </div>
                 <div className="tj-stat">
                   <div className="tj-stat-label">Entry Time</div>

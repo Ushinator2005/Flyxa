@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AlertCircle, CheckCircle2, Eye, EyeOff, Lock, Mail } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Eye, EyeOff, Lock, Mail, User } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext.js';
 import ThemeToggle from '../components/common/ThemeToggle.js';
 import FlyxaLogo from '../components/common/FlyxaLogo.js';
@@ -26,8 +26,9 @@ const features = [
 const tickerSymbols = ['ES', 'NQ', 'CL', 'GC', 'MES', 'MNQ', 'RTY', 'YM', 'ZB', 'ZN'];
 
 export default function Auth() {
-  const { signIn, signUp, resetPassword } = useAuth();
+  const { signIn, signUp, signInWithGoogle, resetPassword } = useAuth();
   const [tab, setTab] = useState<'login' | 'signup'>('login');
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -50,7 +51,13 @@ export default function Auth() {
       const { error } = await signIn(email, password);
       if (error) setError(error);
     } else {
-      const { error } = await signUp(email, password);
+      if (!name.trim()) {
+        setError('Enter your name to create your account.');
+        setLoading(false);
+        return;
+      }
+
+      const { error } = await signUp(email, password, name);
       if (error) {
         setError(error);
       } else {
@@ -60,6 +67,17 @@ export default function Auth() {
     }
 
     setLoading(false);
+  };
+
+  const handleGoogleAuth = async () => {
+    setError('');
+    setSuccess('');
+    setLoading(true);
+    const { error } = await signInWithGoogle();
+    if (error) {
+      setError(error);
+      setLoading(false);
+    }
   };
 
   const handleResetPassword = async () => {
@@ -188,6 +206,25 @@ export default function Auth() {
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-4">
+                  {tab === 'signup' && (
+                    <div>
+                      <Label htmlFor="name" className="mb-2 block">Name</Label>
+                      <div className="relative">
+                        <User size={18} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2" style={{ color: textSubtle }} />
+                        <Input
+                          id="name"
+                          type="text"
+                          className="auth-input pl-11"
+                          value={name}
+                          onChange={e => setName(e.target.value)}
+                          placeholder="Your name"
+                          required
+                          autoComplete="name"
+                        />
+                      </div>
+                    </div>
+                  )}
+
                   <div>
                     <Label htmlFor="email" className="mb-2 block">Email</Label>
                     <div className="relative">
@@ -278,6 +315,40 @@ export default function Auth() {
                     {loading ? 'Please wait...' : tab === 'login' ? 'Sign In' : 'Create Account'}
                   </Button>
                 </form>
+
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center" aria-hidden="true">
+                    <div className="w-full border-t" style={{ borderColor }} />
+                  </div>
+                  <div className="relative flex justify-center">
+                    <span className="px-3 text-xs uppercase tracking-[0.18em]" style={{ background: 'var(--app-panel)', color: textSubtle }}>
+                      or
+                    </span>
+                  </div>
+                </div>
+
+                <Button
+                  type="button"
+                  onClick={() => void handleGoogleAuth()}
+                  disabled={loading}
+                  variant="ghost"
+                  size="lg"
+                  className="w-full rounded-2xl py-3 text-base font-semibold shadow-none"
+                  style={{
+                    border: `1px solid ${borderColor}`,
+                    background: 'var(--app-panel-strong)',
+                    color: textMain,
+                  }}
+                >
+                  <span
+                    aria-hidden="true"
+                    className="mr-3 inline-flex h-5 w-5 items-center justify-center rounded-full bg-white text-sm font-bold"
+                    style={{ color: '#4285f4' }}
+                  >
+                    G
+                  </span>
+                  {tab === 'signup' ? 'Sign up with Google' : 'Continue with Google'}
+                </Button>
 
                 <div className="border-t pt-5 text-sm" style={{ borderColor, color: textSubtle }}>
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
