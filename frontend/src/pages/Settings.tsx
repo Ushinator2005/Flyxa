@@ -490,6 +490,7 @@ export default function Settings() {
   const { theme, setTheme } = useTheme();
   const {
     accounts,
+    defaultTradeAccountId,
     preferences,
     addAccount,
     updateAccount,
@@ -606,6 +607,9 @@ export default function Settings() {
   const tableInputFocusedStyle: React.CSSProperties = {
     borderBottom: `1px solid ${AMBER}`,
   };
+
+  const defaultTradeAccount = accounts.find(account => account.id === defaultTradeAccountId);
+  const defaultTradeAccountName = defaultTradeAccount?.name ?? 'Default Account';
 
   useEffect(() => {
     const sectionEntries = [
@@ -1171,7 +1175,7 @@ export default function Settings() {
                       onBlur={e => { e.target.style.borderBottom = 'none'; }}
                       placeholder="Account name"
                     />
-                    {account.id === DEFAULT_ACCOUNT_ID && (
+                    {account.id === defaultTradeAccountId && (
                       <span
                         style={{
                           display: 'inline-block',
@@ -1279,7 +1283,7 @@ export default function Settings() {
                     <p style={{ fontSize: '13px', color: '#fde68a' }}>
                       Delete{' '}
                       <span style={{ fontWeight: 600, color: '#fff' }}>{account.name}</span>?{' '}
-                      Trades on this account will fall back to Default Account.
+                      Trades on this account will fall back to {defaultTradeAccountName}.
                     </p>
                     <div className="mt-3 flex gap-2">
                       <button

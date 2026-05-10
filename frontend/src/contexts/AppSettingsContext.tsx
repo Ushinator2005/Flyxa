@@ -124,6 +124,7 @@ interface AppSettingsContextValue {
   preferences: AppPreferences;
   confluenceOptions: string[];
   selectedAccountId: string;
+  defaultTradeAccountId: string;
   setSelectedAccountId: (accountId: string) => void;
   addAccount: (account: Omit<TradingAccount, 'id' | 'createdAt'>) => void;
   updateAccount: (accountId: string, updates: Partial<Omit<TradingAccount, 'id' | 'createdAt'>>) => void;
@@ -217,6 +218,22 @@ function ensureDefaultAccount(accounts: TradingAccount[]): TradingAccount[] {
   }
 
   return [DEFAULT_ACCOUNT, ...withoutDuplicates];
+}
+
+function getAccountCreatedAtMs(account: TradingAccount): number {
+  const parsed = Date.parse(account.createdAt);
+  return Number.isNaN(parsed) ? Number.MAX_SAFE_INTEGER : parsed;
+}
+
+function resolveDefaultTradeAccountId(accounts: TradingAccount[]): string {
+  const oldestRealAccount = accounts
+    .filter(account => account.id !== DEFAULT_ACCOUNT_ID && account.status !== 'Blown')
+    .sort((a, b) => getAccountCreatedAtMs(a) - getAccountCreatedAtMs(b))[0];
+
+  if (oldestRealAccount) return oldestRealAccount.id;
+
+  const builtInDefault = accounts.find(account => account.id === DEFAULT_ACCOUNT_ID && account.status !== 'Blown');
+  return builtInDefault?.id ?? accounts.find(account => account.status !== 'Blown')?.id ?? DEFAULT_ACCOUNT_ID;
 }
 
 function parsePreferences(parsed: Partial<AppPreferences> | undefined): AppPreferences {
@@ -334,8 +351,8 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
     () => new Map(accounts.map(account => [account.id, account] as const)),
     [accounts]
   );
-  const firstAllocatableAccountId = useMemo(
-    () => accounts.find(account => account.status !== 'Blown')?.id ?? DEFAULT_ACCOUNT_ID,
+  const defaultTradeAccountId = useMemo(
+    () => resolveDefaultTradeAccountId(accounts),
     [accounts]
   );
 
@@ -353,12 +370,8 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
       return selectedAccountId;
     }
 
-    if (isTradeAccountAllocatable(DEFAULT_ACCOUNT_ID)) {
-      return DEFAULT_ACCOUNT_ID;
-    }
-
-    return firstAllocatableAccountId;
-  }, [firstAllocatableAccountId, isTradeAccountAllocatable, selectedAccountId, validAccountIds]);
+    return defaultTradeAccountId;
+  }, [defaultTradeAccountId, isTradeAccountAllocatable, selectedAccountId, validAccountIds]);
 
   const resolveTradeAccountId = useCallback((trade: Partial<Trade>) => {
     const accountCandidate = trade.accountId || trade.account_id || (trade.id ? tradeAccounts[trade.id] : undefined);
@@ -366,8 +379,8 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
       return accountCandidate;
     }
 
-    return DEFAULT_ACCOUNT_ID;
-  }, [tradeAccounts, validAccountIds]);
+    return defaultTradeAccountId;
+  }, [defaultTradeAccountId, tradeAccounts, validAccountIds]);
 
   const decorateTrades = useCallback((trades: Trade[]) => trades.map(trade => ({
     ...trade,
@@ -432,11 +445,14 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
   const deleteAccount = useCallback((accountId: string) => {
     if (accountId === DEFAULT_ACCOUNT_ID) return;
 
-    setAccounts(current => ensureDefaultAccount(current.filter(account => account.id !== accountId)));
+    const nextAccounts = ensureDefaultAccount(accounts.filter(account => account.id !== accountId));
+    const nextDefaultTradeAccountId = resolveDefaultTradeAccountId(nextAccounts);
+
+    setAccounts(nextAccounts);
     setTradeAccounts(current => Object.fromEntries(
       Object.entries(current).map(([tradeId, mappedAccountId]) => [
         tradeId,
-        mappedAccountId === accountId ? DEFAULT_ACCOUNT_ID : mappedAccountId,
+        mappedAccountId === accountId ? nextDefaultTradeAccountId : mappedAccountId,
       ])
     ));
     setSelectedAccountIdState(current => current === accountId ? ALL_ACCOUNTS_ID : current);
@@ -447,7 +463,7 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
           if (error) console.error('[Accounts] Failed to delete account:', error.message);
         });
     }
-  }, [user]);
+  }, [accounts, user]);
 
   const updatePreferences = useCallback((updates: Partial<AppPreferences>) => {
     setPreferences(current => ({ ...current, ...updates }));
@@ -480,9 +496,9 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
     if (!accountId) return;
     setTradeAccounts(current => ({
       ...current,
-      [tradeId]: validAccountIds.has(accountId) ? accountId : DEFAULT_ACCOUNT_ID,
+      [tradeId]: validAccountIds.has(accountId) ? accountId : defaultTradeAccountId,
     }));
-  }, [validAccountIds]);
+  }, [defaultTradeAccountId, validAccountIds]);
 
   const removeTradeAccount = useCallback((tradeId: string) => {
     setTradeAccounts(current => {
@@ -497,6 +513,7 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
     preferences,
     confluenceOptions,
     selectedAccountId,
+    defaultTradeAccountId,
     setSelectedAccountId,
     addAccount,
     updateAccount,
@@ -517,6 +534,7 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
     preferences,
     confluenceOptions,
     selectedAccountId,
+    defaultTradeAccountId,
     addAccount,
     updateAccount,
     deleteAccount,
