@@ -13,6 +13,14 @@ import {
 } from 'lucide-react';
 import { aiApi, marketDataApi, NewsFilterItem } from '../services/api.js';
 import { useAppSettings } from '../contexts/AppSettingsContext.js';
+import {
+  DEFAULT_CALENDAR_TIME_ZONE,
+  FEED_CALENDAR_TIME_ZONE,
+  convertCalendarWallTime,
+  getTimeZoneParts,
+  normalizeCalendarTimeZone,
+  zonedWallTimeToDate,
+} from '../utils/calendarTime.js';
 
 const PAGE_BG = 'var(--app-bg)';
 const S1 = 'var(--app-panel)';
@@ -45,9 +53,6 @@ const SOURCES_KEY = 'flyxa_news_sources';
 const CACHE_TTL = 15 * 60 * 1000;
 const CALENDAR_CACHE_TTL = 12 * 60 * 60 * 1000;
 const REFRESH_INTERVAL = 3 * 60 * 1000;
-const DEFAULT_CALENDAR_TIME_ZONE = 'America/New_York';
-const FEED_CALENDAR_TIME_ZONE = 'UTC';
-
 type ImpactLevel = 'high' | 'medium' | 'low';
 type ImpactFilter = 'all' | ImpactLevel;
 type CalendarImpactSelection = Record<ImpactLevel, boolean>;
@@ -160,17 +165,6 @@ function readSourcePrefs(): SourcePrefs {
 function writeSourcePrefs(prefs: SourcePrefs) {
   localStorage.setItem(SOURCES_KEY, JSON.stringify(prefs));
 }
-
-function normalizeCalendarTimeZone(timeZone: string | undefined | null): string {
-  if (!timeZone) return DEFAULT_CALENDAR_TIME_ZONE;
-  try {
-    new Intl.DateTimeFormat('en-US', { timeZone }).format(new Date());
-    return timeZone;
-  } catch {
-    return DEFAULT_CALENDAR_TIME_ZONE;
-  }
-}
-
 
 function fmtRelative(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -366,7 +360,7 @@ function convertFmpCalendarDateTime(event: FMPCalEvent, targetTimeZone: string):
     if (instant) return getTimeZoneParts(instant, targetTimeZone);
   }
 
-  // Separate time field fallback — also treat as ET
+  // Separate time field fallback, also treat as ET.
   const separateRawTime = (event as unknown as { time?: unknown }).time;
   const normalizedSepTime = normalizeForexFactoryTime(separateRawTime);
   if (normalizedSepTime && /^\d{4}-\d{2}-\d{2}$/.test(raw)) {
@@ -375,7 +369,7 @@ function convertFmpCalendarDateTime(event: FMPCalEvent, targetTimeZone: string):
   }
 
   const fallbackDate = raw.slice(0, 10);
-  // Date-only: midnight ET → display timezone
+  // Date-only: midnight ET converted to the display timezone.
   const fallbackInstant = zonedWallTimeToDate(fallbackDate, '00:00', 'America/New_York');
   return getTimeZoneParts(fallbackInstant ?? new Date(), targetTimeZone);
 }
@@ -400,91 +394,6 @@ function normalizeForexFactoryTime(value: unknown): string {
     return parsed.toISOString().slice(11, 16);
   }
   return raw;
-}
-
-function getTimeZoneParts(date: Date, timeZone = DEFAULT_CALENDAR_TIME_ZONE): {
-  date: string;
-  time: string;
-} {
-  const safeTimeZone = normalizeCalendarTimeZone(timeZone);
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: safeTimeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(date);
-
-  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find(item => item.type === type)?.value ?? '00';
-  return {
-    date: `${part('year')}-${part('month')}-${part('day')}`,
-    time: `${part('hour')}:${part('minute')}`,
-  };
-}
-
-
-function getTimeZoneOffsetMs(date: Date, timeZone: string): number {
-  const safeTimeZone = normalizeCalendarTimeZone(timeZone);
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: safeTimeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(date);
-
-  const part = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find(item => item.type === type)?.value ?? 0);
-  const zonedAsUtc = Date.UTC(part('year'), part('month') - 1, part('day'), part('hour'), part('minute'), part('second'));
-  return zonedAsUtc - date.getTime();
-}
-
-function parseCalendarClockTime(value: unknown): string {
-  const raw = String(value ?? '').trim();
-  if (!raw) return '';
-  const twentyFourHour = raw.match(/^(\d{1,2}):(\d{2})/);
-  if (twentyFourHour) {
-    const hour = Number(twentyFourHour[1]);
-    const minute = Number(twentyFourHour[2]);
-    if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
-      return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
-    }
-  }
-
-  const twelveHour = raw.match(/^(\d{1,2}):(\d{2})\s*(am|pm)$/i);
-  if (!twelveHour) return '';
-  const hour = Number(twelveHour[1]);
-  const minute = Number(twelveHour[2]);
-  if (hour < 1 || hour > 12 || minute < 0 || minute > 59) return '';
-  const meridiem = twelveHour[3].toLowerCase();
-  const hour24 = meridiem === 'pm' && hour !== 12 ? hour + 12 : meridiem === 'am' && hour === 12 ? 0 : hour;
-  return `${String(hour24).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
-}
-
-function zonedWallTimeToDate(dateSlice: string, time: string, sourceTimeZone = DEFAULT_CALENDAR_TIME_ZONE): Date | null {
-  const dateMatch = dateSlice.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  const normalizedTime = parseCalendarClockTime(time);
-  const timeMatch = normalizedTime.match(/^(\d{2}):(\d{2})$/);
-  if (!dateMatch || !timeMatch) return null;
-
-  const desiredWallTime = Date.UTC(
-    Number(dateMatch[1]),
-    Number(dateMatch[2]) - 1,
-    Number(dateMatch[3]),
-    Number(timeMatch[1]),
-    Number(timeMatch[2]),
-  );
-  const firstPass = new Date(desiredWallTime - getTimeZoneOffsetMs(new Date(desiredWallTime), sourceTimeZone));
-  return new Date(desiredWallTime - getTimeZoneOffsetMs(firstPass, sourceTimeZone));
-}
-
-function convertCalendarWallTime(dateSlice: string, time: string, targetTimeZone: string, sourceTimeZone = DEFAULT_CALENDAR_TIME_ZONE): { date: string; time: string } | null {
-  const instant = zonedWallTimeToDate(dateSlice, time, sourceTimeZone);
-  return instant ? getTimeZoneParts(instant, targetTimeZone) : null;
 }
 
 function normalizeForexFactoryEvents(
@@ -1082,7 +991,7 @@ function CalendarPanel({
               cursor: 'pointer',
             }}
           >
-            ← Prev
+            Prev
           </button>
           <button
             type="button"
@@ -1116,7 +1025,7 @@ function CalendarPanel({
               cursor: 'pointer',
             }}
           >
-            Next →
+            Next
           </button>
         </div>
       </div>

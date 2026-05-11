@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   TrendingUp,
-  ArrowUpRight, ArrowDownRight, Eye, Filter, ChevronLeft, ChevronRight, Trash2,
+  ArrowUpRight, ArrowDownRight, Eye, Filter, ChevronLeft, ChevronRight, Trash2, ClipboardCheck, X,
 } from 'lucide-react';
 import {
   PieChart, Pie, Cell,
@@ -196,6 +196,16 @@ export default function Dashboard() {
 
   // Fire bottom-right toast notifications when high-impact events are imminent.
   useHighImpactAlerts(preferences?.timezone ?? 'America/New_York');
+
+  // Pre-session brief prompt — shows daily until dismissed or started.
+  const todayKey = format(new Date(), 'yyyy-MM-dd');
+  const [preSessionDone, setPreSessionDone] = useState(
+    () => typeof window !== 'undefined' && localStorage.getItem('flyxa_presession_done_date') === todayKey
+  );
+  const dismissPreSession = useCallback(() => {
+    localStorage.setItem('flyxa_presession_done_date', todayKey);
+    setPreSessionDone(true);
+  }, [todayKey]);
 
   // Breaking news bubble — persists until user dismisses it.
   const [newsBubble, setNewsBubble] = useState<{ text: string; source: string; timestamp: string } | null>(null);
@@ -391,6 +401,43 @@ export default function Dashboard() {
             valueTone="neutral"
           />
         </div>
+
+        {/* Pre-session brief prompt */}
+        {!preSessionDone && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 12,
+            padding: '11px 16px', borderRadius: 8, flexShrink: 0,
+            background: 'rgba(245,158,11,0.07)',
+            border: '1px solid rgba(245,158,11,0.22)',
+          }}>
+            <ClipboardCheck size={16} color={AMBER} style={{ flexShrink: 0 }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ fontSize: 12, fontWeight: 600, color: AMBER, margin: 0 }}>Pre-session brief not started</p>
+              <p style={{ fontSize: 11, color: T3, margin: '2px 0 0' }}>Set your mindset, review your plan, and confirm today's targets before the market opens.</p>
+            </div>
+            <button
+              onClick={() => { dismissPreSession(); navigate('/flyxa-ai/pre-session'); }}
+              style={{
+                height: 30, padding: '0 14px', flexShrink: 0,
+                background: AMBER, border: 'none', borderRadius: 5,
+                fontSize: 11, fontWeight: 600, color: '#000',
+                cursor: 'pointer', fontFamily: SANS,
+                transition: 'opacity 0.15s',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.opacity = '0.85'; }}
+              onMouseLeave={e => { e.currentTarget.style.opacity = '1'; }}
+            >
+              Start brief →
+            </button>
+            <button
+              onClick={dismissPreSession}
+              style={{ background: 'none', border: 'none', padding: 4, cursor: 'pointer', color: T3, flexShrink: 0, display: 'flex', alignItems: 'center' }}
+              title="Dismiss for today"
+            >
+              <X size={13} />
+            </button>
+          </div>
+        )}
 
         {/* 2-column content grid */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 260px', gap: 16, flex: 1, minHeight: 0 }}>

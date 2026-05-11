@@ -388,13 +388,21 @@ function createEmptyEntry(date: string, rulesTemplate: string[]): JournalEntry {
   };
 }
 
-function processGradeToLetter(grade: number): string {
-  if (grade >= 5) return 'A+';
-  if (grade >= 4) return 'A';
-  if (grade >= 3) return 'B';
-  if (grade >= 2) return 'C';
-  if (grade >= 1) return 'D';
-  return '—';
+/** Converts a 0-100 process score to a letter grade. Returns '—' when score is 0 (no data). */
+function scoreToGradeLetter(score: number): string {
+  if (score === 0) return '—';
+  if (score >= 90) return 'A+';
+  if (score >= 80) return 'A';
+  if (score >= 70) return 'B+';
+  if (score >= 60) return 'B';
+  if (score >= 50) return 'C+';
+  if (score >= 30) return 'C';
+  return 'D';
+}
+
+/** CSS class suffix for a grade letter (e.g. 'A+' → 'Aplus'). */
+function gradeCssKey(letter: string): string {
+  return letter.replace('+', 'plus').replace('—', 'dash');
 }
 
 function computeEntryStats(entry: JournalEntry) {
@@ -2278,6 +2286,12 @@ export default function TradeJournal() {
                     <div className={`tj-day-pnl ${stats.pnl > 0 ? 'pos' : stats.pnl < 0 ? 'neg' : ''}`}>{formatSignedCurrency(stats.pnl)}</div>
                     <div className="tj-day-meta">{`${stats.wins}W | ${stats.losses}L | ${stats.tradeCount} trades`}</div>
                   </div>
+                  {(() => {
+                    const scored = entry.trades.map(t => computeProcessScore(t)).filter(s => s > 0);
+                    const avgScore = scored.length > 0 ? Math.round(scored.reduce((a, b) => a + b, 0) / scored.length) : 0;
+                    const letter = scoreToGradeLetter(avgScore);
+                    return <div className={`tj-day-grade g-${gradeCssKey(letter)}`}>{letter}</div>;
+                  })()}
                 </button>
               );
             })
@@ -2310,7 +2324,7 @@ export default function TradeJournal() {
                     const acctId = activeTrade?.accountId;
                     const acct = accounts.find(a => a.id === acctId);
                     return acct ? `${acct.name} | ${acct.type}` : null;
-                  })()} | <strong>{formatSignedCurrency(computeEntryStats(selectedEntry).pnl)}</strong> | Grade {computeEntryStats(selectedEntry).grade}
+                  })()} | <strong>{formatSignedCurrency(computeEntryStats(selectedEntry).pnl)}</strong>
                 </p>
                 {activeTrade && !deleteEntryConfirm && (
                   <div className="tj-date-edit-row">
@@ -2462,9 +2476,15 @@ export default function TradeJournal() {
                     </div>
                   ) : (
                     <div key={trade.id} className={`tj-trade-card ${trade.result}${activeTradeId === trade.id ? ' active' : ''}`} onClick={() => setActiveTradeId(trade.id)}>
-                      <span className={`tj-trade-grade g-${processGradeToLetter(trade.reflection?.processGrade ?? 0).replace('+', 'plus')}`}>
-                        {processGradeToLetter(trade.reflection?.processGrade ?? 0)}
-                      </span>
+                      {(() => {
+                        const s = computeProcessScore(trade);
+                        const letter = scoreToGradeLetter(s);
+                        return (
+                          <span className={`tj-trade-grade g-${gradeCssKey(letter)}`}>
+                            {letter}
+                          </span>
+                        );
+                      })()}
                       <span className="tj-symbol">{trade.symbol}</span>
                       <span className={`tj-tc-badge ${trade.direction === 'LONG' ? 'b-long' : 'b-short'}`}>{trade.direction === 'LONG' ? 'LONG' : 'SHORT'}</span>
                       <button type="button" className="tj-trash-btn" onClick={e => { e.stopPropagation(); setDeleteTradeId(trade.id); }}>

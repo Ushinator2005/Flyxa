@@ -1,5 +1,8 @@
 import { CSSProperties, useMemo, useState } from 'react';
 import FlyxaNav from '../components/flyxa/FlyxaNav.js';
+import { useTrades } from '../hooks/useTrades.js';
+import { useAppSettings } from '../contexts/AppSettingsContext.js';
+import { Trade } from '../types/index.js';
 
 export type PatternType = 'Risk' | 'Edge' | 'Psychology' | 'Behaviour';
 export type PatternStatus = 'Active' | 'Improving' | 'Confirmed' | 'Resolved';
@@ -75,13 +78,210 @@ function filterPillClass(active: boolean) {
   return 'border-white/[0.07] bg-[#1a1917] text-[#8a8178] hover:text-[#e8e3dc]';
 }
 
+type DetectedTimeFrame = '1M' | '3M' | '6M' | 'All';
+
+function getDetectedPeriodStart(tf: DetectedTimeFrame): Date {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  if (tf === '1M') return new Date(today.getFullYear(), today.getMonth(), 1);
+  if (tf === '3M') return new Date(today.getFullYear(), today.getMonth() - 2, 1);
+  if (tf === '6M') return new Date(today.getFullYear(), today.getMonth() - 5, 1);
+  return new Date(0); // All
+}
+
+function tradeR(trade: Partial<Trade>): number {
+  const entry = Number(trade.entry_price ?? 0);
+  const sl = Number(trade.sl_price ?? 0);
+  const pnl = Number(trade.pnl ?? 0);
+  const riskPts = Math.abs(entry - sl);
+  if (riskPts > 0) {
+    const size = Math.max(1, Number(trade.contract_size ?? 1));
+    const ptVal = Math.max(1, Number(trade.point_value ?? 1));
+    const risk = riskPts * size * ptVal;
+    if (risk > 0) return pnl / risk;
+  }
+  return pnl > 0 ? 1 : pnl < 0 ? -1 : 0;
+}
+
+function detectPatternsFromTrades(trades: Trade[], tf: DetectedTimeFrame): PatternItem[] {
+  if (!trades.length) return [];
+  const cutoff = getDetectedPeriodStart(tf);
+  const filtered = trades.filter(t => {
+    const d = t.trade_date ? new Date(`${t.trade_date}T00:00:00`) : (t.created_at ? new Date(t.created_at) : null);
+    return d && d >= cutoff;
+  });
+  if (!filtered.length) return [];
+
+  const patterns: PatternItem[] = [];
+  const now = new Date().toISOString().slice(0, 10);
+
+  const groupBy = <K extends string>(arr: Trade[], key: (t: Trade) => K) => {
+    const map = new Map<K, Trade[]>();
+    arr.forEach(t => { const k = key(t); map.set(k, [...(map.get(k) ?? []), t]); });
+    return map;
+  };
+
+  const summariseGroup = (group: Trade[]) => {
+    const winners = group.filter(t => Number(t.pnl) > 0);
+    const rs = group.map(tradeR);
+    return {
+      count: group.length,
+      netPnl: group.reduce((s, t) => s + Number(t.pnl ?? 0), 0),
+      winRate: group.length ? (winners.length / group.length) * 100 : 0,
+      totalR: rs.reduce((s, r) => s + r, 0),
+      sessions: group
+        .map(t => ({ date: t.trade_date ?? now, rOutcome: parseFloat(tradeR(t).toFixed(2)) }))
+        .sort((a, b) => b.date.localeCompare(a.date))
+        .slice(0, 8),
+      firstSeen: group.map(t => t.trade_date ?? now).sort()[0] ?? now,
+    };
+  };
+
+  // ── Symbol patterns ──────────────────────────────────────────────
+  const symbolGroups = groupBy(filtered, t => (t.symbol?.trim() || 'Unknown'));
+  symbolGroups.forEach((group, symbol) => {
+    if (group.length < 4 || symbol === 'Unknown') return;
+    const s = summariseGroup(group);
+    const confidence = Math.min(95, Math.round(30 + (group.length / 2) * 10 + Math.abs(s.winRate - 50)));
+    if (s.winRate < 35 && s.netPnl < 0) {
+      patterns.push({
+        id: `auto-sym-risk-${symbol}`,
+        type: 'Risk',
+        status: 'Active',
+        title: `${symbol} is consistently unprofitable`,
+        description: `Across ${group.length} trades, ${symbol} returned ${s.totalR >= 0 ? '+' : ''}${s.totalR.toFixed(1)}R (${Math.round(s.winRate)}% win rate). The edge here is negative — this instrument may need to be paused or the setup re-validated.`,
+        firstSeen: s.firstSeen,
+        sessionCount: group.length,
+        totalR: parseFloat(s.totalR.toFixed(2)),
+        tags: [{ label: `${group.length} trades`, sentiment: 'neutral' }, { label: `${Math.round(s.winRate)}% win rate`, sentiment: 'negative' }],
+        confidence,
+        instrument: symbol,
+        session: 'RTH open',
+        sessions: s.sessions,
+      });
+    } else if (s.winRate >= 60 && s.netPnl > 0 && group.length >= 5) {
+      patterns.push({
+        id: `auto-sym-edge-${symbol}`,
+        type: 'Edge',
+        status: 'Confirmed',
+        title: `${symbol} is a confirmed profit driver`,
+        description: `${group.length} trades on ${symbol} yielded ${s.totalR >= 0 ? '+' : ''}${s.totalR.toFixed(1)}R at ${Math.round(s.winRate)}% win rate. This instrument has a validated edge over this period — keep conditions tight.`,
+        firstSeen: s.firstSeen,
+        sessionCount: group.length,
+        totalR: parseFloat(s.totalR.toFixed(2)),
+        tags: [{ label: `${group.length} trades`, sentiment: 'neutral' }, { label: `${Math.round(s.winRate)}% win rate`, sentiment: 'positive' }],
+        confidence,
+        instrument: symbol,
+        session: 'RTH open',
+        sessions: s.sessions,
+      });
+    }
+  });
+
+  // ── Session patterns ─────────────────────────────────────────────
+  const sessionGroups = groupBy(filtered, t => ((t.session ?? 'Other') as string) as any);
+  sessionGroups.forEach((group, session) => {
+    if (group.length < 5 || session === 'Other') return;
+    const s = summariseGroup(group);
+    const confidence = Math.min(92, Math.round(25 + (group.length / 3) * 10 + Math.abs(s.winRate - 50)));
+    if (s.winRate < 40 && s.netPnl < 0) {
+      patterns.push({
+        id: `auto-sess-risk-${session}`,
+        type: 'Risk',
+        status: 'Active',
+        title: `${session} session is your weakest window`,
+        description: `Your ${session} trades returned ${s.totalR.toFixed(1)}R across ${group.length} trades (${Math.round(s.winRate)}% win rate). Consider reducing size or skipping entries during this session until execution improves.`,
+        firstSeen: s.firstSeen,
+        sessionCount: group.length,
+        totalR: parseFloat(s.totalR.toFixed(2)),
+        tags: [{ label: session, sentiment: 'neutral' }, { label: `${Math.round(s.winRate)}% win rate`, sentiment: 'negative' }],
+        confidence,
+        instrument: 'All',
+        session: 'RTH open',
+        sessions: s.sessions,
+      });
+    } else if (s.winRate >= 58 && s.netPnl > 0 && group.length >= 6) {
+      patterns.push({
+        id: `auto-sess-edge-${session}`,
+        type: 'Edge',
+        status: 'Confirmed',
+        title: `${session} session is your edge window`,
+        description: `${group.length} trades during ${session} returned +${s.totalR.toFixed(1)}R at ${Math.round(s.winRate)}% win rate. This is a statistically meaningful edge — protect it with consistent sizing.`,
+        firstSeen: s.firstSeen,
+        sessionCount: group.length,
+        totalR: parseFloat(s.totalR.toFixed(2)),
+        tags: [{ label: session, sentiment: 'neutral' }, { label: `${Math.round(s.winRate)}% win rate`, sentiment: 'positive' }],
+        confidence,
+        instrument: 'All',
+        session: 'RTH open',
+        sessions: s.sessions,
+      });
+    }
+  });
+
+  // ── Emotional state patterns ─────────────────────────────────────
+  const stateGroups = groupBy(filtered, t => (t.emotional_state || 'Unspecified') as any);
+  stateGroups.forEach((group, state) => {
+    if (group.length < 3 || state === 'Unspecified') return;
+    const s = summariseGroup(group);
+    const confidence = Math.min(90, Math.round(20 + (group.length / 2) * 10 + Math.abs(s.winRate - 50)));
+    if (s.winRate < 38 && s.netPnl < 0) {
+      patterns.push({
+        id: `auto-psych-risk-${state}`,
+        type: 'Psychology',
+        status: 'Active',
+        title: `Trading when "${state}" is costing you money`,
+        description: `${group.length} trades logged while feeling "${state}" returned ${s.totalR.toFixed(1)}R at ${Math.round(s.winRate)}% win rate. This emotional state correlates with underperformance — consider a no-trade rule when you feel this way.`,
+        firstSeen: s.firstSeen,
+        sessionCount: group.length,
+        totalR: parseFloat(s.totalR.toFixed(2)),
+        tags: [{ label: `"${state}"`, sentiment: 'negative' }, { label: `${group.length} trades`, sentiment: 'neutral' }],
+        confidence,
+        instrument: 'All',
+        session: 'RTH open',
+        sessions: s.sessions,
+      });
+    } else if (s.winRate >= 60 && s.netPnl > 0 && group.length >= 4) {
+      patterns.push({
+        id: `auto-psych-edge-${state}`,
+        type: 'Psychology',
+        status: 'Confirmed',
+        title: `"${state}" is your optimal trading state`,
+        description: `${group.length} trades when feeling "${state}" returned +${s.totalR.toFixed(1)}R at ${Math.round(s.winRate)}% win rate. This emotional state correlates with your best execution — note the conditions that produce it.`,
+        firstSeen: s.firstSeen,
+        sessionCount: group.length,
+        totalR: parseFloat(s.totalR.toFixed(2)),
+        tags: [{ label: `"${state}"`, sentiment: 'positive' }, { label: `${group.length} trades`, sentiment: 'neutral' }],
+        confidence,
+        instrument: 'All',
+        session: 'RTH open',
+        sessions: s.sessions,
+      });
+    }
+  });
+
+  return patterns.sort((a, b) => Math.abs(b.totalR) - Math.abs(a.totalR));
+}
+
 export default function FlyxaAIPatterns() {
+  const { trades } = useTrades();
+  const { filterTradesBySelectedAccount } = useAppSettings();
+  const accountTrades = useMemo(
+    () => (filterTradesBySelectedAccount(trades) as Trade[]).filter(Boolean),
+    [filterTradesBySelectedAccount, trades]
+  );
+
   const [patterns, setPatterns] = useState<PatternItem[]>([]);
   const [expandedPatternId, setExpandedPatternId] = useState<string | null>(null);
   const [showResolved, setShowResolved] = useState(false);
   const [selectedType, setSelectedType] = useState<'All' | PatternType>('All');
   const [selectedSession, setSelectedSession] = useState<'All' | SessionBucket>('All');
   const [sortBy, setSortBy] = useState<SortOption>('impact');
+  const [detectedTf, setDetectedTf] = useState<DetectedTimeFrame>('3M');
+
+  const detectedPatterns = useMemo(
+    () => detectPatternsFromTrades(accountTrades, detectedTf),
+    [accountTrades, detectedTf]
+  );
 
   const filteredPatterns = useMemo(() => {
     const base = patterns.filter(pattern => pattern.status !== 'Resolved');
@@ -237,12 +437,55 @@ export default function FlyxaAIPatterns() {
           <div className="flex h-full min-h-0 flex-col">
             <section className="border-b px-6 py-5" style={{ borderColor: colors.b0 }}>
               <p className="text-[9.5px] uppercase tracking-[0.12em]" style={{ color: colors.t2 }}>Flyxa AI</p>
-              <h1 className="mt-2 text-[24px] font-bold tracking-[-0.02em]" style={{ color: colors.t0 }}>Pattern library</h1>
-              <p className="mt-1 text-[12px]" style={{ color: colors.t2 }}>Track recurring behaviors, confirm edges, and close leakage loops.</p>
+              <div className="mt-2 flex items-center gap-3">
+                <h1 className="text-[24px] font-bold tracking-[-0.02em]" style={{ color: colors.t0 }}>Pattern library</h1>
+                <div className="flex gap-0.5 rounded-[5px] p-0.5" style={{ backgroundColor: colors.d3 }}>
+                  {(['1M', '3M', '6M', 'All'] as DetectedTimeFrame[]).map(tf => (
+                    <button
+                      key={tf}
+                      type="button"
+                      onClick={() => setDetectedTf(tf)}
+                      className="rounded-[3px] px-2.5 py-[3px] text-[10px] font-medium transition-colors"
+                      style={{
+                        backgroundColor: detectedTf === tf ? colors.d4 : 'transparent',
+                        color: detectedTf === tf ? colors.t0 : colors.t2,
+                        border: detectedTf === tf ? `1px solid ${colors.b1}` : '1px solid transparent',
+                      }}
+                    >
+                      {tf}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <p className="mt-1 text-[12px]" style={{ color: colors.t2 }}>Patterns auto-detected from your trade history &middot; {detectedPatterns.length} found over {detectedTf === 'All' ? 'all time' : detectedTf === '1M' ? 'the last month' : detectedTf === '3M' ? 'the last 3 months' : 'the last 6 months'}</p>
             </section>
 
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
               <div className="space-y-4">
+
+                {/* ── Auto-detected patterns ── */}
+                {detectedPatterns.length > 0 && (
+                  <section>
+                    <div className="mb-2 flex items-center gap-2">
+                      <p className="text-[9.5px] font-medium uppercase tracking-[0.12em]" style={{ color: colors.acc }}>Auto-detected from trade history</p>
+                      <span className="rounded-[3px] px-1.5 py-0.5 text-[9px] font-semibold" style={{ backgroundColor: 'rgba(245,158,11,0.12)', color: colors.acc }}>{detectedPatterns.length}</span>
+                    </div>
+                    <div className="space-y-3">
+                      {detectedPatterns.map(renderPatternCard)}
+                    </div>
+                  </section>
+                )}
+                {detectedPatterns.length === 0 && accountTrades.length > 0 && (
+                  <div className="rounded-[8px] border px-4 py-3 text-[12px]" style={{ borderColor: colors.b0, backgroundColor: colors.d2, color: colors.t2 }}>
+                    No statistically significant patterns found in the selected period. Patterns emerge once a symbol, session, or emotional state has 3–5+ trades with a consistent directional result. Keep logging.
+                  </div>
+                )}
+                {accountTrades.length === 0 && (
+                  <div className="rounded-[8px] border px-4 py-3 text-[12px]" style={{ borderColor: colors.b0, backgroundColor: colors.d2, color: colors.t2 }}>
+                    No trade data found. Log trades in the journal to activate auto-detection.
+                  </div>
+                )}
+
                 <section className="space-y-2 rounded-[8px] p-3" style={{ border: cardBorder, backgroundColor: colors.d2 }}>
                   <div className="flex flex-wrap items-center gap-2">
                     <span style={tinyMetaLabelStyle}>Type</span>
@@ -300,7 +543,7 @@ export default function FlyxaAIPatterns() {
 
                 <section>
                   <div className="mb-2">
-                    <p className="text-[9.5px] font-medium uppercase tracking-[0.12em]" style={{ color: colors.red }}>Costing you</p>
+                    <p className="text-[9.5px] font-medium uppercase tracking-[0.12em]" style={{ color: colors.red }}>Manually tracked · Costing you</p>
                     <p className="text-[12px]" style={{ color: colors.t2 }}>{costingPatterns.length} patterns</p>
                   </div>
                   <div className="space-y-3">
@@ -315,7 +558,7 @@ export default function FlyxaAIPatterns() {
 
                 <section>
                   <div className="mb-2">
-                    <p className="text-[9.5px] font-medium uppercase tracking-[0.12em]" style={{ color: colors.grn }}>Making you money</p>
+                    <p className="text-[9.5px] font-medium uppercase tracking-[0.12em]" style={{ color: colors.grn }}>Manually tracked · Making you money</p>
                     <p className="text-[12px]" style={{ color: colors.t2 }}>{earningPatterns.length} patterns</p>
                   </div>
                   <div className="space-y-3">

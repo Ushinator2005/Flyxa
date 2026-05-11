@@ -20,7 +20,7 @@ export interface Trade {
   trade_length_seconds: number;
   candle_count: number;
   timeframe_minutes: number;
-  emotional_state?: 'Calm' | 'Confident' | 'Anxious' | 'Revenge Trading' | 'FOMO' | 'Overconfident' | 'Tired' | null;
+  emotional_state?: string | null;
   confidence_level?: number | null;
   pre_trade_notes: string;
   post_trade_notes: string;
@@ -182,7 +182,6 @@ export interface TradingAccount {
   id: string;
   name: string;
   broker?: string;
-  credentials?: string;
   type: TradingAccountType;
   status: TradingAccountStatus;
   color: string;
@@ -191,7 +190,7 @@ export interface TradingAccount {
 
 export interface AppPreferences {
   dateFormat: 'dd/MM/yyyy' | 'MM/dd/yyyy' | 'yyyy-MM-dd';
-  currencySymbol: '$' | 'â‚¬' | 'Â£' | 'A$';
+  currencySymbol: '$' | '€' | '£' | 'A$';
   timezone: string;
   defaultTimeframe: '1m' | '5m' | '15m' | '1h';
   defaultChartType: 'Candles' | 'Line' | 'Area';

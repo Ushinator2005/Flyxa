@@ -279,6 +279,31 @@
   color: var(--txt-3);
 }
 
+.tj-day-grade {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+  background: var(--surface-2);
+  color: var(--txt-3);
+}
+
+.tj-day-grade.g-Aplus { background: rgba(74,222,128,0.12);  color: #4ade80; }
+.tj-day-grade.g-A     { background: rgba(134,239,172,0.12); color: #86efac; }
+.tj-day-grade.g-Bplus { background: rgba(163,230,53,0.12);  color: #a3e635; }
+.tj-day-grade.g-B     { background: rgba(251,191,36,0.12);  color: #fbbf24; }
+.tj-day-grade.g-Cplus { background: rgba(251,146,60,0.12);  color: #fb923c; }
+.tj-day-grade.g-C     { background: rgba(249,115,22,0.12);  color: #f97316; }
+.tj-day-grade.g-D     { background: rgba(248,113,113,0.12); color: #f87171; }
+.tj-day-grade.g-dash  { background: transparent; color: var(--txt-3); }
+
 .tj-day-empty {
   min-height: 100%;
   display: flex;
@@ -612,9 +637,12 @@
 
 .tj-trade-grade.g-Aplus { color: #4ade80; }
 .tj-trade-grade.g-A     { color: #86efac; }
+.tj-trade-grade.g-Bplus { color: #a3e635; }
 .tj-trade-grade.g-B     { color: #fbbf24; }
-.tj-trade-grade.g-C     { color: #fb923c; }
+.tj-trade-grade.g-Cplus { color: #fb923c; }
+.tj-trade-grade.g-C     { color: #f97316; }
 .tj-trade-grade.g-D     { color: #f87171; }
+.tj-trade-grade.g-dash  { color: var(--txt-3); }
 
 .tj-symbol {
   min-width: 28px;

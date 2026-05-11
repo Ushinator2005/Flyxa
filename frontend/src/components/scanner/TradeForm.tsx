@@ -481,7 +481,7 @@ export default function TradeForm({
         }
       `}</style>
 
-      {/* â”€â”€ Row 1: Chart + Instrument + Price Levels â”€â”€ */}
+      {/* Row 1: Chart + Instrument + Price Levels */}
       <div className="scanner-row-one">
         {/* Chart */}
         <div style={panel}>
@@ -675,7 +675,7 @@ export default function TradeForm({
         </div>
       </div>
 
-      {/* â”€â”€ Row 2: Outcome  +  Psychology â”€â”€ */}
+      {/* Row 2: Outcome + Psychology */}
       <div className="scanner-row-two">
 
         {/* Outcome */}
@@ -776,7 +776,7 @@ export default function TradeForm({
         </div>
       </div>
 
-      {/* â”€â”€ Row 3: Confluences (full width) â”€â”€ */}
+      {/* Row 3: Confluences (full width) */}
       <div style={panel}>
         <SectionLabel>Confluences</SectionLabel>
         <div className="scanner-confluence-row">
@@ -816,7 +816,7 @@ export default function TradeForm({
         )}
       </div>
 
-      {/* â”€â”€ Row 4: Notes (full width, 3-col internal) â”€â”€ */}
+      {/* Row 4: Notes (full width, 3-col internal) */}
       <div style={panel}>
         <SectionLabel>Notes</SectionLabel>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -902,7 +902,7 @@ export default function TradeForm({
         </div>
       </div>
 
-      {/* â”€â”€ Actions â”€â”€ */}
+      {/* Actions */}
       {(submitError || requiredFieldsMessage) && (
         <p style={{ fontSize: 12, color: requiredFieldsMessage && !submitError ? AMBER : '#f87171' }}>
           {submitError || requiredFieldsMessage}
@@ -936,4 +936,3 @@ export default function TradeForm({
     </form>
   );
 }
-

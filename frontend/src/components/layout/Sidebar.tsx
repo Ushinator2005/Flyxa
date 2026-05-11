@@ -3,7 +3,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Brain, BarChart2, Target,
   Heart, FileText, Crosshair, Swords, Trophy,
-  Settings, LogOut, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Plus, CreditCard, ScanLine, Newspaper,
+  Settings, LogOut, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Plus, CreditCard, ScanLine, Newspaper, ClipboardCheck,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext.js';
 import { useAppSettings } from '../../contexts/AppSettingsContext.js';
@@ -30,18 +30,19 @@ function accountStatusColor(status: string): string {
 }
 
 const navItems = [
-  { path: '/',           icon: LayoutDashboard, label: 'Dashboard'    },
-  { path: '/scanner',    icon: ScanLine,        label: 'Trade Scanner' },
-  { path: '/journal',      icon: FileText,        label: 'Daily Journal'  },
-  { path: '/market-news', icon: Newspaper,       label: 'Market News'    },
-  { path: '/flyxa-ai',    icon: Brain,           label: 'Flyxa AI'       },
-  { path: '/analytics',  icon: BarChart2,        label: 'Analytics'    },
-  { path: '/backtest',   icon: Target,           label: 'Backtest'     },
-  { path: '/trading-plan', icon: FileText,       label: 'Trading Plan' },
-  { path: '/psychology', icon: Heart,            label: 'Psychology'   },
-  { path: '/goals',      icon: Crosshair,        label: 'Goals'        },
-  { path: '/rivals',     icon: Swords,           label: 'Rivals'       },
-  { path: '/achievements',icon: Trophy,          label: 'Achievements' },
+  { path: '/',                         icon: LayoutDashboard, label: 'Dashboard'       },
+  { path: '/flyxa-ai/pre-session',     icon: ClipboardCheck,  label: 'Pre-Session'     },
+  { path: '/scanner',                  icon: ScanLine,        label: 'Trade Scanner'   },
+  { path: '/journal',                  icon: FileText,        label: 'Daily Journal'   },
+  { path: '/market-news',              icon: Newspaper,       label: 'Market News'     },
+  { path: '/flyxa-ai',                 icon: Brain,           label: 'Flyxa AI'        },
+  { path: '/analytics',                icon: BarChart2,       label: 'Analytics'       },
+  { path: '/backtest',                 icon: Target,          label: 'Backtest'        },
+  { path: '/trading-plan',             icon: FileText,        label: 'Trading Plan'    },
+  { path: '/psychology',               icon: Heart,           label: 'Psychology'      },
+  { path: '/goals',                    icon: Crosshair,       label: 'Goals'           },
+  { path: '/rivals',                   icon: Swords,          label: 'Rivals'          },
+  { path: '/achievements',             icon: Trophy,          label: 'Achievements'    },
 ];
 
 function NavItem({

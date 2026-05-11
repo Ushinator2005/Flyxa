@@ -132,22 +132,6 @@ export const analyticsApi = {
 };
 
 export const aiApi = {
-  analyzeChartScreenshot: (file: File, contractSize: number) => {
-    const formData = new FormData();
-    formData.append('image', file);
-    formData.append('contractSize', String(contractSize));
-    return api.postFormData<Array<{
-      symbol?: string;
-      direction?: 'Long' | 'Short' | null;
-      entry_price: number | null;
-      stop_loss: number | null;
-      take_profit: number | null;
-      rr_ratio: string | null;
-      outcome: 'WIN' | 'LOSS' | null;
-      trade_duration: string | null;
-      net_pnl: number | null;
-    }>>('/api/ai/chart-analyzer', formData);
-  },
   scanChart: (
     file: File,
     entryDate: string,

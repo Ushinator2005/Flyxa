@@ -6,18 +6,22 @@ export interface AppError extends Error {
 
 export function errorHandler(
   err: AppError,
-  req: Request,
+  _req: Request,
   res: Response,
-  next: NextFunction
+  _next: NextFunction
 ): void {
   console.error('Error:', err.message);
-  console.error('Stack:', err.stack);
+  if (err.stack) console.error('Stack:', err.stack);
 
   const statusCode = err.statusCode || 500;
-  const message = err.message || 'Internal server error';
+  const isClientError = statusCode >= 400 && statusCode < 500;
+  const isDevelopment = process.env.NODE_ENV === 'development';
+  const message = isClientError || isDevelopment
+    ? err.message || 'Request failed'
+    : 'Internal server error';
 
   res.status(statusCode).json({
     error: message,
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack }),
+    ...(isDevelopment && { stack: err.stack }),
   });
 }

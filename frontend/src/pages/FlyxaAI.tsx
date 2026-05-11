@@ -102,6 +102,72 @@ function addDays(date: Date, days: number) {
   return next;
 }
 
+/** Returns midnight on the Monday of the current calendar week. */
+function thisWeekMonday(): Date {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const dow = today.getDay(); // 0=Sun,1=Mon,...,6=Sat
+  const daysToMon = dow === 0 ? 6 : dow - 1;
+  today.setDate(today.getDate() - daysToMon);
+  return today;
+}
+
+type TimeFrame = '1W' | '1M' | '3M' | 'All';
+
+function getPeriodWindow(tf: TimeFrame) {
+  const now = new Date(); now.setHours(23, 59, 59, 999);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  if (tf === '1W') {
+    const mon = thisWeekMonday();
+    return {
+      periodStart: mon, periodEnd: now,
+      displayStart: mon, displayEnd: addDays(mon, 4),
+      prevStart: addDays(mon, -7), prevEnd: addDays(mon, -1),
+      periodLabel: 'this week', prevLabel: 'prev week', headerLabel: 'Weekly debrief',
+    };
+  }
+  if (tf === '1M') {
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+    const prevMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    const prevMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0);
+    return {
+      periodStart: monthStart, periodEnd: now,
+      displayStart: monthStart, displayEnd: monthEnd,
+      prevStart: prevMonthStart, prevEnd: prevMonthEnd,
+      periodLabel: 'this month', prevLabel: 'prev month', headerLabel: 'Monthly debrief',
+    };
+  }
+  if (tf === '3M') {
+    const start = new Date(today.getFullYear(), today.getMonth() - 2, 1);
+    const displayEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+    const prevStart = new Date(today.getFullYear(), today.getMonth() - 5, 1);
+    const prevEnd = new Date(today.getFullYear(), today.getMonth() - 2, 0);
+    return {
+      periodStart: start, periodEnd: now,
+      displayStart: start, displayEnd,
+      prevStart, prevEnd,
+      periodLabel: 'last 3 months', prevLabel: 'prev 3 months', headerLabel: '3-Month review',
+    };
+  }
+  // All time
+  return {
+    periodStart: new Date(0), periodEnd: now,
+    displayStart: new Date(0), displayEnd: today,
+    prevStart: new Date(0), prevEnd: new Date(0),
+    periodLabel: 'all time', prevLabel: '', headerLabel: 'All-time review',
+  };
+}
+
+function formatPeriodRange(start: Date, end: Date): string {
+  if (start.getTime() <= 1000) return `All time · through ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+  const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  if (start.getFullYear() !== end.getFullYear()) {
+    return `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} – ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+  }
+  return `${fmt(start)} – ${fmt(end)}, ${end.getFullYear()}`;
+}
+
 function parseTradeDate(trade?: Partial<Trade> | null): Date | null {
   if (!trade) return null;
   if (trade.trade_date) {
@@ -352,29 +418,32 @@ function renderBodyWithHighlights(body: string, keyPhrases: string[]) {
 }
 
 
-function buildData(trades: Trade[]): WeeklyDebriefData {
+function buildData(trades: Trade[], tf: TimeFrame = '1W'): WeeklyDebriefData {
+  const pw = getPeriodWindow(tf);
+  const { periodLabel, prevLabel } = pw;
+
   if (!trades.length) {
     return {
-      weekRange: formatWeekRange(addDays(new Date(), -6), new Date()),
+      weekRange: formatPeriodRange(pw.displayStart, pw.displayEnd),
       sessionCount: 0,
       tradeCount: 0,
       instruments: [],
       stats: {
-        netR: { label: 'Net PL', value: '$0.00', subLabel: 'No trades logged this week', tone: 'neutral' },
+        netR: { label: 'Net PL', value: '$0.00', subLabel: `No trades logged ${periodLabel}`, tone: 'neutral' },
         winRate: { label: 'Win Rate', value: '0%', subLabel: '0W / 0L', tone: 'neutral' },
         avgWinner: { label: 'Avg Winner', value: '$0.00', subLabel: 'Need trade samples', tone: 'neutral' },
         avgLoser: { label: 'Avg Loser', value: '$0.00', subLabel: 'Need trade samples', tone: 'neutral' },
         processScore: { label: 'Process Score', value: '0/100', subLabel: 'Builds from journal behavior', tone: 'info' },
       },
-      question: 'What single setup will you execute with discipline this week?',
+      question: `What single setup will you execute with discipline ${periodLabel}?`,
       insights: [{
         type: 'risk',
         badge: 'Risk Flag',
         frequency: 'Waiting for trade data',
-        title: 'No weekly risk signal yet',
+        title: `No ${pw.headerLabel.toLowerCase()} signal yet`,
         body: 'Add trades in the journal and Flyxa will generate this debrief from your execution data.',
         keyPhrases: ['journal', 'execution data'],
-        tags: [{ label: 'No trades this week', tone: 'neutral' }],
+        tags: [{ label: `No trades ${periodLabel}`, tone: 'neutral' }],
         actionLabel: 'Add your first trade ->',
       }],
       processBreakdown: [
@@ -398,28 +467,34 @@ function buildData(trades: Trade[]): WeeklyDebriefData {
   }
 
   const ordered = [...trades].sort((a, b) => (parseTradeDateTime(a)?.getTime() ?? 0) - (parseTradeDateTime(b)?.getTime() ?? 0));
-  const anchor = parseTradeDate(ordered[ordered.length - 1]) ?? new Date();
-  const weekEnd = addDays(anchor, 0);
-  const weekStart = addDays(weekEnd, -6);
-  const prevStart = addDays(weekStart, -7);
-  const prevEnd = addDays(weekStart, -1);
-  const rollingStart = addDays(weekEnd, -29);
+  const { periodStart, periodEnd, prevStart, prevEnd } = pw;
+  // For All-time, set displayStart to the earliest trade date.
+  const allTimeDisplayStart = tf === 'All'
+    ? (() => {
+        const dates = ordered.map(t => parseTradeDate(t)).filter(Boolean) as Date[];
+        return dates.length ? new Date(Math.min(...dates.map(d => d.getTime()))) : pw.displayEnd;
+      })()
+    : pw.displayStart;
+  const displayStart = tf === 'All' ? allTimeDisplayStart : pw.displayStart;
+  const displayEnd = pw.displayEnd;
+  const rollingStart = addDays(periodEnd, -89);
+
   const inRange = (trade: Trade, start: Date, end: Date) => {
     const date = parseTradeDate(trade);
     return Boolean(date && date.getTime() >= start.getTime() && date.getTime() <= end.getTime());
   };
 
-  const weekly = ordered.filter(t => inRange(t, weekStart, weekEnd));
-  const previous = ordered.filter(t => inRange(t, prevStart, prevEnd));
-  const rolling = ordered.filter(t => inRange(t, rollingStart, weekEnd));
-  const weeklySummary = summarize(weekly);
+  const periodTrades = ordered.filter(t => inRange(t, periodStart, periodEnd));
+  const previous = tf !== 'All' ? ordered.filter(t => inRange(t, prevStart, prevEnd)) : [];
+  const rolling = ordered.filter(t => inRange(t, rollingStart, periodEnd));
+  const periodSummary = summarize(periodTrades);
   const previousSummary = summarize(previous);
-  const weeklyProcess = processBreakdown(weekly);
+  const periodProcess = processBreakdown(periodTrades);
   const rollingProcess = processBreakdown(rolling);
-  const processDiff = weeklyProcess.score - rollingProcess.score;
-  const sessionCount = new Set(weekly.map(tradeSessionKey).filter(Boolean)).size;
+  const processDiff = periodProcess.score - rollingProcess.score;
+  const sessionCount = new Set(periodTrades.map(tradeSessionKey).filter(Boolean)).size;
 
-  const instruments = Array.from(weekly.reduce((map, trade) => {
+  const instruments = Array.from(periodTrades.reduce((map, trade) => {
     const symbol = trade.symbol?.trim() || 'N/A';
     map.set(symbol, (map.get(symbol) ?? 0) + 1);
     return map;
@@ -428,11 +503,11 @@ function buildData(trades: Trade[]): WeeklyDebriefData {
     .slice(0, 2)
     .map(([symbol]) => symbol);
 
-  const earlyTrades = weekly.filter(t => {
+  const earlyTrades = periodTrades.filter(t => {
     const minutes = tradeMinutes(t);
     return minutes !== null && minutes < 600;
   });
-  const lateTrades = weekly.filter(t => {
+  const lateTrades = periodTrades.filter(t => {
     const minutes = tradeMinutes(t);
     return minutes !== null && minutes >= 600;
   });
@@ -441,7 +516,7 @@ function buildData(trades: Trade[]): WeeklyDebriefData {
   const earlySessions = new Set(earlyTrades.map(tradeSessionKey).filter(Boolean)).size;
 
   const symbolGroups = new Map<string, Trade[]>();
-  weekly.forEach(trade => {
+  periodTrades.forEach(trade => {
     const symbol = trade.symbol?.trim() || 'Unknown';
     symbolGroups.set(symbol, [...(symbolGroups.get(symbol) ?? []), trade]);
   });
@@ -450,7 +525,7 @@ function buildData(trades: Trade[]): WeeklyDebriefData {
   const topSymbolSummary = topSymbol ? summarize(topSymbol[1]) : summarize([]);
 
   const stateGroups = new Map<string, Trade[]>();
-  weekly.forEach(trade => {
+  periodTrades.forEach(trade => {
     const state = trade.emotional_state || 'Unspecified';
     stateGroups.set(state, [...(stateGroups.get(state) ?? []), trade]);
   });
@@ -463,7 +538,7 @@ function buildData(trades: Trade[]): WeeklyDebriefData {
   const psychStrongest = meaningfulStates[meaningfulStates.length - 1];
 
   const sessionGroups = new Map<string, Trade[]>();
-  weekly.forEach(trade => {
+  periodTrades.forEach(trade => {
     const session = trade.session || 'Other';
     sessionGroups.set(session, [...(sessionGroups.get(session) ?? []), trade]);
   });
@@ -477,7 +552,7 @@ function buildData(trades: Trade[]): WeeklyDebriefData {
     wins: number;
     netPnl: number;
   }>();
-  weekly.forEach(trade => {
+  periodTrades.forEach(trade => {
     const tradeConfluences = normalizeConfluences(trade.confluences);
     if (!tradeConfluences.length) return;
     const tradeConfluenceSet = new Set(tradeConfluences.map(confluence => confluence.toLowerCase()));
@@ -509,15 +584,15 @@ function buildData(trades: Trade[]): WeeklyDebriefData {
     .filter(item => item.netPnl < 0)
     .sort((a, b) => a.netPnl - b.netPnl)[0];
 
-  const weakestProcess = [...weeklyProcess.items].sort((a, b) => a.value - b.value)[0];
+  const weakestProcess = [...periodProcess.items].sort((a, b) => a.value - b.value)[0];
   const question = weakestProcess?.label === 'Entry patience'
-    ? 'Which entries this week were taken too early, and what confirmation were you still waiting for?'
+    ? `Which entries ${periodLabel} were taken too early, and what confirmation were you still waiting for?`
     : weakestProcess?.label === 'Post-loss mgmt'
       ? 'After your losing trades, where did you reset well and where did you press too quickly?'
       : weakestProcess?.label === 'Size discipline'
         ? 'Where did your size deviate from plan, and what triggered it?'
         : weakestConfluence
-          ? `How can you tighten or avoid "${weakestConfluence.label}" when it has cost ${formatSignedCurrency(weakestConfluence.netPnl)} this week?`
+          ? `How can you tighten or avoid "${weakestConfluence.label}" when it has cost ${formatSignedCurrency(weakestConfluence.netPnl)} ${periodLabel}?`
           : 'Which losing trades came from plan drift, and what rule would have prevented them?';
 
   const insights: WeeklyInsight[] = [
@@ -535,9 +610,9 @@ function buildData(trades: Trade[]): WeeklyDebriefData {
         if (lateTrades.length > 0 && earlySummary.avgPnl >= lateSummary.avgPnl) return 'Session Note';
         return 'Risk Flag';
       })(),
-      frequency: earlyTrades.length ? `${earlyTrades.length} trades before 10:00 · ${earlySessions} sessions` : 'No early-session entries this week',
+      frequency: earlyTrades.length ? `${earlyTrades.length} trades before 10:00 · ${earlySessions} sessions` : `No early-session entries ${periodLabel}`,
       title: (() => {
-        if (!earlyTrades.length) return 'Open-hour risk stayed controlled this week';
+        if (!earlyTrades.length) return `Open-hour risk stayed controlled ${periodLabel}`;
         if (earlySummary.netPnl < 0) return 'Pre-10:00 entries are bleeding your P&L — stop trading the open';
         if (lateTrades.length > 0 && earlySummary.avgPnl > lateSummary.avgPnl) return 'Your pre-10:00 edge outperformed late session — worth monitoring';
         if (lateTrades.length > 0 && earlySummary.avgPnl < lateSummary.avgPnl) return 'Open-hour entries are underperforming your late-session edge';
@@ -555,7 +630,7 @@ function buildData(trades: Trade[]): WeeklyDebriefData {
           return `All ${earlyTrades.length} of your trades were before 10:00, totalling ${formatSignedCurrency(earlySummary.netPnl)} (${formatSignedCurrency(earlyAvg)}/trade avg). No late-session trades to compare against.`;
         }
         if (earlyAvg >= lateAvg) {
-          return `Pre-10:00 avg was ${formatSignedCurrency(earlyAvg)} vs ${formatSignedCurrency(lateAvg)} after 10:00 — your early entries actually outperformed this week. That's unusual. Confirm whether these were genuinely high-quality setups or lucky noise before making this a habit.`;
+          return `Pre-10:00 avg was ${formatSignedCurrency(earlyAvg)} vs ${formatSignedCurrency(lateAvg)} after 10:00 — your early entries actually outperformed ${periodLabel}. That's unusual. Confirm whether these were genuinely high-quality setups or lucky noise before making this a habit.`;
         }
         return `${earlyTrades.length} trades before 10:00 averaged ${formatSignedCurrency(earlyAvg)}, underperforming your after-10:00 avg of ${formatSignedCurrency(lateAvg)}. Your edge is stronger later in the session — delay first entries.`;
       })(),
@@ -578,7 +653,7 @@ function buildData(trades: Trade[]): WeeklyDebriefData {
       type: 'pattern',
       badge: 'Recurring Pattern',
       frequency: topSymbol ? `${topSymbolName} appeared in ${topSymbol[1].length} trades` : 'Not enough symbol data',
-      title: topSymbol ? `${topSymbolName} is your dominant recurring instrument this week` : 'No recurring symbol pattern detected',
+      title: topSymbol ? `${topSymbolName} is your dominant recurring instrument ${periodLabel}` : 'No recurring symbol pattern detected',
       body: topSymbol
         ? (() => {
             const netPnl = topSymbolSummary.netPnl;
@@ -608,47 +683,30 @@ function buildData(trades: Trade[]): WeeklyDebriefData {
         : [{ label: 'Need more samples', tone: 'neutral' }],
       actionLabel: 'Promote to pattern library ->',
     },
-    {
-      type: 'psychology',
+    ...(hasEnoughPsychData && psychWeakest && psychStrongest ? [{
+      type: 'psychology' as const,
       badge: 'Psychology',
-      frequency: hasEnoughPsychData
-        ? `${meaningfulStates.length} emotional states logged`
-        : meaningfulStates.length === 1
-          ? '1 state — need more variety'
-          : 'No emotional states tagged',
-      title: hasEnoughPsychData && psychWeakest && psychStrongest
-        ? `"${psychWeakest.state}" is your biggest performance liability this week`
-        : 'Emotional data too thin — you are flying blind',
+      frequency: `${meaningfulStates.length} emotional states logged`,
+      title: `"${psychWeakest.state}" is your biggest performance liability ${periodLabel}`,
       body: (() => {
-        if (meaningfulStates.length === 0) {
-          return 'You logged zero emotional states this week. Flyxa cannot tell you if your mood is costing you money without this data. Tag every single trade honestly — this is non-negotiable for real AI feedback.';
-        }
-        if (!hasEnoughPsychData) {
-          return `You only logged one emotional state ("${meaningfulStates[0]?.state}") across all your trades this week. Log different states honestly so Flyxa can find the patterns that are costing you real money.`;
-        }
-        if (!psychWeakest || !psychStrongest) return 'Add emotional_state tags to unlock behavior-performance insights.';
         const gap = Math.abs(psychStrongest.summary.avgPnl - psychWeakest.summary.avgPnl);
         const hardStop = gap > 30
           ? ` That ${formatSignedCurrency(gap)} gap per trade is not noise — you should not be entering trades when you feel "${psychWeakest.state}".`
           : ` Track this over more sessions to confirm if "${psychWeakest.state}" needs a hard no-trade rule.`;
-        return `"${psychWeakest.state}" averaged ${formatSignedCurrency(psychWeakest.summary.avgPnl)} vs "${psychStrongest.state}" at ${formatSignedCurrency(psychStrongest.summary.avgPnl)} this week.${hardStop}`;
+        return `"${psychWeakest.state}" averaged ${formatSignedCurrency(psychWeakest.summary.avgPnl)} vs "${psychStrongest.state}" at ${formatSignedCurrency(psychStrongest.summary.avgPnl)} ${periodLabel}.${hardStop}`;
       })(),
-      keyPhrases: hasEnoughPsychData && psychWeakest && psychStrongest
-        ? [`"${psychWeakest.state}"`, formatSignedCurrency(psychWeakest.summary.avgPnl), `"${psychStrongest.state}"`, formatSignedCurrency(psychStrongest.summary.avgPnl)]
-        : ['emotional states', 'tag every trade'],
-      tags: hasEnoughPsychData && psychWeakest && psychStrongest
-        ? [
-            { label: `${psychWeakest.state}: ${formatSignedCurrency(psychWeakest.summary.netPnl)}`, tone: psychWeakest.summary.netPnl >= 0 ? 'positive' : 'negative' },
-            { label: `${psychStrongest.state}: ${formatSignedCurrency(psychStrongest.summary.netPnl)}`, tone: psychStrongest.summary.netPnl >= 0 ? 'positive' : 'negative' },
-          ]
-        : [{ label: meaningfulStates.length === 0 ? 'No states logged' : 'Need 2+ distinct states', tone: 'neutral' }],
+      keyPhrases: [`"${psychWeakest.state}"`, formatSignedCurrency(psychWeakest.summary.avgPnl), `"${psychStrongest.state}"`, formatSignedCurrency(psychStrongest.summary.avgPnl)],
+      tags: [
+        { label: `${psychWeakest.state}: ${formatSignedCurrency(psychWeakest.summary.netPnl)}`, tone: psychWeakest.summary.netPnl >= 0 ? 'positive' as const : 'negative' as const },
+        { label: `${psychStrongest.state}: ${formatSignedCurrency(psychStrongest.summary.netPnl)}`, tone: psychStrongest.summary.netPnl >= 0 ? 'positive' as const : 'negative' as const },
+      ],
       actionLabel: 'Create emotional reset rule ->',
-    },
+    }] : []),
     {
       type: 'edge',
       badge: 'Edge Confirmed',
-      frequency: bestSession ? `${bestSession.session} led this week` : 'No clear session edge this week',
-      title: bestSession ? `${bestSession.session} is your strongest edge window this week` : 'Session edge needs more data',
+      frequency: bestSession ? `${bestSession.session} led ${periodLabel}` : `No clear session edge ${periodLabel}`,
+      title: bestSession ? `${bestSession.session} is your strongest edge window ${periodLabel}` : 'Session edge needs more data',
       body: bestSession
         ? `${bestSession.session} delivered ${formatSignedCurrency(bestSession.summary.netPnl)} at ${Math.round(bestSession.summary.winRate)}% over ${bestSession.entries.length} trades.`
         : 'Keep logging session tags to reveal your strongest time-window edge.',
@@ -672,7 +730,7 @@ function buildData(trades: Trade[]): WeeklyDebriefData {
       badge: 'Confluence Signal',
       frequency: `${topConfluence.trades} trades logged with "${topConfluence.label}"`,
       title: topConfluence.netPnl >= 0
-        ? `"${topConfluence.label}" is your highest-conviction confluence this week`
+        ? `"${topConfluence.label}" is your highest-conviction confluence ${periodLabel}`
         : `"${topConfluence.label}" needs review before reuse`,
       body: `"${topConfluence.label}" returned ${formatSignedCurrency(topConfluence.netPnl)} total (${formatSignedCurrency(topConfluence.avgPnl)} avg) with ${Math.round(topConfluence.winRate)}% win rate.`,
       keyPhrases: [
@@ -691,7 +749,7 @@ function buildData(trades: Trade[]): WeeklyDebriefData {
   }
 
   const focusItems: string[] = [];
-  const byLabel = new Map(weeklyProcess.items.map(item => [item.label, item.value]));
+  const byLabel = new Map(periodProcess.items.map(item => [item.label, item.value]));
   if ((byLabel.get('Entry patience') ?? 0) < 70) focusItems.push('Delay first entry until setup structure is confirmed after 10:00.');
   if ((byLabel.get('Post-loss mgmt') ?? 0) < 65) focusItems.push('After a loss, wait 15 minutes and reduce size on the next trade.');
   if ((byLabel.get('Plan adherence') ?? 0) < 75) focusItems.push('Run a quick plan checklist before each entry to prevent drift.');
@@ -700,32 +758,32 @@ function buildData(trades: Trade[]): WeeklyDebriefData {
   while (focusItems.length < 3) focusItems.push('Keep journaling every trade with notes and emotional context for sharper AI signals.');
 
   const nextSunday = (() => {
-    const day = weekEnd.getDay();
+    const day = periodEnd.getDay();
     const days = ((7 - day) % 7) || 7;
-    return addDays(weekEnd, days);
+    return addDays(periodEnd, days);
   })();
 
   return {
-    weekRange: formatWeekRange(weekStart, weekEnd),
+    weekRange: formatPeriodRange(displayStart, displayEnd),
     sessionCount,
-    tradeCount: weekly.length,
+    tradeCount: periodTrades.length,
     instruments,
     stats: {
-      netR: { label: 'Net PL', value: formatSignedCurrency(weeklySummary.netPnl), subLabel: `vs ${formatSignedCurrency(previousSummary.netPnl)} prev week`, tone: weeklySummary.netPnl >= 0 ? 'positive' : 'negative' },
-      winRate: { label: 'Win Rate', value: `${Math.round(weeklySummary.winRate)}%`, subLabel: `${weeklySummary.wins}W / ${weeklySummary.losses}L`, tone: 'neutral' },
-      avgWinner: { label: 'Avg Winner', value: formatSignedCurrency(weeklySummary.avgWinnerPnl), subLabel: `Best ${formatSignedCurrency(weeklySummary.bestPnl)}`, tone: weeklySummary.avgWinnerPnl >= 0 ? 'positive' : 'neutral' },
-      avgLoser: { label: 'Avg Loser', value: formatSignedCurrency(weeklySummary.avgLoserPnl), subLabel: `Worst ${formatSignedCurrency(weeklySummary.worstPnl)}`, tone: weeklySummary.avgLoserPnl < 0 ? 'negative' : 'neutral' },
-      processScore: { label: 'Process Score', value: `${weeklyProcess.score}/100`, subLabel: `${processDiff >= 0 ? '+' : ''}${processDiff} vs 30-day avg`, tone: 'info' },
+      netR: { label: 'Net PL', value: formatSignedCurrency(periodSummary.netPnl), subLabel: tf !== 'All' ? `vs ${formatSignedCurrency(previousSummary.netPnl)} ${prevLabel}` : `${periodTrades.length} trades`, tone: periodSummary.netPnl >= 0 ? 'positive' : 'negative' },
+      winRate: { label: 'Win Rate', value: `${Math.round(periodSummary.winRate)}%`, subLabel: `${periodSummary.wins}W / ${periodSummary.losses}L`, tone: 'neutral' },
+      avgWinner: { label: 'Avg Winner', value: formatSignedCurrency(periodSummary.avgWinnerPnl), subLabel: `Best ${formatSignedCurrency(periodSummary.bestPnl)}`, tone: periodSummary.avgWinnerPnl >= 0 ? 'positive' : 'neutral' },
+      avgLoser: { label: 'Avg Loser', value: formatSignedCurrency(periodSummary.avgLoserPnl), subLabel: `Worst ${formatSignedCurrency(periodSummary.worstPnl)}`, tone: periodSummary.avgLoserPnl < 0 ? 'negative' : 'neutral' },
+      processScore: { label: 'Process Score', value: `${periodProcess.score}/100`, subLabel: `${processDiff >= 0 ? '+' : ''}${processDiff} vs 90-day avg`, tone: 'info' },
     },
     question,
     insights,
-    processBreakdown: weeklyProcess.items,
+    processBreakdown: periodProcess.items,
     confluences: confluenceLeaders.slice(0, 4),
     focusItems: focusItems.slice(0, 3),
     nextDebrief: {
       generatedOn: nextSunday.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' }),
       sessionsLogged: sessionCount,
-      sessionsTarget: 5,
+      sessionsTarget: tf === '1W' ? 5 : tf === '1M' ? 20 : tf === '3M' ? 60 : 100,
     },
   };
 }
@@ -737,6 +795,7 @@ export default function FlyxaAI() {
   const navigate = useNavigate();
   const [respondOpen, setRespondOpen] = useState(false);
   const [respondText, setRespondText] = useState('');
+  const [timeframe, setTimeframe] = useState<TimeFrame>('1W');
 
   const accountTrades = useMemo(
     () => filterTradesBySelectedAccount(trades),
@@ -747,8 +806,8 @@ export default function FlyxaAI() {
     [accountTrades]
   );
   const weeklyDebriefData = useMemo(
-    () => buildData(safeAccountTrades),
-    [safeAccountTrades]
+    () => buildData(safeAccountTrades, timeframe),
+    [safeAccountTrades, timeframe]
   );
   const focusedTradeId = searchParams.get('tradeId');
   const focusedTrade = useMemo(
@@ -791,21 +850,15 @@ export default function FlyxaAI() {
 
   const weeklyWindow = useMemo(() => {
     const ordered = [...safeAccountTrades].sort((a, b) => (parseTradeDateTime(a)?.getTime() ?? 0) - (parseTradeDateTime(b)?.getTime() ?? 0));
-    const anchor = parseTradeDate(ordered[ordered.length - 1]) ?? new Date();
-    const weekEnd = addDays(anchor, 0);
-    const weekStart = addDays(weekEnd, -6);
-    const prevStart = addDays(weekStart, -7);
-    const prevEnd = addDays(weekStart, -1);
-
+    const { periodStart, periodEnd, prevStart, prevEnd } = getPeriodWindow(timeframe);
     const inRange = (trade: Trade, start: Date, end: Date) => {
       const date = parseTradeDate(trade);
       return Boolean(date && date.getTime() >= start.getTime() && date.getTime() <= end.getTime());
     };
-
-    const weeklyTrades = ordered.filter(trade => inRange(trade, weekStart, weekEnd));
-    const previousTrades = ordered.filter(trade => inRange(trade, prevStart, prevEnd));
+    const weeklyTrades = ordered.filter(trade => inRange(trade, periodStart, periodEnd));
+    const previousTrades = timeframe !== 'All' ? ordered.filter(trade => inRange(trade, prevStart, prevEnd)) : [];
     return { weeklyTrades, previousTrades };
-  }, [safeAccountTrades]);
+  }, [safeAccountTrades, timeframe]);
 
   const previousWeekPnl = useMemo(
     () => summarize(weeklyWindow.previousTrades).netPnl,
@@ -957,7 +1010,7 @@ export default function FlyxaAI() {
     const items: string[] = [];
     if (weakestProcess?.label === 'Entry patience') items.push('Delay first entries until your setup confirms after the open instead of anticipating the move.');
     if (weakestProcess?.label === 'Post-loss mgmt') items.push('After any loss, enforce a 15-minute reset and drop one size tier before the next entry.');
-    if (weakestProcess?.label === 'Size discipline') items.push('Keep position size fixed to baseline this week and block discretionary size increases.');
+    if (weakestProcess?.label === 'Size discipline') items.push('Keep position size fixed to baseline and block discretionary size increases.');
     if (weakestProcess?.label === 'Plan adherence') items.push('Run a pre-entry checklist and skip any trade that misses even one planned condition.');
     const riskInsight = displayedInsights.find(insight => insight.type === 'risk');
     if (riskInsight) items.push(`Convert "${riskInsight.title}" into a hard no-trade rule when that condition appears.`);
@@ -986,7 +1039,7 @@ export default function FlyxaAI() {
 
           <nav className="mt-4 space-y-0.5">
             {[
-              { key: 'weekly', label: 'Weekly debrief', to: '/flyxa-ai', end: true },
+              { key: 'weekly', label: 'Debrief', to: '/flyxa-ai', end: true },
               { key: 'pattern', label: 'Pattern library', to: '/flyxa-ai/patterns', end: false },
               { key: 'pre-session', label: 'Pre-session brief', to: '/flyxa-ai/pre-session', end: false },
               { key: 'emotional', label: 'Emotional fingerprint', to: '/flyxa-ai/emotional-fingerprint', end: false },
@@ -1016,7 +1069,26 @@ export default function FlyxaAI() {
             <section className="border-b px-6 py-5" style={{ borderColor: colors.b0 }}>
               <div className="flex items-end justify-between gap-6">
                 <div className="min-w-0">
-                  <p className="text-[9.5px] uppercase tracking-[0.12em]" style={{ color: colors.t2 }}>Weekly debrief</p>
+                  <div className="flex items-center gap-3">
+                    <p className="text-[9.5px] uppercase tracking-[0.12em]" style={{ color: colors.t2 }}>{getPeriodWindow(timeframe).headerLabel}</p>
+                    <div className="flex gap-0.5 rounded-[5px] p-0.5" style={{ backgroundColor: colors.d3 }}>
+                      {(['1W', '1M', '3M', 'All'] as TimeFrame[]).map(tf => (
+                        <button
+                          key={tf}
+                          type="button"
+                          onClick={() => setTimeframe(tf)}
+                          className="rounded-[3px] px-2.5 py-[3px] text-[10px] font-medium transition-colors"
+                          style={{
+                            backgroundColor: timeframe === tf ? colors.d4 : 'transparent',
+                            color: timeframe === tf ? colors.t0 : colors.t2,
+                            border: timeframe === tf ? `1px solid ${colors.b1}` : '1px solid transparent',
+                          }}
+                        >
+                          {tf}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                   <h1 className="mt-2 text-[24px] font-bold tracking-[-0.02em]" style={{ color: colors.t0 }}>
                     {weeklyDebriefData.weekRange}
                   </h1>
@@ -1053,7 +1125,7 @@ export default function FlyxaAI() {
                       {weeklyDebriefData.stats.netR.value}
                     </p>
                     <p className="mt-1 text-[10.5px]" style={{ color: colors.t2 }}>
-                      vs {formatSignedCurrency(previousWeekPnl)} prev week
+                      {timeframe !== 'All' ? `vs ${formatSignedCurrency(previousWeekPnl)} ${getPeriodWindow(timeframe).prevLabel}` : `${weeklyWindow.weeklyTrades.length} trades total`}
                     </p>
                   </div>
                 </div>
@@ -1188,7 +1260,7 @@ export default function FlyxaAI() {
               )}
 
               <section className="mt-4">
-                <p style={tinyMetaLabelStyle}>AI insights &middot; {displayedInsights.length} found this week</p>
+                <p style={tinyMetaLabelStyle}>AI insights &middot; {displayedInsights.length} found &middot; {getPeriodWindow(timeframe).periodLabel}</p>
                 <div className="mt-2 space-y-2">
                   {displayedInsights.map(insight => {
                     const style = insightTypeStyles[insight.type];

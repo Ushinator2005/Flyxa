@@ -6,20 +6,61 @@ import { tradesApi } from '../services/api.js';
 import { persistDeletedTradeId } from '../utils/deletedTrades.js';
 import { flushSupabaseStoreNow } from '../store/supabaseStorage.js';
 
-const EMOTIONAL_STATES = new Set([
-  'Calm',
-  'Confident',
-  'Anxious',
-  'Revenge Trading',
-  'FOMO',
-  'Overconfident',
-  'Tired',
-]);
-
 function normalizeEmotion(value: unknown): ApiTrade['emotional_state'] {
   if (typeof value !== 'string') return null;
   const next = value.trim();
-  return EMOTIONAL_STATES.has(next) ? next as ApiTrade['emotional_state'] : null;
+  return next.length > 0 ? next : null;
+}
+
+type RichStoreTrade = StoreTrade & {
+  behavioralFlags?: string[];
+  executionReview?: {
+    enteredAtLevel?: boolean | null;
+    waitedForConfirmation?: boolean | null;
+    correctSize?: boolean | null;
+    exitedAtPlan?: boolean | null;
+    movedStopCorrectly?: boolean | null;
+    resistedEarlyExit?: boolean | null;
+  };
+  preEntry?: {
+    emotionalState?: string;
+  };
+};
+
+function deriveEmotionalState(trade: StoreTrade): ApiTrade['emotional_state'] {
+  const richTrade = trade as RichStoreTrade;
+  return normalizeEmotion(richTrade.emotionalState) ?? normalizeEmotion(richTrade.preEntry?.emotionalState);
+}
+
+function deriveFollowedPlan(trade: StoreTrade): boolean | null {
+  if (trade.reflection?.followedPlanLogged === true && typeof trade.reflection.followedPlan === 'boolean') {
+    return trade.reflection.followedPlan;
+  }
+
+  const richTrade = trade as RichStoreTrade;
+  if (Array.isArray(richTrade.behavioralFlags) && richTrade.behavioralFlags.length > 0) {
+    return false;
+  }
+
+  const review = richTrade.executionReview;
+  if (!review) {
+    return Array.isArray(richTrade.behavioralFlags) && richTrade.behavioralFlags.length === 0 ? true : null;
+  }
+
+  const planSignals = [
+    review.enteredAtLevel,
+    review.waitedForConfirmation,
+    review.correctSize,
+    review.exitedAtPlan,
+    review.resistedEarlyExit,
+  ];
+  const answeredSignals = planSignals.filter((value): value is boolean => typeof value === 'boolean');
+  if (answeredSignals.some(value => value === false)) return false;
+  if (answeredSignals.length > 0 || (Array.isArray(richTrade.behavioralFlags) && richTrade.behavioralFlags.length === 0)) {
+    return true;
+  }
+
+  return null;
 }
 
 function normalizeConfluences(value: unknown): string[] {
@@ -89,11 +130,10 @@ function toStoreTrade(data: Partial<ApiTrade>, entryId: string, accountId: strin
 function toApiTrade(trade: StoreTrade): ApiTrade {
   const session = getSession(trade.time);
   const tradeTime = trade.time || (trade as unknown as { entryTime?: string }).entryTime || '09:30';
-  const emotionalState = normalizeEmotion((trade as StoreTrade).emotionalState);
+  const emotionalState = deriveEmotionalState(trade);
   const confidenceLevelRaw = (trade as StoreTrade).confidenceLevel;
   const confidenceLevel = typeof confidenceLevelRaw === 'number' && Number.isFinite(confidenceLevelRaw) ? confidenceLevelRaw : null;
-  const followedPlan = trade.reflection?.followedPlan;
-  const followedPlanLogged = trade.reflection?.followedPlanLogged === true;
+  const followedPlan = deriveFollowedPlan(trade);
   return {
     id: trade.id,
     user_id: 'local',
@@ -121,7 +161,7 @@ function toApiTrade(trade: StoreTrade): ApiTrade {
     pre_trade_notes: trade.reflection?.thesis,
     post_trade_notes: trade.reflection?.execution,
     confluences: normalizeConfluences((trade as StoreTrade).confluences),
-    followed_plan: followedPlanLogged && typeof followedPlan === 'boolean' ? followedPlan : null,
+    followed_plan: typeof followedPlan === 'boolean' ? followedPlan : null,
     session,
     created_at: trade.createdAt,
   };

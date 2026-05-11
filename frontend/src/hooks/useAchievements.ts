@@ -89,16 +89,17 @@ function mapIcon(icon: string): string {
     case 'flame': return 'Flame';
     case 'bolt': return 'Zap';
     case 'journal': return 'Calendar';
-    case 'ruler': return 'Shield';
-    case 'cash': return 'TrendingUp';
-    case 'gem': return 'Award';
-    case 'snow': return 'Shield';
-    case 'clipboard': return 'ShieldCheck';
-    case 'checklist': return 'CheckCircle';
+    case 'ruler': return 'Ruler';
+    case 'cash': return 'DollarSign';
+    case 'gem': return 'Gem';
+    case 'snow': return 'Snowflake';
+    case 'clipboard': return 'ClipboardCheck';
+    case 'checklist': return 'ListChecks';
     case 'star': return 'Star';
     case 'trophy': return 'Trophy';
-    case 'pen': return 'CalendarDays';
+    case 'pen': return 'PenLine';
     case 'crown': return 'Crown';
+    case 'shield': return 'ShieldCheck';
     default: return 'Trophy';
   }
 }

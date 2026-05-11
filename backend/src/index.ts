@@ -19,6 +19,7 @@ dotenv.config({ override: true });
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const isLocalDev = process.env.NODE_ENV !== 'production';
 
 function isPrivateIpv4(hostname: string): boolean {
   const parts = hostname.split('.').map((part) => Number.parseInt(part, 10));
@@ -80,7 +81,6 @@ app.use(cors({
 }));
 
 // Rate limiting
-const isLocalDev = process.env.NODE_ENV !== 'production';
 const localhostHosts = new Set(['localhost', '127.0.0.1', '::1']);
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes

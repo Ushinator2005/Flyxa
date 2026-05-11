@@ -14,10 +14,15 @@ import {
   CheckCircle,
   Star,
   Calendar,
-  CalendarDays,
-  Lock,
   Sparkles,
   ArrowUpRight,
+  Ruler,
+  DollarSign,
+  Gem,
+  Snowflake,
+  ClipboardCheck,
+  ListChecks,
+  PenLine,
 } from 'lucide-react';
 import { useAchievements } from '../hooks/useAchievements.js';
 import type { Achievement as AchievementItem } from '../hooks/useAchievements.js';
@@ -36,8 +41,14 @@ const ICON_MAP: Record<string, LucideIcon> = {
   CheckCircle,
   Star,
   Calendar,
-  CalendarDays,
   Trophy,
+  Ruler,
+  DollarSign,
+  Gem,
+  Snowflake,
+  ClipboardCheck,
+  ListChecks,
+  PenLine,
 };
 
 const CATEGORIES: Array<{ value: AchievementCategory | 'all'; label: string }> = [
@@ -138,7 +149,7 @@ function AchievementBadge({ achievement }: { achievement: AchievementItem }) {
     <article className={`achv-badge achv-rarity-${rarityClass} ${achievement.unlocked ? 'is-unlocked' : 'is-locked'}`}>
       <div className="achv-badge-top">
         <div className="achv-badge-icon-wrap">
-          {achievement.unlocked ? <AchievementIcon name={achievement.icon} /> : <Lock size={18} />}
+          <AchievementIcon name={achievement.icon} />
         </div>
         <span className="achv-rarity-pill">{rarityClass}</span>
       </div>

@@ -1,13 +1,19 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { AppPreferences, Trade, TradingAccount, TradingAccountStatus } from '../types/index.js';
+import { AppPreferences, Trade, TradingAccount } from '../types/index.js';
 import { useAuth } from './AuthContext.js';
 import { deriveTradeSessionLabel } from '../utils/sessionTimes.js';
+import {
+  ALL_ACCOUNTS_ID,
+  DEFAULT_ACCOUNT_ID,
+  DEFAULT_TRADING_ACCOUNT,
+  ensureDefaultAccount,
+  resolveDefaultTradeAccountId,
+} from '../utils/tradingAccounts.js';
 import useFlyxaStore from '../store/flyxaStore.js';
 import type { Account } from '../store/types.js';
 import { supabase } from '../services/api.js';
 
-export const ALL_ACCOUNTS_ID = 'all';
-export const DEFAULT_ACCOUNT_ID = 'default-account';
+export { ALL_ACCOUNTS_ID, DEFAULT_ACCOUNT_ID } from '../utils/tradingAccounts.js';
 const DEFAULT_TIMEZONE = 'America/New_York';
 
 
@@ -22,16 +28,7 @@ const SUPPORTED_TIMEZONE_SET = (() => {
   return new Set(zones);
 })();
 
-const DEFAULT_ACCOUNT: TradingAccount = {
-  id: DEFAULT_ACCOUNT_ID,
-  name: 'Default Account',
-  broker: '',
-  credentials: '',
-  type: 'Futures',
-  status: 'Live',
-  color: '#3b82f6',
-  createdAt: new Date(0).toISOString(),
-};
+const DEFAULT_ACCOUNT: TradingAccount = DEFAULT_TRADING_ACCOUNT;
 
 const DEFAULT_PREFERENCES: AppPreferences = {
   dateFormat: 'dd/MM/yyyy',
@@ -191,51 +188,6 @@ function migrateFromLocalStorage(userId: string): AppSettingsRow {
   };
 }
 
-function normalizeAccountStatus(
-  status: unknown,
-  fallbackStatus: TradingAccountStatus = 'Eval'
-): TradingAccountStatus {
-  return status === 'Eval' || status === 'Funded' || status === 'Live' || status === 'Blown'
-    ? status
-    : fallbackStatus;
-}
-
-function ensureDefaultAccount(accounts: TradingAccount[]): TradingAccount[] {
-  const normalizedAccounts = accounts.map(account => ({
-    ...account,
-    status: normalizeAccountStatus(
-      account.status,
-      account.id === DEFAULT_ACCOUNT_ID ? DEFAULT_ACCOUNT.status : 'Eval'
-    ),
-  }));
-
-  const withoutDuplicates = normalizedAccounts.filter((account, index, collection) => (
-    collection.findIndex(candidate => candidate.id === account.id) === index
-  ));
-
-  if (withoutDuplicates.some(account => account.id === DEFAULT_ACCOUNT_ID)) {
-    return withoutDuplicates;
-  }
-
-  return [DEFAULT_ACCOUNT, ...withoutDuplicates];
-}
-
-function getAccountCreatedAtMs(account: TradingAccount): number {
-  const parsed = Date.parse(account.createdAt);
-  return Number.isNaN(parsed) ? Number.MAX_SAFE_INTEGER : parsed;
-}
-
-function resolveDefaultTradeAccountId(accounts: TradingAccount[]): string {
-  const oldestRealAccount = accounts
-    .filter(account => account.id !== DEFAULT_ACCOUNT_ID && account.status !== 'Blown')
-    .sort((a, b) => getAccountCreatedAtMs(a) - getAccountCreatedAtMs(b))[0];
-
-  if (oldestRealAccount) return oldestRealAccount.id;
-
-  const builtInDefault = accounts.find(account => account.id === DEFAULT_ACCOUNT_ID && account.status !== 'Blown');
-  return builtInDefault?.id ?? accounts.find(account => account.status !== 'Blown')?.id ?? DEFAULT_ACCOUNT_ID;
-}
-
 function parsePreferences(parsed: Partial<AppPreferences> | undefined): AppPreferences {
   if (!parsed) return DEFAULT_PREFERENCES;
   const rawTimezone = parsed.timezone ?? DEFAULT_TIMEZONE;
@@ -279,7 +231,7 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
     void (async () => {
       let row = await loadAppSettingsFromSupabase(user.id);
 
-      // First time — migrate from localStorage
+      // First time: migrate from localStorage.
       if (!row || Object.values(row).every(v => v === undefined)) {
         row = migrateFromLocalStorage(user.id);
         if (Object.values(row).some(v => v !== undefined)) {
@@ -413,7 +365,7 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
     if (user) {
       supabase.from('trading_accounts').insert({
         id: nextAccount.id, user_id: user.id, name: nextAccount.name,
-        broker: nextAccount.broker || null, credentials: nextAccount.credentials || null,
+        broker: nextAccount.broker || null,
         type: nextAccount.type, status: nextAccount.status, color: nextAccount.color,
       }).then(({ error }) => {
         if (error) console.error('[Accounts] Failed to save new account:', error.message);
@@ -431,7 +383,6 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
       supabase.from('trading_accounts').update({
         ...('name' in updates ? { name: updates.name } : {}),
         ...('broker' in updates ? { broker: updates.broker || null } : {}),
-        ...('credentials' in updates ? { credentials: updates.credentials || null } : {}),
         ...('type' in updates ? { type: updates.type } : {}),
         ...('status' in updates ? { status: updates.status } : {}),
         ...('color' in updates ? { color: updates.color } : {}),

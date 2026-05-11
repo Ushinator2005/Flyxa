@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { Rival } from '../types/rivals.js';
-import { getMascotXP } from '../lib/mascotProgression.js';
+import { getMascotStage, getMascotXP } from '../lib/mascotProgression.js';
 import { useActiveAccountEntries, useJournalStreak } from '../store/selectors.js';
 import useFlyxaStore from '../store/flyxaStore.js';
 
@@ -14,6 +14,7 @@ export function useRivals() {
   const setRivalsAction = useFlyxaStore(state => state.setRivals);
   const entries = useActiveAccountEntries();
   const journalStreak = useJournalStreak();
+  const backtestSessions = useFlyxaStore(state => state.backtestSessions);
 
   const resolvedRivals = storedRivals.filter((rival) => !rival.isMe) as Rival[];
 
@@ -43,14 +44,14 @@ export function useRivals() {
       avatarColor: '#f59e0b',
       isMe: true,
       mascot: {
-        stage: journalStreak >= 60 ? 'apex' : journalStreak >= 30 ? 'elite' : journalStreak >= 14 ? 'veteran' : journalStreak >= 7 ? 'rookie' : 'seed',
+        stage: getMascotStage(journalStreak),
         name: 'You',
         streakDays: journalStreak,
         stats: {
           discipline: Math.round(discipline),
           psychology: Math.round(psychology),
           consistency: Math.round(consistency),
-          backtestHours: 0,
+          backtestHours: backtestSessions.length,
         },
         xp: 0,
       },
@@ -58,7 +59,7 @@ export function useRivals() {
 
     me.mascot.xp = getMascotXP(me.mascot.streakDays, me.mascot.stats);
     return me;
-  }, [entries, journalStreak]);
+  }, [backtestSessions.length, entries, journalStreak]);
 
   const rivals = useMemo(() => {
     return [myRival, ...resolvedRivals.filter((rival) => !rival.isMe)];

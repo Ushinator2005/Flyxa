@@ -18,6 +18,8 @@ import { useAppSettings } from '../contexts/AppSettingsContext.js';
 import { Trade } from '../types/index.js';
 import { formatCurrency } from '../utils/calculations.js';
 import { getSessionKeyForTime, timeToMinutes } from '../utils/sessionTimes.js';
+import { getTradeRiskReward } from '../utils/tradeAnalytics.js';
+import { formatRiskRewardRatio } from '../utils/riskReward.js';
 
 type PeriodKey = '1W' | '1M' | '3M' | 'YTD' | 'ALL';
 
@@ -37,8 +39,14 @@ const SESSION_BUCKETS = [
   { key: 'preMarket', label: 'Pre Market' },
   { key: 'newYork', label: 'New York' },
 ] as const;
-const TIME_BUCKET_MINUTES = 30;
 const TOP_TIME_BUCKETS = 7;
+
+type TimeWindowMins = 15 | 30 | 60;
+const TIME_WINDOW_OPTIONS: Array<{ value: TimeWindowMins; label: string }> = [
+  { value: 15, label: '15m' },
+  { value: 30, label: '30m' },
+  { value: 60, label: '1hr' },
+];
 const DASHBOARD_GREEN = '#34d399';
 const DASHBOARD_RED = '#f87171';
 
@@ -76,7 +84,10 @@ function getPeriodStart(period: PeriodKey, now: Date): Date | null {
   base.setHours(0, 0, 0, 0);
 
   if (period === '1W') {
-    base.setDate(base.getDate() - 7);
+    // Roll back to the most recent Monday (week restarts on Monday).
+    const dow = base.getDay(); // 0=Sun,1=Mon,...,6=Sat
+    const daysToMon = dow === 0 ? 6 : dow - 1;
+    base.setDate(base.getDate() - daysToMon);
     return base;
   }
 
@@ -96,6 +107,13 @@ function getPeriodStart(period: PeriodKey, now: Date): Date | null {
 function getPreviousRange(period: PeriodKey, now: Date): { start: Date; end: Date } | null {
   const currentStart = getPeriodStart(period, now);
   if (!currentStart) return null;
+
+  // For 1W always compare against the prior full calendar week (Mon–Sun).
+  if (period === '1W') {
+    const prevMonday = new Date(currentStart);
+    prevMonday.setDate(prevMonday.getDate() - 7);
+    return { start: prevMonday, end: currentStart };
+  }
 
   const currentEnd = new Date(now);
   const duration = currentEnd.getTime() - currentStart.getTime();
@@ -189,6 +207,7 @@ export default function Analytics() {
   const { trades, loading } = useTrades();
   const { filterTradesBySelectedAccount, preferences } = useAppSettings();
   const [period, setPeriod] = useState<PeriodKey>('1M');
+  const [timeWindow, setTimeWindow] = useState<TimeWindowMins>(30);
   const today = useMemo(() => new Date(), []);
 
   const sourceTrades = trades;
@@ -244,6 +263,13 @@ export default function Analytics() {
     const winRateDecimal = scoredTrades > 0 ? wins.length / scoredTrades : 0;
     const lossRateDecimal = scoredTrades > 0 ? losses.length / scoredTrades : 0;
     const expectedValue = (winRateDecimal * avgWin) + (lossRateDecimal * avgLoss);
+    const rrValues = filteredTrades
+      .map(getTradeRiskReward)
+      .filter((v): v is number => v !== null);
+    const rrCount = rrValues.length;
+    const avgRR = rrCount > 0
+      ? rrValues.reduce((s, v) => s + v, 0) / rrCount
+      : null;
     const activeDays = new Set(filteredTrades.map(trade => trade.trade_date)).size;
     const tradesPerDay = activeDays > 0 ? totalTrades / activeDays : 0;
     const avgWinHold = safeAverage(wins.map(trade => trade.trade_length_seconds || 0));
@@ -260,6 +286,8 @@ export default function Analytics() {
       avgWin,
       avgPnL,
       expectedValue,
+      avgRR,
+      rrCount,
       tradesPerDay,
       avgWinHold,
       avgLossHold,
@@ -409,7 +437,7 @@ export default function Analytics() {
       const minutes = timeToMinutes(trade.trade_time);
       if (minutes === null) return;
 
-      const bucketStart = Math.floor(minutes / TIME_BUCKET_MINUTES) * TIME_BUCKET_MINUTES;
+      const bucketStart = Math.floor(minutes / timeWindow) * timeWindow;
       const current = bucketMap.get(bucketStart) ?? {
         start: bucketStart,
         count: 0,
@@ -430,7 +458,7 @@ export default function Analytics() {
       .map(row => ({
         label: formatTimeBucketLabel(row.start),
         start: row.start,
-        end: row.start + TIME_BUCKET_MINUTES,
+        end: row.start + timeWindow,
         count: row.count,
         avgPnL: row.sumPnL / row.count,
       }));
@@ -444,7 +472,7 @@ export default function Analytics() {
       ...row,
       ratio: row.avgPnL === null ? 0 : Math.abs(row.avgPnL) / maxAbs,
     }));
-  }, [filteredTrades]);
+  }, [filteredTrades, timeWindow]);
 
   const confluenceRows = useMemo(() => {
     const grouped = new Map<string, {
@@ -557,10 +585,10 @@ export default function Analytics() {
           valueClassName={metrics.avgPnL >= 0 ? 'text-emerald-400' : 'text-red-400'}
         />
         <MetricCard
-          label="Exp. Value"
-          value={formatSignedCurrency(metrics.expectedValue)}
-          subtitle="Expectancy per trade"
-          valueClassName={metrics.expectedValue >= 0 ? 'text-emerald-400' : 'text-red-400'}
+          label="Avg RR"
+          value={metrics.avgRR !== null ? formatRiskRewardRatio(metrics.avgRR, { decimals: 2 }) : '--'}
+          subtitle={metrics.avgRR !== null ? `${metrics.rrCount} trade${metrics.rrCount !== 1 ? 's' : ''} with SL/TP set` : 'Log SL & TP to calculate'}
+          valueClassName="text-[var(--app-text)]"
         />
         <MetricCard
           label="Total Trades"
@@ -777,9 +805,29 @@ export default function Analytics() {
       </div>
 
       <section className="rounded-lg border border-[var(--app-border)] bg-[var(--app-panel)] p-4">
-        <div className="mb-5 flex items-center justify-between gap-3">
-          <h3 className="text-sm font-semibold text-[var(--app-text)]">P&amp;L by time of day</h3>
-          <p className="text-xs text-[var(--app-text-muted)]">Avg P&amp;L in your most traded 30-min windows</p>
+        <div className="mb-5 flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h3 className="text-sm font-semibold text-[var(--app-text)]">P&amp;L by time of day</h3>
+            <p className="text-xs text-[var(--app-text-muted)] mt-0.5">
+              Avg P&amp;L in your most traded {timeWindow === 60 ? '1-hr' : `${timeWindow}-min`} windows
+            </p>
+          </div>
+          <div className="flex items-center gap-1 rounded-md border border-[var(--app-border)] bg-[var(--app-panel-strong)] p-0.5">
+            {TIME_WINDOW_OPTIONS.map(opt => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setTimeWindow(opt.value)}
+                className="rounded px-2.5 py-1 text-xs font-medium transition-colors"
+                style={{
+                  background: timeWindow === opt.value ? 'var(--accent, #60a5fa)' : 'transparent',
+                  color: timeWindow === opt.value ? '#fff' : 'var(--app-text-muted)',
+                }}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="grid grid-cols-7 gap-2">

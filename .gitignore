@@ -2,6 +2,13 @@
 node_modules/
 **/node_modules/
 
+# Local/generated workspace artifacts
+/.claude/
+/tmp/
+/scanner-files-for-claude.md
+/index.html
+/package-lock.json
+
 # Environment variables - NEVER commit these
 .env
 .env.local
@@ -14,6 +21,7 @@ dist/
 build/
 **/dist/
 **/build/
+*.tsbuildinfo
 
 # Logs
 *.log

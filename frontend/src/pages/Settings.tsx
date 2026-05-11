@@ -502,7 +502,6 @@ export default function Settings() {
   const [newAccount, setNewAccount] = useState({
     name: '',
     broker: '',
-    credentials: '',
     type: 'Futures' as TradingAccountType,
     status: 'Eval' as TradingAccountStatus,
   });
@@ -556,7 +555,6 @@ export default function Settings() {
     setNewAccount({
       name: '',
       broker: '',
-      credentials: '',
       type: 'Futures',
       status: 'Eval',
     });
@@ -572,7 +570,6 @@ export default function Settings() {
     addAccount({
       name: newAccount.name.trim(),
       broker: newAccount.broker.trim(),
-      credentials: newAccount.credentials.trim(),
       type: newAccount.type,
       status: newAccount.status,
       color: DEFAULT_ACCOUNT_COLOR,
@@ -1448,23 +1445,6 @@ export default function Settings() {
                   placeholder="Broker"
                   value={newAccount.broker}
                   onChange={e => setNewAccount(current => ({ ...current, broker: e.target.value }))}
-                />
-              </label>
-
-              <label>
-                <FieldLabel>Credentials</FieldLabel>
-                <input
-                  type="password"
-                  style={{
-                    ...tableInputStyle,
-                    background: S2,
-                    border: `1px solid ${BORDER}`,
-                    borderRadius: '6px',
-                    padding: '10px 12px',
-                  }}
-                  placeholder="Account login or key"
-                  value={newAccount.credentials}
-                  onChange={e => setNewAccount(current => ({ ...current, credentials: e.target.value }))}
                 />
               </label>
 
