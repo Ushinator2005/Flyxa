@@ -326,7 +326,12 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
   }, [defaultTradeAccountId, isTradeAccountAllocatable, selectedAccountId, validAccountIds]);
 
   const resolveTradeAccountId = useCallback((trade: Partial<Trade>) => {
-    const accountCandidate = trade.accountId || trade.account_id || (trade.id ? tradeAccounts[trade.id] : undefined);
+    // Check all field names used across the codebase:
+    // `accountId` / `account_id` are the API-layer fields set by toApiTrade();
+    // `account` is the raw store field on StoreTrade / JournalTrade.
+    const accountCandidate = trade.accountId || trade.account_id
+      || (trade as unknown as { account?: string }).account
+      || (trade.id ? tradeAccounts[trade.id] : undefined);
     if (accountCandidate && validAccountIds.has(accountCandidate)) {
       return accountCandidate;
     }

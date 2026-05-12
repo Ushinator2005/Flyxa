@@ -349,7 +349,9 @@ function normalizeTradeUnknown(input: unknown, entryId: string, date: string, ac
       followedPlanLogged: reflectionRaw.followedPlanLogged === true,
     },
     confluences: normalizeConfluences(input.confluences),
-    account: asString(input.account, accountId),
+    // `account` is the store field; `accountId` is the JournalTrade field.
+    // Accept either so trades normalised from TradeJournal mutations keep their account.
+    account: asString(input.account || input.accountId, accountId),
     createdAt: asString(input.createdAt, new Date().toISOString()),
   };
   return trade;
@@ -687,6 +689,10 @@ const useFlyxaStore = create<FlyxaStore>()(
       setEntries: (entries) => {
         set((state) => {
           const accountId = state.activeAccountId || DEFAULT_ACCOUNT_ID;
+          // Build a fast lookup of existing entries so we can preserve their account
+          // when the incoming entry (e.g. from TradeJournal) doesn't carry an `account`
+          // field (TradeJournal's local JournalEntry type omits it).
+          const existingEntryMap = new Map(state.entries.map(e => [e.id, e]));
           // Preserve all fields (including rich journal fields like dailyReflection,
           // preEntry, thesis, executionReview, etc.) — only ensure account, date,
           // entryId, and time are set (JournalTrade uses entryTime, not time).
@@ -695,7 +701,12 @@ const useFlyxaStore = create<FlyxaStore>()(
             .map(e => {
               const entryId = typeof e.id === 'string' ? e.id : crypto.randomUUID();
               const entryDate = typeof e.date === 'string' ? e.date : todayIso();
-              const entryAccount = (typeof e.account === 'string' && e.account) ? e.account : accountId;
+              // Prefer the explicit `account` on the incoming entry; if absent, fall back to
+              // the existing stored entry's account so that mutations from TradeJournal
+              // (whose local type omits `account`) never clobber the stored account.
+              const existingEntry = existingEntryMap.get(entryId);
+              const entryAccount = (typeof e.account === 'string' && e.account) ? e.account
+                : existingEntry?.account || accountId;
               return {
                 ...e,
                 id: entryId,
@@ -704,7 +715,14 @@ const useFlyxaStore = create<FlyxaStore>()(
                   ? (e.trades as unknown[]).map(t => {
                       if (!t || typeof t !== 'object') return t;
                       const tr = t as Record<string, unknown>;
-                      const tradeAccount = (typeof tr.account === 'string' && tr.account) ? tr.account : entryAccount;
+                      // `account` is the store field; `accountId` is the JournalTrade field.
+                      // Check both so that mutations from TradeJournal (which uses `accountId`)
+                      // never lose the account — fall back to the existing stored trade's
+                      // account before using the entry account.
+                      const existingTrade = existingEntry?.trades.find(et => et.id === tr.id);
+                      const tradeAccount = (typeof tr.account === 'string' && tr.account) ? tr.account
+                        : (typeof tr.accountId === 'string' && tr.accountId) ? tr.accountId
+                        : existingTrade?.account || entryAccount;
                       // Ensure Trade-required fields that JournalTrade lacks are populated
                       const tradeTime = typeof tr.time === 'string' ? tr.time
                         : typeof tr.entryTime === 'string' ? tr.entryTime : '09:30';
