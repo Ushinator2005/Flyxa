@@ -3,7 +3,7 @@ import { supabase } from '../services/api.js';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-const SAVE_DEBOUNCE_MS = 1500;
+const SAVE_DEBOUNCE_MS = 500;
 const LOCAL_SAVED_AT_KEY = 'flyxa-store-saved-at';
 const LOCAL_ENTRIES_SAFE_KEY = 'flyxa-entries-safe';
 
@@ -279,28 +279,10 @@ export const supabaseZustandStorage: StateStorage = {
         .maybeSingle();
 
       if (!error && data?.flyxa_data) {
-        const supabaseMs = data.updated_at ? new Date(data.updated_at).getTime() : 0;
-        const localSavedMs = parseInt(localStorage.getItem(LOCAL_SAVED_AT_KEY) ?? '0', 10);
-        const local = localStorage.getItem('flyxa-store');
-
-        // Trust whichever copy was saved most recently.
-        // Using timestamps (not entry count) correctly handles deletions:
-        // a device with fewer entries but a newer save timestamp wins.
-        if (local) {
-          try {
-            const sanitizedLocal = sanitizeStoreValue(local);
-            const sanitizedRemote = sanitizeStoreValue(JSON.stringify(data.flyxa_data));
-
-            // If local was saved more recently and differs from remote, trust local.
-            // Guard localSavedMs > 0 to avoid trusting an uninitialised timestamp.
-            if (localSavedMs > 0 && localSavedMs >= supabaseMs && sanitizedLocal !== sanitizedRemote) {
-              void flushSaveWithRetry(userId, sanitizedLocal);
-              return sanitizedLocal;
-            }
-          } catch { /* fall through */ }
-        }
-
-        // If user_store has entries, use it
+        // Supabase is the single source of truth across all devices.
+        // Never let a local copy win when Supabase has data — a stale local
+        // cache on Device B must never overwrite live data written by Device A.
+        // Local is only used as a fallback when Supabase is unreachable or empty.
         const remoteEntries = (data.flyxa_data as { state?: { entries?: unknown[] } })?.state?.entries;
         if (Array.isArray(remoteEntries) && remoteEntries.length > 0) {
           return sanitizeStoreValue(JSON.stringify(data.flyxa_data));
