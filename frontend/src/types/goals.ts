@@ -1,6 +1,8 @@
 export type GoalColor = 'cobalt' | 'amber' | 'teal' | 'purple' | 'rose';
 
-export type GoalCategory = 'Profitability' | 'Risk' | 'Mindset' | 'Consistency' | 'Discipline';
+export type GoalCategory =
+  | 'Profitability' | 'Risk' | 'Mindset' | 'Consistency' | 'Discipline'
+  | 'financial' | 'discipline' | 'lifestyle' | 'skill';
 
 export interface GoalStep {
   id: string;
@@ -8,9 +10,9 @@ export interface GoalStep {
   done: boolean;
 }
 
-export type GoalStatus = 'Active' | 'Paused' | 'Achieved';
+export type GoalMilestone = GoalStep;
 
-export type GoalInput = Omit<Goal, 'id' | 'createdAt'>;
+export type GoalStatus = 'Active' | 'Paused' | 'Achieved' | 'active' | 'paused' | 'achieved';
 
 export interface Goal {
   id: string;
@@ -22,4 +24,14 @@ export interface Goal {
   steps: GoalStep[];
   status?: GoalStatus;
   createdAt: string;
+  // Extended fields for new Goals page
+  icon?: string;
+  targetValue?: number;
+  targetUnit?: string;
+  currentValue?: number;
+  targetDate?: string;
+  achievedAt?: string;
+  target?: number;
 }
+
+export type GoalInput = Omit<Goal, 'id' | 'createdAt'>;

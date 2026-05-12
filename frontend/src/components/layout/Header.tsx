@@ -3,6 +3,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import ThemeToggle from '../common/ThemeToggle.js';
 import { ALL_ACCOUNTS_ID, useAppSettings } from '../../contexts/AppSettingsContext.js';
+import MarketClock from './MarketClock.js';
 
 function accountStatusColor(status: string): string {
   const s = status.toLowerCase();
@@ -36,7 +37,7 @@ const pageNames: Record<string, string> = {
 export default function Header() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { accounts, selectedAccountId, setSelectedAccountId } = useAppSettings();
+  const { accounts, selectedAccountId, setSelectedAccountId, preferences } = useAppSettings();
   const pageName = pageNames[location.pathname] || 'Flyxa';
   const [open, setOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -79,6 +80,7 @@ export default function Header() {
       }}>
         {pageName}
       </h1>
+      <MarketClock displayTimezone={preferences.timezone} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         {/* Custom account dropdown with color dots */}
         <div ref={dropdownRef} style={{ position: 'relative' }}>

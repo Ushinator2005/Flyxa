@@ -30,7 +30,7 @@ const EMPTY: FormState = {
 
 const CATEGORIES: GoalCategory[] = ['Profitability', 'Risk', 'Mindset', 'Consistency', 'Discipline'];
 
-const CATEGORY_TONE: Record<GoalCategory, 'amber' | 'red' | 'cobalt' | 'green' | 'neutral'> = {
+const CATEGORY_TONE: Partial<Record<GoalCategory, 'amber' | 'red' | 'cobalt' | 'green' | 'neutral'>> = {
   Profitability: 'amber',
   Risk: 'red',
   Mindset: 'cobalt',
@@ -190,7 +190,7 @@ export default function AddGoalPanel({ isOpen, onClose, editGoal, onSave }: Prop
                 <button
                   key={category}
                   type="button"
-                  className={`goal-category-btn tone-${CATEGORY_TONE[category]} ${form.category === category ? 'active' : ''}`}
+                  className={`goal-category-btn tone-${CATEGORY_TONE[category] ?? 'neutral'} ${form.category === category ? 'active' : ''}`}
                   onClick={() => setField('category', category)}
                 >
                   {category}

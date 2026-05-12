@@ -22,7 +22,7 @@ type ChecklistItem = {
 
 type SessionPlanRow = {
   id: string;
-  source: 'Edge confirmed' | 'Risk flag' | 'News event' | 'Risk limit';
+  source: 'Primary focus' | 'Avoid today' | 'Hard stop';
   rule: string;
 };
 
@@ -211,10 +211,9 @@ function buildPatternInstruction(pattern: PatternItem, mode: 'watch' | 'protect'
 }
 
 function sourceBadgeStyle(source: SessionPlanRow['source']): CSSProperties {
-  if (source === 'Edge confirmed') return { color: '#22c55e', backgroundColor: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)' };
-  if (source === 'Risk flag') return { color: '#ef4444', backgroundColor: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)' };
-  if (source === 'News event') return { color: '#4a9eff', backgroundColor: 'rgba(74,158,255,0.1)', border: '1px solid rgba(74,158,255,0.25)' };
-  return { color: '#94a3b8', backgroundColor: 'rgba(148,163,184,0.1)', border: '1px solid rgba(148,163,184,0.25)' };
+  if (source === 'Primary focus') return { color: '#22c55e', backgroundColor: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)' };
+  if (source === 'Avoid today') return { color: '#ef4444', backgroundColor: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)' };
+  return { color: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.25)' };
 }
 
 function customCheckbox(checked: boolean) {
@@ -281,6 +280,30 @@ export default function FlyxaAIPreSession() {
     };
   }, [accountTrades]);
 
+  const recentBehavior = useMemo(() => {
+    const recentTrades = [...accountTrades]
+      .sort((a, b) => {
+        const aDate = parseTradeDate(a)?.getTime() ?? 0;
+        const bDate = parseTradeDate(b)?.getTime() ?? 0;
+        return bDate - aDate;
+      })
+      .slice(0, 20);
+    const planLogged = recentTrades.filter(trade => typeof trade.followed_plan === 'boolean');
+    const planAdherence = planLogged.length > 0
+      ? Math.round((planLogged.filter(trade => trade.followed_plan === true).length / planLogged.length) * 100)
+      : null;
+    const revengeTagged = recentTrades.filter(trade => (trade.emotional_state ?? '').toLowerCase().includes('revenge')).length;
+    const emotionTagged = recentTrades.filter(trade => Boolean(trade.emotional_state?.trim())).length;
+
+    return {
+      sampleSize: recentTrades.length,
+      planLogged: planLogged.length,
+      planAdherence,
+      revengeTagged,
+      emotionTagged,
+    };
+  }, [accountTrades]);
+
   const riskLimits = useMemo(() => {
     const dailyLoss = Number.isFinite(settings?.daily_loss_limit) ? settings?.daily_loss_limit : storedRiskSettings.daily_loss_limit;
     const maxTrades = Number.isFinite(settings?.max_trades_per_day) ? settings?.max_trades_per_day : storedRiskSettings.max_trades_per_day;
@@ -322,45 +345,74 @@ export default function FlyxaAIPreSession() {
   const technicalChecklistItems = useMemo<ChecklistItem[]>(
     () => [
       ...baseTechnicalChecklistItems,
+      ...(recentBehavior.planAdherence !== null && recentBehavior.planAdherence < 80
+        ? [{
+            id: 'technical-plan-adherence',
+            label: 'Every entry must clear your full trade plan before execution',
+            source: `${recentBehavior.planAdherence}% recent plan adherence`,
+          }]
+        : []),
       ...activePatterns.map(pattern => ({
         id: `technical-pattern-${pattern.id}`,
         label: pattern.type === 'Risk' ? `Guard against: ${pattern.title}` : `Execute when seen: ${pattern.title}`,
         source: pattern.title,
       })),
     ],
-    [activePatterns]
+    [activePatterns, recentBehavior.planAdherence]
+  );
+
+  const mentalChecklistWithAdaptiveItems = useMemo<ChecklistItem[]>(
+    () => [
+      ...mentalChecklistItems,
+      ...(recentBehavior.revengeTagged > 0
+        ? [{
+            id: 'mental-revenge-reset',
+            label: 'If frustration spikes, take a five-minute reset before re-entry',
+            source: `${recentBehavior.revengeTagged} recent revenge-tagged trade${recentBehavior.revengeTagged === 1 ? '' : 's'}`,
+          }]
+        : []),
+      ...(lastSession && lastSession.netR < 0
+        ? [{
+            id: 'mental-first-loss-pause',
+            label: 'After the first red trade, pause before placing the next order',
+            source: `Last session ${formatSignedR(lastSession.netR)}`,
+          }]
+        : []),
+    ],
+    [lastSession, recentBehavior.revengeTagged]
   );
 
   const sessionPlan = useMemo<SessionPlanRow[]>(() => {
     const topEdge = confirmedEdgePatterns[0];
     const topRisk = activeRiskPatterns[0];
+    const recentPlanDrag = recentBehavior.planAdherence !== null && recentBehavior.planAdherence < 80;
+    const recentEmotionDrag = recentBehavior.revengeTagged > 0;
     return [
       {
-        id: 'edge',
-        source: 'Edge confirmed',
+        id: 'focus',
+        source: 'Primary focus',
         rule: topEdge
           ? `Prioritize ${topEdge.session} setups in ${topEdge.instrument}; this is your highest-confidence edge window today.`
           : 'Prioritize your cleanest A+ continuation setup window and skip marginal entries.',
       },
       {
-        id: 'risk',
-        source: 'Risk flag',
+        id: 'avoid',
+        source: 'Avoid today',
         rule: topRisk
           ? `Avoid ${topRisk.title.toLowerCase()} by pausing after the first loss and requiring full checklist confirmation.`
-          : 'No active risk flags today. Keep discipline and avoid unplanned entries.',
+          : recentEmotionDrag
+            ? 'Do not chase recovery trades. If frustration shows up, step away before taking another setup.'
+            : recentPlanDrag
+              ? 'Do not take trades that skip your plan confirmation; recent execution drift says this matters today.'
+              : 'Avoid unplanned entries and keep the session narrow enough to protect your best execution.',
       },
       {
-        id: 'news',
-        source: 'News event',
-        rule: 'No major news on the calendar. If surprise headlines hit, reduce size by 30% until volatility settles.',
-      },
-      {
-        id: 'limits',
-        source: 'Risk limit',
+        id: 'hard-stop',
+        source: 'Hard stop',
         rule: `Walk away for the day at ${formatCurrency(-riskLimits.maxDailyLoss)} or after ${riskLimits.maxTrades} trades, whichever comes first.`,
       },
     ];
-  }, [confirmedEdgePatterns, activeRiskPatterns, riskLimits.maxDailyLoss, riskLimits.maxTrades]);
+  }, [activeRiskPatterns, confirmedEdgePatterns, recentBehavior.planAdherence, recentBehavior.revengeTagged, riskLimits.maxDailyLoss, riskLimits.maxTrades]);
 
   const rthTiming = useMemo(() => getRthTiming(now), [now]);
   const greeting = now.getHours() < 12 ? 'Good morning' : 'Good afternoon';
@@ -369,6 +421,69 @@ export default function FlyxaAIPreSession() {
   }`;
   const emotionLogged = emotion.trim().length > 0;
 
+  const checklistTotals = useMemo(() => {
+    const rows = [...mentalChecklistWithAdaptiveItems, ...technicalChecklistItems];
+    const completed = rows.filter(item => (
+      item.autoFromEmotion ? emotionLogged : Boolean(checklistState[item.id])
+    )).length;
+    return {
+      completed,
+      total: rows.length,
+      pct: rows.length > 0 ? Math.round((completed / rows.length) * 100) : 100,
+    };
+  }, [checklistState, emotionLogged, mentalChecklistWithAdaptiveItems, technicalChecklistItems]);
+
+  const readiness = useMemo(() => {
+    let score = 100;
+    const reasons: string[] = [];
+
+    if (!emotionLogged) {
+      score -= 18;
+      reasons.push('Emotion not logged yet.');
+    }
+    if (emotion === 'Frustrated') {
+      score -= 24;
+      reasons.push('Frustration is elevated before the open.');
+    } else if (emotion === 'Anxious') {
+      score -= 14;
+      reasons.push('Anxiety is present; tighter entry discipline is warranted.');
+    }
+    if (checklistTotals.pct < 70) {
+      score -= 28;
+      reasons.push(`Only ${checklistTotals.completed}/${checklistTotals.total} readiness checks are complete.`);
+    } else if (checklistTotals.pct < 100) {
+      score -= 12;
+      reasons.push(`Readiness checklist is ${checklistTotals.pct}% complete.`);
+    }
+    if (recentBehavior.planAdherence !== null && recentBehavior.planAdherence < 80) {
+      score -= 12;
+      reasons.push(`Recent plan adherence is ${recentBehavior.planAdherence}%.`);
+    }
+    if (recentBehavior.revengeTagged > 0) {
+      score -= 14;
+      reasons.push('Recent revenge-tagged behavior deserves an explicit reset rule.');
+    }
+    if (lastSession && lastSession.netR < -1) {
+      score -= 10;
+      reasons.push(`Last session closed at ${formatSignedR(lastSession.netR)}.`);
+    }
+
+    const normalizedScore = Math.max(0, Math.min(100, score));
+    const status = normalizedScore >= 82 ? 'Ready' : normalizedScore >= 58 ? 'Caution' : 'Stand Down';
+    const summary = status === 'Ready'
+      ? 'You have a clear plan and enough preparation to trade selectively.'
+      : status === 'Caution'
+        ? 'The plan is usable, but one or two risk conditions deserve attention before sizing up.'
+        : 'Pause before the session. Reduce pressure, finish the checks, and protect capital first.';
+
+    return {
+      status,
+      score: normalizedScore,
+      summary,
+      reasons: reasons.slice(0, 3),
+    } as const;
+  }, [checklistTotals.completed, checklistTotals.pct, checklistTotals.total, emotion, emotionLogged, lastSession, recentBehavior.planAdherence, recentBehavior.revengeTagged]);
+
   const persistPreSession = (updates: Partial<{ emotion: string; note: string; bias: BiasState; checklistState: ChecklistState; startedAt: string | null }>) => {
     setPreSessionAction({
       emotion: updates.emotion ?? emotion,
@@ -376,6 +491,9 @@ export default function FlyxaAIPreSession() {
       bias: updates.bias ?? bias,
       checklistState: updates.checklistState ?? checklistState,
       startedAt: updates.startedAt ?? storedPreSession?.startedAt ?? null,
+      readiness,
+      sessionPlan,
+      commitment: storedPreSession?.commitment,
     });
   };
 
@@ -407,7 +525,25 @@ export default function FlyxaAIPreSession() {
   };
 
   const startSession = () => {
-    persistPreSession({ startedAt: new Date().toISOString() });
+    const committedAt = new Date().toISOString();
+    setPreSessionAction({
+      emotion,
+      note,
+      bias,
+      checklistState,
+      startedAt: committedAt,
+      readiness,
+      sessionPlan,
+      commitment: {
+        committedAt,
+        emotion,
+        note,
+        bias,
+        checklistState,
+        readiness,
+        sessionPlan,
+      },
+    });
     navigate('/');
   };
 
@@ -445,6 +581,89 @@ export default function FlyxaAIPreSession() {
                       ? `Last session ${formatSignedR(lastSession.netR)} (${lastSession.tradeCount} trades)`
                       : 'Last session result unavailable'}
                   </p>
+                </div>
+              </div>
+            </section>
+
+            <section className="border-b px-5 py-4" style={{ borderColor: C.b0, backgroundColor: C.d1 }}>
+              <div className="grid gap-3 xl:grid-cols-[minmax(0,1.2fr)_minmax(280px,0.8fr)]">
+                <div
+                  className="rounded-[8px] border px-4 py-3"
+                  style={{
+                    borderColor: readiness.status === 'Ready'
+                      ? 'rgba(34,214,138,0.28)'
+                      : readiness.status === 'Caution'
+                        ? 'rgba(245,158,11,0.28)'
+                        : 'rgba(240,82,82,0.28)',
+                    backgroundColor: readiness.status === 'Ready'
+                      ? 'rgba(34,214,138,0.08)'
+                      : readiness.status === 'Caution'
+                        ? 'rgba(245,158,11,0.08)'
+                        : 'rgba(240,82,82,0.08)',
+                  }}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p style={SECTION_LABEL_STYLE}>Readiness verdict</p>
+                      <div className="mt-2 flex items-center gap-2">
+                        <span
+                          className="rounded-[4px] px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.08em]"
+                          style={{
+                            color: readiness.status === 'Ready' ? C.grn : readiness.status === 'Caution' ? C.acc : C.red,
+                            backgroundColor: readiness.status === 'Ready'
+                              ? 'rgba(34,214,138,0.12)'
+                              : readiness.status === 'Caution'
+                                ? 'rgba(245,158,11,0.12)'
+                                : 'rgba(240,82,82,0.12)',
+                            border: `1px solid ${readiness.status === 'Ready'
+                              ? 'rgba(34,214,138,0.28)'
+                              : readiness.status === 'Caution'
+                                ? 'rgba(245,158,11,0.28)'
+                                : 'rgba(240,82,82,0.28)'}`,
+                          }}
+                        >
+                          {readiness.status}
+                        </span>
+                        <span className="font-mono text-[14px] font-semibold" style={{ color: C.t0 }}>{readiness.score}/100</span>
+                      </div>
+                    </div>
+                    <p className="max-w-[520px] text-[12px] leading-[1.6]" style={{ color: C.t1 }}>
+                      {readiness.summary}
+                    </p>
+                  </div>
+                  {readiness.reasons.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {readiness.reasons.map(reason => (
+                        <span key={reason} className="rounded-[4px] border px-2 py-1 text-[10.5px]" style={{ borderColor: C.b0, color: C.t1, backgroundColor: C.d3 }}>
+                          {reason}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-[8px] border px-4 py-3" style={{ borderColor: C.b0, backgroundColor: C.d2 }}>
+                  <p style={SECTION_LABEL_STYLE}>Behavior scan</p>
+                  <div className="mt-3 grid grid-cols-3 gap-2">
+                    <div className="rounded-[6px] border px-2.5 py-2" style={{ borderColor: C.b0, backgroundColor: C.d3 }}>
+                      <p className="font-mono text-[13px] font-semibold" style={{ color: recentBehavior.planAdherence !== null && recentBehavior.planAdherence < 80 ? C.acc : C.t0 }}>
+                        {recentBehavior.planAdherence === null ? '—' : `${recentBehavior.planAdherence}%`}
+                      </p>
+                      <p className="mt-1 text-[10px]" style={{ color: C.t2 }}>Plan adherence</p>
+                    </div>
+                    <div className="rounded-[6px] border px-2.5 py-2" style={{ borderColor: C.b0, backgroundColor: C.d3 }}>
+                      <p className="font-mono text-[13px] font-semibold" style={{ color: recentBehavior.revengeTagged > 0 ? C.red : C.t0 }}>
+                        {recentBehavior.revengeTagged}
+                      </p>
+                      <p className="mt-1 text-[10px]" style={{ color: C.t2 }}>Revenge tags</p>
+                    </div>
+                    <div className="rounded-[6px] border px-2.5 py-2" style={{ borderColor: C.b0, backgroundColor: C.d3 }}>
+                      <p className="font-mono text-[13px] font-semibold" style={{ color: C.t0 }}>
+                        {checklistTotals.completed}/{checklistTotals.total}
+                      </p>
+                      <p className="mt-1 text-[10px]" style={{ color: C.t2 }}>Checks done</p>
+                    </div>
+                  </div>
                 </div>
               </div>
             </section>
@@ -577,7 +796,7 @@ export default function FlyxaAIPreSession() {
                     <div>
                       <p className="text-[11px] font-medium uppercase tracking-[0.08em]" style={{ color: C.t1 }}>Mental checks</p>
                       <div className="mt-2 space-y-2">
-                        {mentalChecklistItems.map(item => {
+                        {mentalChecklistWithAdaptiveItems.map(item => {
                           const checked = item.autoFromEmotion ? emotionLogged : Boolean(checklistState[item.id]);
                           return (
                             <button
@@ -591,6 +810,7 @@ export default function FlyxaAIPreSession() {
                               <div>
                                 <p className="text-[12px]" style={{ color: C.t0 }}>{item.label}</p>
                                 {item.autoFromEmotion && <p className="text-[10px]" style={{ color: C.t2 }}>Auto-linked to emotion log</p>}
+                                {item.source && <p className="text-[10px]" style={{ color: C.t2 }}>{item.source}</p>}
                               </div>
                             </button>
                           );

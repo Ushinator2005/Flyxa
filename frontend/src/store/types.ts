@@ -209,6 +209,35 @@ export interface PreSessionData {
   bias: unknown;
   checklistState: unknown;
   startedAt: string | null;
+  readiness?: {
+    status: 'Ready' | 'Caution' | 'Stand Down';
+    score: number;
+    summary: string;
+    reasons: string[];
+  };
+  sessionPlan?: Array<{
+    id: string;
+    source: string;
+    rule: string;
+  }>;
+  commitment?: {
+    committedAt: string;
+    emotion: string;
+    note: string;
+    bias: unknown;
+    checklistState: unknown;
+    readiness: {
+      status: 'Ready' | 'Caution' | 'Stand Down';
+      score: number;
+      summary: string;
+      reasons: string[];
+    };
+    sessionPlan: Array<{
+      id: string;
+      source: string;
+      rule: string;
+    }>;
+  };
 }
 
 export interface ChartHistoryRecord {

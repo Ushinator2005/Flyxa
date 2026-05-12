@@ -14,6 +14,7 @@ export default function Layout() {
     || location.pathname === '/trading-plan'
     || location.pathname === '/billing'
     || location.pathname === '/market-news'
+    || location.pathname === '/goals'
     || location.pathname === '/'
     || isJournalWorkspace;
 
