@@ -59,9 +59,14 @@ const allowedOrigins = new Set([...defaultAllowedOrigins, ...configuredAllowedOr
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow same-origin / non-browser calls (no Origin header)
+    // No Origin header: allow in dev (curl/tooling), block in production.
+    // Browser requests always include Origin, so this only affects non-browser callers.
     if (!origin) {
-      callback(null, true);
+      if (isLocalDev) {
+        callback(null, true);
+      } else {
+        callback(new Error('CORS: Origin header required'));
+      }
       return;
     }
 
@@ -97,9 +102,10 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
-// Body parser - 50mb for images
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+// Body parser — 2mb for JSON. Image uploads use multipart/form-data (handled by
+// multer in the AI route) so they are not affected by this limit.
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
 // Health check
 app.get('/health', (_req, res) => {
