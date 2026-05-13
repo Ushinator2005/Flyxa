@@ -17,7 +17,6 @@ function getCellBg(pnl: number | undefined): string {
   return 'bg-red-800/60';
 }
 
-const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const TABS = [
   { key: 'reflection', label: 'Reflection' },
@@ -897,6 +896,22 @@ export default function MonthlyHeatmap({ trades = [] }: { trades?: Trade[] }) {
   for (let i = 1; i <= daysInMonth; i++) cells.push(i);
   while (cells.length % 7 !== 0) cells.push(null);
 
+  // Sun–Sat display order (Sun-indexed week: 0=Sun,1=Mon,...,6=Sat)
+  const ALL_DAY_INDICES = [0, 1, 2, 3, 4, 5, 6]; // Sun Mon Tue Wed Thu Fri Sat
+  const WEEKDAY_INDICES = [1, 2, 3, 4, 5]; // Mon–Fri only (for row-visibility check)
+  // Sun and Sat get 0.45fr (narrow), weekdays and Weekly P&L get 1fr
+  const GRID_COLS = '0.45fr 1fr 1fr 1fr 1fr 1fr 0.45fr 1fr';
+  const weeks: Array<Array<number | null>> = [];
+  for (let i = 0; i < cells.length; i += 7) {
+    weeks.push(cells.slice(i, i + 7) as Array<number | null>);
+  }
+  const lastVisibleWeekIdx = weeks.reduce((last, w, i) =>
+    ALL_DAY_INDICES.every(idx => w[idx] === null) ? last : i, -1);
+  let weekCounter = 0;
+  const weekNumbers = weeks.map(w =>
+    WEEKDAY_INDICES.every(idx => w[idx] === null) ? null : ++weekCounter
+  );
+
   const journalOrder = useMemo(
     () => [...journalEntries].sort((a, b) => a.date.localeCompare(b.date)),
     [journalEntries]
@@ -1067,7 +1082,7 @@ export default function MonthlyHeatmap({ trades = [] }: { trades?: Trade[] }) {
   return (
     <div>
       <div className="mb-5 flex items-center justify-between">
-        <h2 className="text-base font-bold text-white">
+        <h2 className="text-base font-medium text-slate-300">
           Daily P&L - {MONTHS[month - 1]} {year}
         </h2>
         <div className="flex items-center gap-0.5">
@@ -1080,119 +1095,160 @@ export default function MonthlyHeatmap({ trades = [] }: { trades?: Trade[] }) {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-slate-700/50">
-        <div className="grid grid-cols-7 bg-slate-900/30">
-          {DAYS.map(d => (
-            <div key={d} className="border-b border-r border-slate-700/50 py-2 text-center text-xs font-medium text-slate-500 last:border-r-0">
+      <div className="overflow-hidden rounded-2xl border border-slate-600">
+        {/* Header: Sun–Sat + Week */}
+        <div style={{ display: 'grid', gridTemplateColumns: GRID_COLS }} className="bg-slate-900/30">
+          <div className="border-b border-r border-slate-600 py-2 text-center text-xs font-medium text-slate-600">
+            Sun
+          </div>
+          {['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].map(d => (
+            <div key={d} className="border-b border-r border-slate-600 py-2 text-center text-xs font-medium text-slate-500">
               {d}
             </div>
           ))}
+          <div className="border-b border-r border-slate-600 py-2 text-center text-xs font-medium text-slate-600">
+            Sat
+          </div>
+          <div className="border-b border-slate-600 py-2 text-center text-xs font-medium text-white">
+            Weekly P&L
+          </div>
         </div>
 
-        <div className="grid grid-cols-7 [grid-auto-rows:84px]">
-          {cells.map((day, i) => {
-            if (day === null) {
-              return (
-                <div
-                  key={`empty-${i}`}
-                  className="border-b border-r border-slate-700/50 last:border-r-0"
-                />
-              );
-            }
+        {/* Week rows */}
+        {weeks.map((week, wi) => {
+          if (ALL_DAY_INDICES.every(idx => week[idx] === null)) return null;
+          const isLastWeek = wi === lastVisibleWeekIdx;
+          const visibleWeekNum = weekNumbers[wi];
 
-            const pnl = days[day];
-            const tradeCount = counts[day] ?? 0;
-            const journalEntry = journals[day];
-            const hasJournal = !!journalEntry;
-            const canOpenJournal = hasJournal || tradeCount > 0;
-            const isToday = day === today.getDate()
-              && month === today.getMonth() + 1
-              && year === today.getFullYear();
-            const title = [
-              pnl !== undefined ? `${day} - ${formatPnl(pnl)}` : `${day} - No trades`,
-              hasJournal ? 'Daily journal completed' : undefined,
-              !canOpenJournal ? 'No trade or journal entry' : undefined,
-            ].filter(Boolean).join(' | ');
+          const weekPnl = week.reduce<number>((sum, d) => {
+            if (d === null) return sum;
+            const p = days[d];
+            return p !== undefined ? sum + p : sum;
+          }, 0);
+          const weekTradeCount = week.reduce<number>((sum, d) => d !== null ? sum + (counts[d] ?? 0) : sum, 0);
 
-            return (
-              <div
-                key={day}
-                title={title}
-                onClick={() => {
-                  if (!canOpenJournal) return;
-                  const targetDate = format(new Date(year, month - 1, day), 'yyyy-MM-dd');
-                  if (journalEntry) {
-                    void openJournalModal(journalEntry.id, targetDate);
-                    return;
-                  }
+          return (
+            <div
+              key={`week-${wi}`}
+              style={{ display: 'grid', gridTemplateColumns: GRID_COLS, gridAutoRows: '84px' }}
+            >
+              {ALL_DAY_INDICES.map((dayIdx, ci) => {
+                const day = week[dayIdx] ?? null;
+                if (day === null) {
+                  return (
+                    <div
+                      key={`empty-${wi}-${ci}`}
+                      className={`border-r border-slate-600${!isLastWeek ? ' border-b' : ''}`}
+                    />
+                  );
+                }
 
-                  void (async () => {
-                    try {
-                      const created = await journalApi.create({
-                        date: targetDate,
-                        content: '',
-                        screenshots: [],
-                      }) as JournalEntry;
+                const pnl = days[day];
+                const tradeCount = counts[day] ?? 0;
+                const journalEntry = journals[day];
+                const hasJournal = !!journalEntry;
+                const canOpenJournal = hasJournal || tradeCount > 0;
+                const isToday = day === today.getDate()
+                  && month === today.getMonth() + 1
+                  && year === today.getFullYear();
+                const title = [
+                  pnl !== undefined ? `${day} - ${formatPnl(pnl)}` : `${day} - No trades`,
+                  hasJournal ? 'Daily journal completed' : undefined,
+                  !canOpenJournal ? 'No trade or journal entry' : undefined,
+                ].filter(Boolean).join(' | ');
 
-                      setJournalEntries(current => [created, ...current.filter(entry => entry.id !== created.id)]);
-                      setJournals(current => ({
-                        ...current,
-                        [day]: { id: created.id, date: created.date },
-                      }));
-
-                      void openJournalModal(created.id, targetDate);
-                    } catch {
-                      setJournalError('Unable to open this daily journal entry.');
-                    }
-                  })();
-                }}
-                className={`relative flex flex-col border-b border-r border-slate-700/50 p-2 transition-colors last:border-r-0 ${getCellBg(pnl)} ${
-                  canOpenJournal
-                    ? 'cursor-pointer hover:ring-1 hover:ring-amber-400/35 hover:ring-inset'
-                    : 'cursor-default'
-                } ${
-                  isToday ? 'bg-cyan-500/[0.04]' : ''
-                }`}
-              >
-                {isToday && (
-                  <span
-                    aria-hidden="true"
-                    className="pointer-events-none absolute inset-0 border border-cyan-400/45"
-                  />
-                )}
-                {isToday ? (
-                  <span className="inline-flex flex-col items-start text-xs font-semibold leading-none text-cyan-400">
-                    <span>{day}</span>
-                    <span className="mt-1 h-[3px] w-[3px] self-start rounded-full bg-cyan-400" />
-                  </span>
-                ) : (
-                  <span className="text-xs leading-none text-slate-400">{day}</span>
-                )}
-                {pnl !== undefined && (
-                  <div className="mt-auto flex flex-col gap-0.5">
-                    <span className={`text-xs font-semibold ${pnl >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
-                      {pnl >= 0 ? '+' : ''}
-                      {Math.abs(pnl) >= 1000
-                        ? `${(pnl / 1000).toFixed(1)}k`
-                        : pnl.toFixed(0)}
-                    </span>
-                    {tradeCount > 0 && (
-                      <span className="text-[10px] leading-none text-slate-400 opacity-90">
-                        {tradeCount} {tradeCount === 1 ? 'trade' : 'trades'}
+                return (
+                  <div
+                    key={day}
+                    title={title}
+                    onClick={() => {
+                      if (!canOpenJournal) return;
+                      const targetDate = format(new Date(year, month - 1, day), 'yyyy-MM-dd');
+                      if (journalEntry) {
+                        void openJournalModal(journalEntry.id, targetDate);
+                        return;
+                      }
+                      void (async () => {
+                        try {
+                          const created = await journalApi.create({
+                            date: targetDate,
+                            content: '',
+                            screenshots: [],
+                          }) as JournalEntry;
+                          setJournalEntries(current => [created, ...current.filter(entry => entry.id !== created.id)]);
+                          setJournals(current => ({
+                            ...current,
+                            [day]: { id: created.id, date: created.date },
+                          }));
+                          void openJournalModal(created.id, targetDate);
+                        } catch {
+                          setJournalError('Unable to open this daily journal entry.');
+                        }
+                      })();
+                    }}
+                    className={[
+                      'relative flex flex-col border-r border-slate-600 p-2 transition-colors',
+                      !isLastWeek ? 'border-b' : '',
+                      canOpenJournal ? 'cursor-pointer hover:ring-1 hover:ring-amber-400/35 hover:ring-inset' : 'cursor-default',
+                      isToday ? 'bg-cyan-500/[0.04]' : (pnl !== undefined ? getCellBg(pnl) : ''),
+                    ].join(' ')}
+                  >
+                    {isToday && (
+                      <span aria-hidden="true" className="pointer-events-none absolute inset-0 border border-cyan-400/45" />
+                    )}
+                    {isToday ? (
+                      <span className="inline-flex flex-col items-start text-sm font-semibold leading-none text-cyan-400">
+                        <span>{day}</span>
+                        <span className="mt-1 h-[3px] w-[3px] self-start rounded-full bg-cyan-400" />
                       </span>
+                    ) : (
+                      <span className="text-sm leading-none text-slate-400">{day}</span>
+                    )}
+                    {pnl !== undefined && (
+                      <div className="mt-auto flex flex-col gap-0.5">
+                        <span className={`text-sm font-semibold ${pnl >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
+                          {pnl >= 0 ? '+' : ''}
+                          {Math.abs(pnl) >= 1000
+                            ? `${(pnl / 1000).toFixed(1)}k`
+                            : pnl.toFixed(0)}
+                        </span>
+                        {tradeCount > 0 && (
+                          <span className="text-xs leading-none text-slate-400 opacity-90">
+                            {tradeCount} {tradeCount === 1 ? 'trade' : 'trades'}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {hasJournal && (
+                      <span
+                        className="absolute bottom-2 right-2 h-2.5 w-2.5 rounded-full bg-amber-400 shadow-[0_0_0_2px_rgba(15,23,42,0.9)]"
+                        aria-label="Daily journal completed"
+                      />
                     )}
                   </div>
-                )}
-                {hasJournal && (
-                  <span
-                    className="absolute bottom-2 right-2 h-2.5 w-2.5 rounded-full bg-amber-400 shadow-[0_0_0_2px_rgba(15,23,42,0.9)]"
-                    aria-label="Daily journal completed"
-                  />
-                )}
+                );
+              })}
+
+              {/* Weekly P&L cell */}
+              <div
+                className={`flex flex-col items-center justify-center gap-1 px-2${!isLastWeek ? ' border-b border-slate-600' : ''}`}
+              >
+                <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.09em', textTransform: 'uppercase', color: '#ffffff' }}>
+                  Week {visibleWeekNum}
+                </span>
+                <span
+                  className={`tabular-nums ${weekPnl > 0 ? 'text-emerald-300' : weekPnl < 0 ? 'text-red-400' : 'text-white'}`}
+                  style={{ fontFamily: 'var(--font-mono)', fontSize: 17, fontWeight: 500 }}
+                >
+                  {formatPnl(weekPnl)}
+                </span>
+                <span style={{ fontSize: 9, color: '#ffffff' }}>
+                  {weekTradeCount} {weekTradeCount === 1 ? 'trade' : 'trades'}
+                </span>
               </div>
-            );
-          })}
-        </div>
+            </div>
+          );
+        })}
       </div>
 
       {activeJournalId && modalEntry && (

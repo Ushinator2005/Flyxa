@@ -1,31 +1,40 @@
-import { useEffect, useRef } from 'react';
+import { lazy, Suspense, useEffect, useRef } from 'react';
 import { Navigate, Outlet, Route, Routes } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext.js';
 import Layout from './components/layout/Layout.js';
-import Auth from './pages/Auth.js';
-import Dashboard from './pages/Dashboard.js';
-import FlyxaAI from './pages/FlyxaAI.js';
-import FlyxaAIPatterns from './pages/FlyxaAIPatterns.js';
-import FlyxaAIPreSession from './pages/FlyxaAIPreSession.js';
-import FlyxaAIEmotionalFingerprint from './pages/FlyxaAIEmotionalFingerprint.js';
-import Analytics from './pages/Analytics.js';
-import Achievements from './pages/Achievements.js';
-import PsychologyTracker from './pages/PsychologyTracker.js';
-import Goals from './pages/Goals.js';
-import Rivals from './pages/Rivals.js';
-import Journal from './pages/Journal.js';
-import Backtest from './pages/Backtest.js';
-import TradingPlan from './pages/TradingPlan.js';
-import Billing from './pages/Billing.js';
-import Settings from './pages/Settings.js';
-import MarketNews from './pages/MarketNews.js';
-import TradeScanner from './pages/TradeScanner.js';
 import LoadingSpinner from './components/common/LoadingSpinner.js';
 import ToastStack from './components/common/Toast.js';
 import useFlyxaStore from './store/flyxaStore.js';
 import { useDailyLossUsed } from './store/selectors.js';
 import { pushToast } from './store/toastStore.js';
 import { useBackgroundNewsPoller } from './hooks/useBackgroundNewsPoller.js';
+
+const Auth = lazy(() => import('./pages/Auth.js'));
+const Dashboard = lazy(() => import('./pages/Dashboard.js'));
+const TradeScanner = lazy(() => import('./pages/TradeScanner.js'));
+const MarketNews = lazy(() => import('./pages/MarketNews.js'));
+const FlyxaAI = lazy(() => import('./pages/FlyxaAI.js'));
+const FlyxaAIPatterns = lazy(() => import('./pages/FlyxaAIPatterns.js'));
+const FlyxaAIPreSession = lazy(() => import('./pages/FlyxaAIPreSession.js'));
+const FlyxaAIEmotionalFingerprint = lazy(() => import('./pages/FlyxaAIEmotionalFingerprint.js'));
+const Analytics = lazy(() => import('./pages/Analytics.js'));
+const Achievements = lazy(() => import('./pages/Achievements.js'));
+const Backtest = lazy(() => import('./pages/Backtest.js'));
+const TradingPlan = lazy(() => import('./pages/TradingPlan.js'));
+const Billing = lazy(() => import('./pages/Billing.js'));
+const PsychologyTracker = lazy(() => import('./pages/PsychologyTracker.js'));
+const Journal = lazy(() => import('./pages/Journal.js'));
+const Goals = lazy(() => import('./pages/Goals.js'));
+const Rivals = lazy(() => import('./pages/Rivals.js'));
+const Settings = lazy(() => import('./pages/Settings.js'));
+
+function RouteFallback() {
+  return (
+    <div className="min-h-[240px] flex items-center justify-center">
+      <LoadingSpinner size="md" />
+    </div>
+  );
+}
 
 function ProtectedRoute() {
   const { user, loading } = useAuth();
@@ -62,18 +71,18 @@ export default function App() {
     if (!user || typeof window === 'undefined') return;
     if (window.localStorage.getItem('flyxa_store_migrated_v1') === '1') return;
 
-    const payload: Record<string, unknown> = {};
+    const payload: Parameters<typeof hydrateSharedData>[0] = {};
 
     try {
       const entriesRaw = window.localStorage.getItem('flyxa_entries');
-      if (entriesRaw) payload.entries = JSON.parse(entriesRaw) as unknown;
+      if (entriesRaw) payload.entries = JSON.parse(entriesRaw) as typeof payload.entries;
     } catch {
       // Ignore malformed legacy data.
     }
 
     try {
       const billingRaw = window.localStorage.getItem('flyxa_billing_accounts');
-      if (billingRaw) payload.billingAccounts = JSON.parse(billingRaw) as unknown;
+      if (billingRaw) payload.billingAccounts = JSON.parse(billingRaw) as typeof payload.billingAccounts;
     } catch {
       // Ignore malformed legacy data.
     }
@@ -86,9 +95,9 @@ export default function App() {
           checklist?: unknown;
           setups?: unknown;
         };
-        if (parsed.planBlocks) payload.planBlocks = parsed.planBlocks;
-        if (parsed.checklist) payload.checklist = parsed.checklist;
-        if (parsed.setups) payload.setupPlaybook = parsed.setups;
+        if (parsed.planBlocks) payload.planBlocks = parsed.planBlocks as typeof payload.planBlocks;
+        if (parsed.checklist) payload.checklist = parsed.checklist as typeof payload.checklist;
+        if (parsed.setups) payload.setupPlaybook = parsed.setups as typeof payload.setupPlaybook;
       }
     } catch {
       // Ignore malformed legacy data.
@@ -115,7 +124,7 @@ export default function App() {
       if (prefsRaw) {
         const parsed = JSON.parse(prefsRaw) as { scannerColors?: unknown };
         if (parsed.scannerColors && typeof parsed.scannerColors === 'object') {
-          payload.scannerColors = parsed.scannerColors;
+          payload.scannerColors = parsed.scannerColors as typeof payload.scannerColors;
         }
       }
     } catch {
@@ -124,13 +133,13 @@ export default function App() {
 
     try {
       const goalsRaw = window.localStorage.getItem('tw_goals_local');
-      if (goalsRaw) payload.goals = JSON.parse(goalsRaw) as unknown;
+      if (goalsRaw) payload.goals = JSON.parse(goalsRaw) as typeof payload.goals;
     } catch {
       // Ignore malformed legacy data.
     }
 
     if (Object.keys(payload).length > 0) {
-      hydrateSharedData(payload as any);
+      hydrateSharedData(payload);
     }
 
     [
@@ -185,39 +194,40 @@ export default function App() {
 
   return (
     <>
-      <Routes>
-        <Route path="/auth" element={user ? <Navigate to="/" replace /> : <Auth />} />
-        <Route path="/landing" element={<Navigate to={user ? '/' : '/auth'} replace />} />
+      <Suspense fallback={<RouteFallback />}>
+        <Routes>
+          <Route path="/auth" element={user ? <Navigate to="/" replace /> : <Auth />} />
+          <Route path="/landing" element={<Navigate to={user ? '/' : '/auth'} replace />} />
 
-        <Route element={<ProtectedRoute />}>
-          <Route element={<ProtectedLayout />}>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/scanner" element={<TradeScanner />} />
-            <Route path="/trade-scanner" element={<TradeScanner />} />
-            <Route path="/market-news" element={<MarketNews />} />
-            <Route path="/flyxa-ai" element={<FlyxaAI />} />
-            <Route path="/flyxa-ai/patterns" element={<FlyxaAIPatterns />} />
-            <Route path="/flyxa-ai/pre-session" element={<FlyxaAIPreSession />} />
-            <Route path="/flyxa-ai/emotional-fingerprint" element={<FlyxaAIEmotionalFingerprint />} />
-            <Route path="/coach" element={<Navigate to="/flyxa-ai" replace />} />
-            <Route path="/analytics" element={<Analytics />} />
-            <Route path="/achievements" element={<Achievements />} />
-            <Route path="/backtest" element={<Backtest />} />
-            <Route path="/trading-plan" element={<TradingPlan />} />
-            <Route path="/billing" element={<Billing />} />
-            <Route path="/chart" element={<Navigate to="/backtest" replace />} />
-            <Route path="/psychology" element={<PsychologyTracker />} />
-            <Route path="/journal" element={<Journal />} />
-            <Route path="/goals" element={<Goals />} />
-            <Route path="/rivals" element={<Rivals />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="/risk" element={<Navigate to="/" replace />} />
-            <Route path="/playbook" element={<Navigate to="/" replace />} />
-            <Route path="/chart-analyzer" element={<Navigate to="/" replace />} />
+          <Route element={<ProtectedRoute />}>
+            <Route element={<ProtectedLayout />}>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/scanner" element={<TradeScanner />} />
+              <Route path="/market-news" element={<MarketNews />} />
+              <Route path="/flyxa-ai" element={<FlyxaAI />} />
+              <Route path="/flyxa-ai/patterns" element={<FlyxaAIPatterns />} />
+              <Route path="/flyxa-ai/pre-session" element={<FlyxaAIPreSession />} />
+              <Route path="/flyxa-ai/emotional-fingerprint" element={<FlyxaAIEmotionalFingerprint />} />
+              <Route path="/coach" element={<Navigate to="/flyxa-ai" replace />} />
+              <Route path="/analytics" element={<Analytics />} />
+              <Route path="/achievements" element={<Achievements />} />
+              <Route path="/backtest" element={<Backtest />} />
+              <Route path="/trading-plan" element={<TradingPlan />} />
+              <Route path="/billing" element={<Billing />} />
+              <Route path="/chart" element={<Navigate to="/backtest" replace />} />
+              <Route path="/psychology" element={<PsychologyTracker />} />
+              <Route path="/journal" element={<Journal />} />
+              <Route path="/goals" element={<Goals />} />
+              <Route path="/rivals" element={<Rivals />} />
+              <Route path="/settings" element={<Settings />} />
+              <Route path="/risk" element={<Navigate to="/" replace />} />
+              <Route path="/playbook" element={<Navigate to="/" replace />} />
+              <Route path="/chart-analyzer" element={<Navigate to="/" replace />} />
+            </Route>
           </Route>
-        </Route>
-        <Route path="*" element={<Navigate to={user ? '/' : '/auth'} replace />} />
-      </Routes>
+          <Route path="*" element={<Navigate to={user ? '/' : '/auth'} replace />} />
+        </Routes>
+      </Suspense>
       <ToastStack />
     </>
   );

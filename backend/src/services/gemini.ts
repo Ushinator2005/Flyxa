@@ -27,9 +27,32 @@ async function generateWithFallback(
   genAI: GoogleGenerativeAI,
   systemPrompt: string,
   mimeType: string,
-  base64Image: string
+  base64Image: string,
+  focusImages: Array<{ base64Image: string; mimeType: string; label: string }> = []
 ): Promise<{ text: string; model: string }> {
   const errors: string[] = [];
+  const selectedFocusImages = focusImages
+    .filter(image => image.base64Image && image.mimeType)
+    .slice(0, 10);
+  const content = [
+    systemPrompt,
+    'Image 1 label: full_chart. Use it for overall chart structure, candles, ticker, timeframe, and exit path.',
+    {
+      inlineData: {
+        mimeType,
+        data: base64Image,
+      },
+    },
+    ...selectedFocusImages.flatMap((image, index) => [
+      `Image ${index + 2} label: ${image.label}. This is a scanner-generated crop. Crops labelled price-label-focus and entry-color-label-focus are more authoritative for price-axis labels than the full chart.`,
+      {
+        inlineData: {
+          mimeType: image.mimeType,
+          data: image.base64Image,
+        },
+      },
+    ]),
+  ];
 
   for (let modelIndex = 0; modelIndex < GEMINI_MODEL_FALLBACK_CHAIN.length; modelIndex++) {
     const modelName = GEMINI_MODEL_FALLBACK_CHAIN[modelIndex];
@@ -40,15 +63,7 @@ async function generateWithFallback(
 
     for (let attempt = 0; attempt <= GEMINI_MAX_RETRIES_PER_MODEL; attempt += 1) {
       try {
-        const result = await model.generateContent([
-          systemPrompt,
-          {
-            inlineData: {
-              mimeType,
-              data: base64Image,
-            },
-          },
-        ]);
+        const result = await model.generateContent(content);
         const text = result.response.text().trim();
         return { text, model: modelName };
       } catch (error) {
@@ -149,6 +164,7 @@ function hexToColorName(hex: string): string {
 export async function readTradeChart(
   base64Image: string,
   mimeType: string,
+  focusImages: Array<{ base64Image: string; mimeType: string; label: string }> = [],
   userColors?: {
     stopLoss: string;
     takeProfit: string;
@@ -182,22 +198,26 @@ export async function readTradeChart(
 PRICE LEVEL IDENTIFICATION — FOLLOW THESE STEPS EXACTLY:
 
 Step 1. Look at the right-hand price axis of the chart. You will see small rectangular pill-shaped labels, each with a colored background and a price number printed inside.
+IMPORTANT: The ENTRY label should match the user's configured Entry zone color when they have changed it. Use grey only as a fallback for default TradingView position-tool labels. Never use a black/white horizontal-line label as entry when a colored or grey entry pill is visible.
+If an attached crop is labelled price-label-focus, use it to read all visible right-axis labels. If an attached crop is labelled entry-color-label-focus, use it to resolve the entry label only.
 
 Step 2. The user has set these three zone colors in their settings:
   • Entry zone color   = ${entryName} (${userColors.entry})
   • Stop Loss color    = ${slName} (${userColors.stopLoss})
   • Take Profit color  = ${tpName} (${userColors.takeProfit})
 
-Step 3. Find the pill on the right axis whose background color visually matches each setting color above:
+Step 3. Find the right-axis labels attached to the TradingView position tool:
   • Pill with ${entryName} background  → that price number is entry_price
+  • Grey pill/box at the entry boundary → entry_price ONLY if no ${entryName} entry pill is visible
   • Pill with ${slName} background     → that price number is sl_price
   • Pill with ${tpName} background     → that price number is tp_price
 
 Step 4. IGNORE everything else on the chart completely:
   • Horizontal lines (black, white, or any color) drawn across the chart = key levels, NOT trade prices
+  • Black or white right-axis labels attached to horizontal key levels = ignore for entry_price
   • The live floating price label on the far right (the highlight showing current price) = ignore
-  • Any price label whose background color does NOT match one of the three setting colors above = ignore
-  • Do not infer or estimate a price from where boxes or lines appear — only read the pill whose background color matches a setting color
+  • Any price label whose background color does NOT match the configured position-tool colors = ignore, except grey is allowed as an entry fallback
+  • Do not use a nearby black horizontal-line label when a configured-color or grey entry pill exists. The entry pill is the source of truth.
 `;
       })()
     : `
@@ -206,10 +226,12 @@ Look at the right-hand price axis. Find the three colored pill labels:
   • Grey background pill = entry_price
   • Red or pink background pill = sl_price
   • Teal or green background pill = tp_price
-Ignore all horizontal lines across the chart and any other price labels.
+Ignore all horizontal lines across the chart and any other price labels. In particular, never use a black/white right-axis key-level label as entry_price when a grey entry pill is visible.
 `;
 
   const systemPrompt = `You are a TradingView futures chart reader. Your ONLY job is to extract exact trade data from a P&L card screenshot.
+You may receive the full chart plus labelled scanner crops. The crop labels are included as text immediately before each image.
+Use price-label-focus as the primary OCR view for right-axis price labels. Use entry-color-label-focus as the primary OCR view for the entry pill. If entry-label-focus, stop-label-focus, or target-label-focus show black/white horizontal-line labels, treat them as crop hints only and ignore those black/white values as trade prices.
 
 STEP 1 — READ THE TICKER:
 Look at the top-left corner of the chart for the instrument header.
@@ -289,7 +311,7 @@ Return ONLY this raw JSON with no markdown, no explanation, no code fences:
 
   try {
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY ?? '');
-    const { text, model } = await generateWithFallback(genAI, systemPrompt, mimeType, base64Image);
+    const { text, model } = await generateWithFallback(genAI, systemPrompt, mimeType, base64Image, focusImages);
     if (DEBUG_AI_LOGS) {
       console.log(`[Gemini model] ${model}`);
       console.log('[Gemini raw]', text.slice(0, 500));
@@ -370,8 +392,6 @@ export async function analyzeChartImage(
   focusImages: Array<{ base64Image: string; mimeType: string; label: string }> = [],
   scannerContext?: Record<string, unknown>
 ): Promise<ExtractedTradeData> {
-  void focusImages;
-
   const colors = scannerContext?.scanner_colors as {
     supplyStopZone?: { hex: string };
     targetDemandZone?: { hex: string };
@@ -390,7 +410,7 @@ export async function analyzeChartImage(
     ? { leftRatio: boxLeftRatio, rightRatio: boxRightRatio }
     : undefined;
 
-  const result = await readTradeChart(base64Image, mimeType, userColors, boxBounds);
+  const result = await readTradeChart(base64Image, mimeType, focusImages, userColors, boxBounds);
 
   return {
     symbol: result.symbol,

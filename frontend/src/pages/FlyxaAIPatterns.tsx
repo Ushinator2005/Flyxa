@@ -12,7 +12,7 @@ type SortOption = 'impact' | 'recent' | 'frequency';
 
 export type PatternSession = {
   date: string;
-  rOutcome: number;
+  pnl: number;
 };
 
 export type PatternItem = {
@@ -24,7 +24,7 @@ export type PatternItem = {
   description: string;
   firstSeen: string;
   sessionCount: number;
-  totalR: number;
+  totalPnl: number;
   tags: Array<{ label: string; sentiment: TagSentiment }>;
   confidence: number;
   instrument: string;
@@ -88,18 +88,111 @@ function getDetectedPeriodStart(tf: DetectedTimeFrame): Date {
   return new Date(0); // All
 }
 
-function tradeR(trade: Partial<Trade>): number {
-  const entry = Number(trade.entry_price ?? 0);
-  const sl = Number(trade.sl_price ?? 0);
-  const pnl = Number(trade.pnl ?? 0);
-  const riskPts = Math.abs(entry - sl);
-  if (riskPts > 0) {
-    const size = Math.max(1, Number(trade.contract_size ?? 1));
-    const ptVal = Math.max(1, Number(trade.point_value ?? 1));
-    const risk = riskPts * size * ptVal;
-    if (risk > 0) return pnl / risk;
+function formatSignedCurrency(value: number): string {
+  const formatted = Math.abs(value).toLocaleString('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  if (value > 0) return `+${formatted}`;
+  if (value < 0) return `-${formatted}`;
+  return formatted;
+}
+
+function getSuggestion(pattern: PatternItem): string {
+  const { id, type, status, sessionCount, totalPnl, instrument, title, sessions, tags } = pattern;
+
+  // Extract win rate from tags (most reliable source — covers full sample)
+  const wrTag = tags.find(t => t.label.includes('win rate'));
+  const wr = wrTag ? parseInt(wrTag.label) : (sessions.length ? Math.round((sessions.filter(s => s.pnl > 0).length / sessions.length) * 100) : 0);
+
+  // Compute avg win / avg loss / R:R from the sessions sample
+  const sessWins = sessions.filter(s => s.pnl > 0);
+  const sessLosses = sessions.filter(s => s.pnl < 0);
+  const avgWin = sessWins.length ? sessWins.reduce((sum, s) => sum + s.pnl, 0) / sessWins.length : 0;
+  const avgLoss = sessLosses.length ? Math.abs(sessLosses.reduce((sum, s) => sum + s.pnl, 0) / sessLosses.length) : 0;
+  const rr = avgLoss > 0 && avgWin > 0 ? avgWin / avgLoss : null;
+
+  // Trend: sessions sorted most-recent-first, compare last 3 vs older
+  const recent = sessions.slice(0, Math.min(3, sessions.length));
+  const older = sessions.slice(3);
+  const recentAvg = recent.length ? recent.reduce((sum, s) => sum + s.pnl, 0) / recent.length : null;
+  const olderAvg = older.length >= 2 ? older.reduce((sum, s) => sum + s.pnl, 0) / older.length : null;
+  const trendWorsening = recentAvg !== null && olderAvg !== null && recentAvg < olderAvg;
+  const trendImproving = recentAvg !== null && olderAvg !== null && recentAvg > olderAvg;
+
+  const fmt = (v: number) => formatSignedCurrency(Math.abs(v));
+  const stateMatch = title.match(/"([^"]+)"/);
+  const state = stateMatch ? stateMatch[1] : null;
+
+  // ── Symbol risk — single instrument (setup audit) ───────────────
+  if (id.startsWith('auto-sym-risk-') && title.includes('setup quality')) {
+    if (rr !== null && rr < 1.2 && sessLosses.length >= 2) {
+      const breakevenWr = avgLoss > 0 ? Math.round((avgLoss / (avgWin + avgLoss)) * 100) : 0;
+      return `${sessionCount} ${instrument} trades at ${wr}% win rate — but the deeper problem is the reward-to-risk. Your average winner from this sample is ${fmt(avgWin)} and your average loser is ${fmt(avgLoss)}, giving you roughly a ${rr.toFixed(1)}:1 ratio. At that ratio you'd need to win around ${breakevenWr}% of trades just to break even, which means you're fighting two problems simultaneously: a low win rate and undersized winners. Look at your winning trades specifically and ask whether you're exiting too early or whether the setup was structurally cleaner at entry — that distinction tells you whether this is a management problem or a selection problem.`;
+    }
+    if (sessLosses.length > 0 && sessWins.length <= 1) {
+      return `${sessionCount} ${instrument} trades with only ${sessWins.length} winner in this sample. That's not a bad run — at this ratio the setup itself isn't producing an edge. Go through each losing trade and write down one thing that was present at entry that you'd now flag as a warning sign. You're looking for the variable that appears on losers but not on your winners. Once you find it, that becomes your first filter before any ${instrument} entry.`;
+    }
+    return `${sessionCount} trades on ${instrument} at ${wr}% win rate and ${formatSignedCurrency(totalPnl)}. Since ${instrument} is your primary instrument, the data can't tell you it's the wrong market — it can only tell you something in the approach isn't working. Compare your ${sessWins.length} winning trade${sessWins.length !== 1 ? 's' : ''} to your ${sessLosses.length} losing trade${sessLosses.length !== 1 ? 's' : ''}: entry timing, confluence quality, emotional state, and whether price was at a key level or in the middle of range. The edge is in what separates those two groups.`;
   }
-  return pnl > 0 ? 1 : pnl < 0 ? -1 : 0;
+
+  // ── Symbol risk — multi-instrument (underperformer) ─────────────
+  if (id.startsWith('auto-sym-risk-')) {
+    const trendNote = trendWorsening
+      ? ` Your most recent ${recent.length} ${instrument} trades are also your worst (avg ${formatSignedCurrency(recentAvg!)} each), so this isn't stabilising.`
+      : trendImproving
+        ? ` Your last ${recent.length} trades show slight improvement (avg ${formatSignedCurrency(recentAvg!)}), but not enough to offset the overall picture.`
+        : '';
+    const rrNote = rr !== null ? ` Average winner ${fmt(avgWin)}, average loser ${fmt(avgLoss)} — a ${rr.toFixed(1)}:1 R:R ratio.` : '';
+    return `${sessionCount} ${instrument} trades at ${wr}% win rate and ${formatSignedCurrency(totalPnl)}.${rrNote}${trendNote} The useful question isn't whether to cut ${instrument}, it's whether you're applying the same entry conditions to ${instrument} that work on your other instruments or whether you've drifted. Take the last 3 ${instrument} losers and compare them to 3 winners on your better-performing instruments — look at where in structure you entered, how wide the stop was, and what your state was. That comparison is more useful than any general rule change.`;
+  }
+
+  // ── Symbol edge ─────────────────────────────────────────────────
+  if (id.startsWith('auto-sym-edge-')) {
+    const rrNote = rr !== null ? ` Average winner ${fmt(avgWin)} against average loser ${fmt(avgLoss)} — ${rr.toFixed(1)}:1 ratio, which compounds the win rate advantage.` : '';
+    const trendNote = trendImproving
+      ? ` Your most recent sessions are tracking above your earlier average (${formatSignedCurrency(recentAvg!)} vs ${formatSignedCurrency(olderAvg!)}), so the edge is building.`
+      : trendWorsening
+        ? ` One thing to watch: your most recent ${recent.length} sessions are averaging ${formatSignedCurrency(recentAvg!)} — lower than earlier. Edges can drift; keep monitoring whether conditions are changing.`
+        : '';
+    return `${sessionCount} ${instrument} trades at ${wr}% win rate and ${formatSignedCurrency(totalPnl)}.${rrNote}${trendNote} The edge is statistically real at this sample size — the risk now is diluting it by entering lower-conviction versions of the same setup to stay active. Write down the specific conditions that were present in your clearest winners — not just "structure looked good" but the actual criteria. Anything that doesn't match those exactly is a different trade with a different (lower) expectation.`;
+  }
+
+  // ── Session risk ─────────────────────────────────────────────────
+  if (id.startsWith('auto-sess-risk-')) {
+    const sessName = id.replace('auto-sess-risk-', '');
+    const estLosses = Math.round(sessionCount * (1 - wr / 100));
+    const trendNote = trendWorsening ? ` Your most recent ${sessName} sessions are averaging ${formatSignedCurrency(recentAvg!)} — it's trending in the wrong direction.` : '';
+    return `${sessionCount} trades during ${sessName}, ${wr}% win rate, ${formatSignedCurrency(totalPnl)}.${trendNote} Roughly ${estLosses} of your ${sessionCount} entries here are losing. Before you reduce activity, check whether the losses cluster in a specific part of the session — first 15 minutes, around news events, or later when liquidity drops. If they do cluster, the fix is a time-based filter, not a blanket reduction. If they're spread evenly, the issue is likely the setup itself being applied in conditions that don't support it.`;
+  }
+
+  // ── Session edge ─────────────────────────────────────────────────
+  if (id.startsWith('auto-sess-edge-')) {
+    const sessName = id.replace('auto-sess-edge-', '');
+    const rrNote = rr !== null ? ` Your sample shows ${fmt(avgWin)} average winners against ${fmt(avgLoss)} average losers — a ${rr.toFixed(1)}:1 ratio.` : '';
+    return `${sessionCount} ${sessName} trades at ${wr}% win rate and ${formatSignedCurrency(totalPnl)}.${rrNote} The edge is there — now look at whether your ${sessLosses.length} losers in this session share anything in common: entry time within the session, whether you were already up or down on the day, or specific market conditions. Knowing what turns a ${sessName} trade from a winner to a loser is what takes this edge from ${wr}% to something more consistent.`;
+  }
+
+  // ── Psychology risk ─────────────────────────────────────────────
+  if (id.startsWith('auto-psych-risk-') && state) {
+    const perTrade = sessionCount > 0 ? Math.abs(totalPnl / sessionCount) : 0;
+    const rrNote = rr !== null ? ` Your average loss in this state (${fmt(avgLoss)}) is ${avgWin > 0 ? `larger than your average winner (${fmt(avgWin)})` : 'not being offset by meaningful winners'}.` : '';
+    return `${sessionCount} trades while "${state}" at ${wr}% win rate and ${formatSignedCurrency(totalPnl)} — averaging ${formatSignedCurrency(perTrade)} lost per trade in this state.${rrNote} This is not something you can trade through with more discipline at entry — the state itself is already degrading your decision-making before you place the order. The rule needs to be pre-entry: name your emotional state before each session. If it's "${state}", your only trade is to wait 15 minutes and reassess. If it's still there, the session is closed. ${sessionCount} trades is enough data to make this a hard rule, not a guideline.`;
+  }
+
+  // ── Psychology edge ─────────────────────────────────────────────
+  if (id.startsWith('auto-psych-edge-') && state) {
+    return `${sessionCount} trades while "${state}" at ${wr}% win rate and ${formatSignedCurrency(totalPnl)} — your best-performing emotional context by a meaningful margin. The practical question is what produces this state reliably. Think back to the sessions where you felt "${state}": what did you do the night before, how much preparation had you done, did you exercise, what time did you start? Even identifying one or two consistent inputs gives you something to engineer rather than just hope for.`;
+  }
+
+  // ── Generic fallback ────────────────────────────────────────────
+  const rrNote = rr !== null ? ` Average winner ${fmt(avgWin)}, average loser ${fmt(avgLoss)} (${rr.toFixed(1)}:1 ratio).` : '';
+  if (type === 'Risk' || status === 'Active') {
+    return `${sessionCount} occurrences at ${wr}% win rate and ${formatSignedCurrency(totalPnl)}.${rrNote} The pattern is repeating — identify the one variable present in all instances and define a specific rule around it before the next occurrence.`;
+  }
+  return `${sessionCount} occurrences at ${wr}% win rate and ${formatSignedCurrency(totalPnl)}.${rrNote} Document the exact conditions that produce this outcome so you can distinguish when it's valid from when it's noise.`;
 }
 
 function detectPatternsFromTrades(trades: Trade[], tf: DetectedTimeFrame): PatternItem[] {
@@ -122,14 +215,13 @@ function detectPatternsFromTrades(trades: Trade[], tf: DetectedTimeFrame): Patte
 
   const summariseGroup = (group: Trade[]) => {
     const winners = group.filter(t => Number(t.pnl) > 0);
-    const rs = group.map(tradeR);
+    const netPnl = group.reduce((s, t) => s + Number(t.pnl ?? 0), 0);
     return {
       count: group.length,
-      netPnl: group.reduce((s, t) => s + Number(t.pnl ?? 0), 0),
+      netPnl,
       winRate: group.length ? (winners.length / group.length) * 100 : 0,
-      totalR: rs.reduce((s, r) => s + r, 0),
       sessions: group
-        .map(t => ({ date: t.trade_date ?? now, rOutcome: parseFloat(tradeR(t).toFixed(2)) }))
+        .map(t => ({ date: t.trade_date ?? now, pnl: Number(t.pnl ?? 0) }))
         .sort((a, b) => b.date.localeCompare(a.date))
         .slice(0, 8),
       firstSeen: group.map(t => t.trade_date ?? now).sort()[0] ?? now,
@@ -138,37 +230,83 @@ function detectPatternsFromTrades(trades: Trade[], tf: DetectedTimeFrame): Patte
 
   // ── Symbol patterns ──────────────────────────────────────────────
   const symbolGroups = groupBy(filtered, t => (t.symbol?.trim() || 'Unknown'));
+  // Count symbols that have enough trades to be meaningful
+  const meaningfulSymbolCount = Array.from(symbolGroups.entries())
+    .filter(([sym, g]) => sym !== 'Unknown' && g.length >= 4).length;
+
   symbolGroups.forEach((group, symbol) => {
     if (group.length < 4 || symbol === 'Unknown') return;
     const s = summariseGroup(group);
+    const wr = Math.round(s.winRate);
     const confidence = Math.min(95, Math.round(30 + (group.length / 2) * 10 + Math.abs(s.winRate - 50)));
-    if (s.winRate < 35 && s.netPnl < 0) {
+
+    if (meaningfulSymbolCount <= 1) {
+      // Single-instrument trader: comparison is impossible — "X is unprofitable" just
+      // restates the P&L the user can already see. Instead surface WHAT to fix.
+      if (wr < 35 && s.netPnl < 0) {
+        patterns.push({
+          id: `auto-sym-risk-${symbol}`,
+          type: 'Risk',
+          status: 'Active',
+          title: `${symbol} setup quality needs a full audit`,
+          description: `${symbol} is your primary instrument, so a ${wr}% win rate and ${formatSignedCurrency(s.netPnl)} P&L points to a setup or execution problem — not the instrument itself. Dig into which specific confluences, times of entry, or emotional states are present on your losing trades vs winners. The answer is in the variables, not the ticker.`,
+          firstSeen: s.firstSeen,
+          sessionCount: group.length,
+          totalPnl: s.netPnl,
+          tags: [{ label: `${group.length} trades`, sentiment: 'neutral' }, { label: `${wr}% win rate`, sentiment: 'negative' }, { label: 'Review setups', sentiment: 'neutral' }],
+          confidence,
+          instrument: symbol,
+          session: 'RTH open',
+          sessions: s.sessions,
+        });
+      } else if (wr >= 60 && s.netPnl > 0 && group.length >= 5) {
+        patterns.push({
+          id: `auto-sym-edge-${symbol}`,
+          type: 'Edge',
+          status: 'Confirmed',
+          title: `${symbol} edge is confirmed — protect your conditions`,
+          description: `${group.length} trades on ${symbol} returned ${formatSignedCurrency(s.netPnl)} at ${wr}% win rate. Your edge on this instrument is holding. The priority now is keeping setup conditions tight — avoid adding new patterns or expanding into unfamiliar setups while the edge is working.`,
+          firstSeen: s.firstSeen,
+          sessionCount: group.length,
+          totalPnl: s.netPnl,
+          tags: [{ label: `${group.length} trades`, sentiment: 'neutral' }, { label: `${wr}% win rate`, sentiment: 'positive' }],
+          confidence,
+          instrument: symbol,
+          session: 'RTH open',
+          sessions: s.sessions,
+        });
+      }
+      return;
+    }
+
+    // Multiple instruments — comparison is meaningful
+    if (wr < 35 && s.netPnl < 0) {
       patterns.push({
         id: `auto-sym-risk-${symbol}`,
         type: 'Risk',
         status: 'Active',
-        title: `${symbol} is consistently unprofitable`,
-        description: `Across ${group.length} trades, ${symbol} returned ${s.totalR >= 0 ? '+' : ''}${s.totalR.toFixed(1)}R (${Math.round(s.winRate)}% win rate). The edge here is negative — this instrument may need to be paused or the setup re-validated.`,
+        title: `${symbol} is underperforming your other instruments`,
+        description: `Across ${group.length} trades, ${symbol} returned ${formatSignedCurrency(s.netPnl)} (${wr}% win rate) — the weakest performer in your instrument mix. Consider pausing ${symbol} trades until you can isolate what's breaking down.`,
         firstSeen: s.firstSeen,
         sessionCount: group.length,
-        totalR: parseFloat(s.totalR.toFixed(2)),
-        tags: [{ label: `${group.length} trades`, sentiment: 'neutral' }, { label: `${Math.round(s.winRate)}% win rate`, sentiment: 'negative' }],
+        totalPnl: s.netPnl,
+        tags: [{ label: `${group.length} trades`, sentiment: 'neutral' }, { label: `${wr}% win rate`, sentiment: 'negative' }],
         confidence,
         instrument: symbol,
         session: 'RTH open',
         sessions: s.sessions,
       });
-    } else if (s.winRate >= 60 && s.netPnl > 0 && group.length >= 5) {
+    } else if (wr >= 60 && s.netPnl > 0 && group.length >= 5) {
       patterns.push({
         id: `auto-sym-edge-${symbol}`,
         type: 'Edge',
         status: 'Confirmed',
-        title: `${symbol} is a confirmed profit driver`,
-        description: `${group.length} trades on ${symbol} yielded ${s.totalR >= 0 ? '+' : ''}${s.totalR.toFixed(1)}R at ${Math.round(s.winRate)}% win rate. This instrument has a validated edge over this period — keep conditions tight.`,
+        title: `${symbol} is your strongest instrument`,
+        description: `${group.length} trades on ${symbol} yielded ${formatSignedCurrency(s.netPnl)} at ${wr}% win rate — your top-performing instrument over this period. Keep conditions tight and prioritise ${symbol} setups.`,
         firstSeen: s.firstSeen,
         sessionCount: group.length,
-        totalR: parseFloat(s.totalR.toFixed(2)),
-        tags: [{ label: `${group.length} trades`, sentiment: 'neutral' }, { label: `${Math.round(s.winRate)}% win rate`, sentiment: 'positive' }],
+        totalPnl: s.netPnl,
+        tags: [{ label: `${group.length} trades`, sentiment: 'neutral' }, { label: `${wr}% win rate`, sentiment: 'positive' }],
         confidence,
         instrument: symbol,
         session: 'RTH open',
@@ -179,37 +317,49 @@ function detectPatternsFromTrades(trades: Trade[], tf: DetectedTimeFrame): Patte
 
   // ── Session patterns ─────────────────────────────────────────────
   const sessionGroups = groupBy(filtered, t => ((t.session ?? 'Other') as string) as any);
+  // Count meaningful sessions (enough trades, not Other)
+  const meaningfulSessionCount = Array.from(sessionGroups.entries())
+    .filter(([sess, g]) => sess !== 'Other' && g.length >= 5).length;
+
   sessionGroups.forEach((group, session) => {
     if (group.length < 5 || session === 'Other') return;
     const s = summariseGroup(group);
+    const wr = Math.round(s.winRate);
     const confidence = Math.min(92, Math.round(25 + (group.length / 3) * 10 + Math.abs(s.winRate - 50)));
-    if (s.winRate < 40 && s.netPnl < 0) {
+
+    // Single-session trader: "X is weakest window" when X is the only window is
+    // a tautology — it tells the trader nothing they can act on.
+    // Suppress session comparison entirely; other pattern types (emotional state,
+    // day-of-week, confluence) will surface the real variables.
+    if (meaningfulSessionCount <= 1) return;
+
+    if (wr < 40 && s.netPnl < 0) {
       patterns.push({
         id: `auto-sess-risk-${session}`,
         type: 'Risk',
         status: 'Active',
-        title: `${session} session is your weakest window`,
-        description: `Your ${session} trades returned ${s.totalR.toFixed(1)}R across ${group.length} trades (${Math.round(s.winRate)}% win rate). Consider reducing size or skipping entries during this session until execution improves.`,
+        title: `${session} is dragging your overall performance`,
+        description: `Your ${session} trades returned ${formatSignedCurrency(s.netPnl)} across ${group.length} trades (${wr}% win rate) — the weakest session in your mix. Consider reducing size or skipping entries during ${session} until execution improves.`,
         firstSeen: s.firstSeen,
         sessionCount: group.length,
-        totalR: parseFloat(s.totalR.toFixed(2)),
-        tags: [{ label: session, sentiment: 'neutral' }, { label: `${Math.round(s.winRate)}% win rate`, sentiment: 'negative' }],
+        totalPnl: s.netPnl,
+        tags: [{ label: session, sentiment: 'neutral' }, { label: `${wr}% win rate`, sentiment: 'negative' }],
         confidence,
         instrument: 'All',
         session: 'RTH open',
         sessions: s.sessions,
       });
-    } else if (s.winRate >= 58 && s.netPnl > 0 && group.length >= 6) {
+    } else if (wr >= 58 && s.netPnl > 0 && group.length >= 6) {
       patterns.push({
         id: `auto-sess-edge-${session}`,
         type: 'Edge',
         status: 'Confirmed',
-        title: `${session} session is your edge window`,
-        description: `${group.length} trades during ${session} returned +${s.totalR.toFixed(1)}R at ${Math.round(s.winRate)}% win rate. This is a statistically meaningful edge — protect it with consistent sizing.`,
+        title: `${session} is your strongest session`,
+        description: `${group.length} trades during ${session} returned ${formatSignedCurrency(s.netPnl)} at ${wr}% win rate — your top-performing session. Protect this edge with consistent sizing and avoid diluting it with lower-conviction entries.`,
         firstSeen: s.firstSeen,
         sessionCount: group.length,
-        totalR: parseFloat(s.totalR.toFixed(2)),
-        tags: [{ label: session, sentiment: 'neutral' }, { label: `${Math.round(s.winRate)}% win rate`, sentiment: 'positive' }],
+        totalPnl: s.netPnl,
+        tags: [{ label: session, sentiment: 'neutral' }, { label: `${wr}% win rate`, sentiment: 'positive' }],
         confidence,
         instrument: 'All',
         session: 'RTH open',
@@ -230,10 +380,10 @@ function detectPatternsFromTrades(trades: Trade[], tf: DetectedTimeFrame): Patte
         type: 'Psychology',
         status: 'Active',
         title: `Trading when "${state}" is costing you money`,
-        description: `${group.length} trades logged while feeling "${state}" returned ${s.totalR.toFixed(1)}R at ${Math.round(s.winRate)}% win rate. This emotional state correlates with underperformance — consider a no-trade rule when you feel this way.`,
+        description: `${group.length} trades logged while feeling "${state}" returned ${formatSignedCurrency(s.netPnl)} at ${Math.round(s.winRate)}% win rate. This emotional state correlates with underperformance — consider a no-trade rule when you feel this way.`,
         firstSeen: s.firstSeen,
         sessionCount: group.length,
-        totalR: parseFloat(s.totalR.toFixed(2)),
+        totalPnl: s.netPnl,
         tags: [{ label: `"${state}"`, sentiment: 'negative' }, { label: `${group.length} trades`, sentiment: 'neutral' }],
         confidence,
         instrument: 'All',
@@ -246,10 +396,10 @@ function detectPatternsFromTrades(trades: Trade[], tf: DetectedTimeFrame): Patte
         type: 'Psychology',
         status: 'Confirmed',
         title: `"${state}" is your optimal trading state`,
-        description: `${group.length} trades when feeling "${state}" returned +${s.totalR.toFixed(1)}R at ${Math.round(s.winRate)}% win rate. This emotional state correlates with your best execution — note the conditions that produce it.`,
+        description: `${group.length} trades when feeling "${state}" returned ${formatSignedCurrency(s.netPnl)} at ${Math.round(s.winRate)}% win rate. This emotional state correlates with your best execution — note the conditions that produce it.`,
         firstSeen: s.firstSeen,
         sessionCount: group.length,
-        totalR: parseFloat(s.totalR.toFixed(2)),
+        totalPnl: s.netPnl,
         tags: [{ label: `"${state}"`, sentiment: 'positive' }, { label: `${group.length} trades`, sentiment: 'neutral' }],
         confidence,
         instrument: 'All',
@@ -259,7 +409,7 @@ function detectPatternsFromTrades(trades: Trade[], tf: DetectedTimeFrame): Patte
     }
   });
 
-  return patterns.sort((a, b) => Math.abs(b.totalR) - Math.abs(a.totalR));
+  return patterns.sort((a, b) => Math.abs(b.totalPnl) - Math.abs(a.totalPnl));
 }
 
 export default function FlyxaAIPatterns() {
@@ -288,20 +438,20 @@ export default function FlyxaAIPatterns() {
     const byType = selectedType === 'All' ? base : base.filter(pattern => pattern.type === selectedType);
     const bySession = selectedSession === 'All' ? byType : byType.filter(pattern => pattern.session === selectedSession);
     return [...bySession].sort((a, b) => {
-      if (sortBy === 'impact') return Math.abs(b.totalR) - Math.abs(a.totalR);
+      if (sortBy === 'impact') return Math.abs(b.totalPnl) - Math.abs(a.totalPnl);
       if (sortBy === 'frequency') return b.sessionCount - a.sessionCount;
       return new Date(b.firstSeen).getTime() - new Date(a.firstSeen).getTime();
     });
   }, [patterns, selectedType, selectedSession, sortBy]);
 
-  const costingPatterns = filteredPatterns.filter(pattern => pattern.totalR < 0);
-  const earningPatterns = filteredPatterns.filter(pattern => pattern.totalR >= 0);
+  const costingPatterns = filteredPatterns.filter(pattern => pattern.totalPnl < 0);
+  const earningPatterns = filteredPatterns.filter(pattern => pattern.totalPnl >= 0);
   const resolvedPatterns = patterns.filter(pattern => pattern.status === 'Resolved');
 
   const summary = useMemo(() => {
     const activePatterns = filteredPatterns;
-    const totalLost = activePatterns.filter(p => p.totalR < 0).reduce((sum, p) => sum + p.totalR, 0);
-    const totalGained = activePatterns.filter(p => p.totalR > 0).reduce((sum, p) => sum + p.totalR, 0);
+    const totalLost = activePatterns.filter(p => p.totalPnl < 0).reduce((sum, p) => sum + p.totalPnl, 0);
+    const totalGained = activePatterns.filter(p => p.totalPnl > 0).reduce((sum, p) => sum + p.totalPnl, 0);
     return {
       totalLost,
       riskCount: activePatterns.filter(p => p.type === 'Risk').length,
@@ -348,8 +498,8 @@ export default function FlyxaAIPatterns() {
   const renderPatternCard = (pattern: PatternItem) => {
     const accent = patternAccent(pattern.type);
     const isExpanded = expandedPatternId === pattern.id;
-    const totalLabel = pattern.totalR < 0 ? 'Total cost' : 'Total earned';
-    const totalColor = pattern.totalR < 0 ? '#f87171' : '#34d399';
+    const totalLabel = pattern.totalPnl < 0 ? 'Total cost' : 'Total earned';
+    const totalColor = pattern.totalPnl < 0 ? '#f87171' : '#34d399';
     const confidenceTone = confidenceColor(pattern.confidence);
 
     return (
@@ -372,7 +522,7 @@ export default function FlyxaAIPatterns() {
               <span className="text-[11px]" style={{ color: colors.t2 }}>First seen {new Date(pattern.firstSeen).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} · {pattern.sessionCount} sessions</span>
             </div>
             <div className="text-right">
-              <p className="text-[21px] font-semibold" style={{ color: totalColor }}>{pattern.totalR >= 0 ? '+' : ''}{pattern.totalR.toFixed(1)}R</p>
+              <p className="text-[21px] font-semibold" style={{ color: totalColor }}>{formatSignedCurrency(pattern.totalPnl)}</p>
               <p className="text-[11px]" style={{ color: colors.t2 }}>{totalLabel}</p>
             </div>
           </div>
@@ -403,9 +553,9 @@ export default function FlyxaAIPatterns() {
               <p style={tinyMetaLabelStyle}>Sessions</p>
               <div className="mt-2 space-y-1.5">
                 {pattern.sessions.map(session => (
-                  <div key={`${pattern.id}-${session.date}-${session.rOutcome}`} className="flex items-center justify-between text-[12px]">
+                  <div key={`${pattern.id}-${session.date}-${session.pnl}`} className="flex items-center justify-between text-[12px]">
                     <span style={{ color: colors.t1 }}>{new Date(session.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-                    <span style={{ color: session.rOutcome >= 0 ? colors.grn : colors.red }}>{session.rOutcome >= 0 ? '+' : ''}{session.rOutcome.toFixed(1)}R</span>
+                    <span style={{ color: session.pnl >= 0 ? colors.grn : colors.red }}>{formatSignedCurrency(session.pnl)}</span>
                   </div>
                 ))}
               </div>
@@ -418,8 +568,8 @@ export default function FlyxaAIPatterns() {
                 Mark as resolved
               </button>
               <div className="mt-3 rounded-[6px] border p-3" style={{ borderColor: `${colors.acc}30`, backgroundColor: `rgba(245,158,11,0.07)` }}>
-                <p style={{ ...tinyMetaLabelStyle, color: colors.acc }}>AI Suggestion</p>
-                <p className="mt-1 text-[12px] leading-[1.6]" style={{ color: colors.t1 }}>Add a pre-trade checkpoint for this pattern: define entry condition, invalidation, and a max re-entry rule before placing the next order.</p>
+                <p style={{ ...tinyMetaLabelStyle, color: colors.acc }}>Flyxa Suggestion</p>
+                <p className="mt-1 text-[12px] leading-[1.6]" style={{ color: colors.t1 }}>{getSuggestion(pattern)}</p>
               </div>
             </div>
           )}
@@ -521,12 +671,12 @@ export default function FlyxaAIPatterns() {
                 <section className="grid grid-cols-1 gap-3 md:grid-cols-4">
                   <div className="rounded-[8px] p-3" style={{ border: cardBorder, backgroundColor: colors.d2 }}>
                     <p style={tinyMetaLabelStyle}>Costing you</p>
-                    <p className="mt-1 text-[22px] font-semibold" style={{ color: colors.red }}>{summary.totalLost.toFixed(1)}R</p>
+                    <p className="mt-1 text-[22px] font-semibold" style={{ color: colors.red }}>{formatSignedCurrency(summary.totalLost)}</p>
                     <p className="text-[12px]" style={{ color: colors.t2 }}>{summary.riskCount} active risk patterns</p>
                   </div>
                   <div className="rounded-[8px] p-3" style={{ border: cardBorder, backgroundColor: colors.d2 }}>
                     <p style={tinyMetaLabelStyle}>Making you money</p>
-                    <p className="mt-1 text-[22px] font-semibold" style={{ color: colors.grn }}>+{summary.totalGained.toFixed(1)}R</p>
+                    <p className="mt-1 text-[22px] font-semibold" style={{ color: colors.grn }}>{formatSignedCurrency(summary.totalGained)}</p>
                     <p className="text-[12px]" style={{ color: colors.t2 }}>{summary.edgeCount} confirmed edges</p>
                   </div>
                   <div className="rounded-[8px] p-3" style={{ border: cardBorder, backgroundColor: colors.d2 }}>
@@ -593,7 +743,7 @@ export default function FlyxaAIPatterns() {
                                 <p className="mt-0.5">Last seen {new Date(lastSeen).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
                               </div>
                               <div className="flex items-center gap-2">
-                                <span style={{ color: colors.t1 }}>~{Math.abs(pattern.totalR).toFixed(1)}R saved</span>
+                                <span style={{ color: colors.t1 }}>~{formatSignedCurrency(Math.abs(pattern.totalPnl))} saved</span>
                                 <button
                                   type="button"
                                   onClick={() => unresolvePattern(pattern.id)}

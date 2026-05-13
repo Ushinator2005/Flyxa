@@ -75,6 +75,16 @@ interface FlyxaStateData {
   onboarding: OnboardingState | null;
   preSession: PreSessionData | null;
   chartHistory: ChartHistoryRecord[];
+  aiReflections: AiReflection[];
+}
+
+export interface AiReflection {
+  id: string;
+  question: string;
+  answer: string;
+  timeframe: string;
+  periodLabel: string;
+  createdAt: string;
 }
 
 export interface FlyxaStore extends FlyxaStateData {
@@ -110,6 +120,7 @@ export interface FlyxaStore extends FlyxaStateData {
   setOnboarding: (state: OnboardingState) => void;
   setPreSession: (data: PreSessionData | null) => void;
   setChartHistory: (records: ChartHistoryRecord[]) => void;
+  addAiReflection: (reflection: AiReflection) => void;
 }
 
 function todayIso(): string {
@@ -456,6 +467,7 @@ function getInitialState(): FlyxaStateData {
     onboarding: null,
     preSession: null,
     chartHistory: [],
+    aiReflections: [],
   };
 }
 
@@ -686,6 +698,10 @@ const useFlyxaStore = create<FlyxaStore>()(
 
       setChartHistory: (records) => set(() => ({ chartHistory: records })),
 
+      addAiReflection: (reflection) => set((state) => ({
+        aiReflections: [reflection, ...state.aiReflections].slice(0, 50),
+      })),
+
       setEntries: (entries) => {
         set((state) => {
           const accountId = state.activeAccountId || DEFAULT_ACCOUNT_ID;
@@ -747,7 +763,13 @@ const useFlyxaStore = create<FlyxaStore>()(
 
       hydrateSharedData: (payload) => {
         set((state) => {
-          const accountId = payload.activeAccountId ?? state.activeAccountId ?? DEFAULT_ACCOUNT_ID;
+          // Use `!== undefined` so that an explicit `null` (= All Accounts) in either
+          // the payload or the current state is preserved and not overwritten by the
+          // DEFAULT_ACCOUNT_ID fallback.
+          const accountId = payload.activeAccountId !== undefined
+            ? payload.activeAccountId
+            : (state.activeAccountId !== undefined ? state.activeAccountId : DEFAULT_ACCOUNT_ID);
+          const entryAccountFallback = accountId ?? DEFAULT_ACCOUNT_ID;
           const incomingBilling = payload.billingAccounts ?? state.billingAccounts;
           const billingAccounts = incomingBilling.map((account) => ({
             ...account,
@@ -758,7 +780,7 @@ const useFlyxaStore = create<FlyxaStore>()(
             nextAccounts = maybeCreateFundedAccount(nextAccounts, account);
           });
           const merged: FlyxaStateData = {
-            entries: payload.entries ? withDerivedEntries(ensureAccount(payload.entries, accountId)) : state.entries,
+            entries: payload.entries ? withDerivedEntries(ensureAccount(payload.entries, entryAccountFallback)) : state.entries,
             accounts: nextAccounts,
             activeAccountId: accountId,
             achievements: payload.achievements && payload.achievements.length
@@ -781,6 +803,7 @@ const useFlyxaStore = create<FlyxaStore>()(
             onboarding: payload.onboarding ?? state.onboarding,
             preSession: payload.preSession ?? state.preSession,
             chartHistory: payload.chartHistory ?? state.chartHistory,
+            aiReflections: payload.aiReflections ?? state.aiReflections,
           };
           return syncAchievements(merged);
         });
@@ -793,8 +816,11 @@ const useFlyxaStore = create<FlyxaStore>()(
       merge: (persistedState, currentState) => {
         const persisted = (persistedState as Partial<FlyxaStore> | undefined) ?? {};
         const base = currentState as FlyxaStore;
-        const activeAccountId = persisted.activeAccountId ?? base.activeAccountId ?? DEFAULT_ACCOUNT_ID;
-        const incomingEntries = withDerivedEntries(ensureAccount(persisted.entries ?? [], activeAccountId));
+        const activeAccountId = persisted.activeAccountId !== undefined
+          ? persisted.activeAccountId
+          : (base.activeAccountId !== undefined ? base.activeAccountId : DEFAULT_ACCOUNT_ID);
+        const entryAccountFallback = activeAccountId ?? DEFAULT_ACCOUNT_ID;
+        const incomingEntries = withDerivedEntries(ensureAccount(persisted.entries ?? [], entryAccountFallback));
         // Never replace existing entries with fewer — protects against rehydrate wiping data
         const sanitizedEntries = incomingEntries.length >= base.entries.length ? incomingEntries : base.entries;
         const sanitizedBilling = (persisted.billingAccounts ?? base.billingAccounts).map((account) => ({
@@ -818,19 +844,25 @@ const useFlyxaStore = create<FlyxaStore>()(
           setupPlaybook: removeLegacyDefaults(persisted.setupPlaybook ?? base.setupPlaybook, LEGACY_DEFAULT_SETUP_IDS),
           riskRules: removeLegacyDefaults(persisted.riskRules ?? base.riskRules, LEGACY_DEFAULT_RISK_RULE_IDS),
           checklist: removeLegacyDefaults(persisted.checklist ?? base.checklist, LEGACY_DEFAULT_CHECKLIST_IDS),
+          aiReflections: persisted.aiReflections ?? base.aiReflections,
         };
       },
       migrate: (persistedState) => {
         const state = (persistedState as Partial<FlyxaStore> | undefined) ?? undefined;
         if (!state) return getInitialState();
         const initial = getInitialState();
+        const activeAccountId = state.activeAccountId !== undefined
+          ? state.activeAccountId
+          : (initial.activeAccountId !== undefined ? initial.activeAccountId : DEFAULT_ACCOUNT_ID);
+        const entryAccountFallback = activeAccountId ?? DEFAULT_ACCOUNT_ID;
         return {
           ...initial,
           ...state,
-          entries: withDerivedEntries(ensureAccount(state.entries ?? [], state.activeAccountId ?? initial.activeAccountId ?? DEFAULT_ACCOUNT_ID)),
+          entries: withDerivedEntries(ensureAccount(state.entries ?? [], entryAccountFallback)),
           setupPlaybook: removeLegacyDefaults(state.setupPlaybook ?? initial.setupPlaybook, LEGACY_DEFAULT_SETUP_IDS),
           riskRules: removeLegacyDefaults(state.riskRules ?? initial.riskRules, LEGACY_DEFAULT_RISK_RULE_IDS),
           checklist: removeLegacyDefaults(state.checklist ?? initial.checklist, LEGACY_DEFAULT_CHECKLIST_IDS),
+          aiReflections: state.aiReflections ?? initial.aiReflections,
           billingAccounts: (state.billingAccounts ?? []).map((account) => ({
             ...account,
             roi: asNumber(account.payoutReceived, 0) - asNumber(account.actualPrice, 0),
@@ -862,6 +894,7 @@ const useFlyxaStore = create<FlyxaStore>()(
         onboarding: state.onboarding,
         preSession: state.preSession,
         chartHistory: state.chartHistory,
+        aiReflections: state.aiReflections,
       }),
     }
   )

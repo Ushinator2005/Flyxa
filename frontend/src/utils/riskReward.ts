@@ -15,7 +15,7 @@ export function formatRiskRewardRatio(
   const absolute = Math.abs(value as number);
   const rounded = Number(absolute.toFixed(decimals));
   const formattedNumber = rounded.toFixed(decimals).replace(/\.?0+$/, '');
-  const rrDisplay = `1:${formattedNumber} RR`;
+  const rrDisplay = formattedNumber;
 
   if (includeSign && (value as number) < 0) {
     return `-${rrDisplay}`;

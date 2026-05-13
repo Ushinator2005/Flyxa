@@ -6,6 +6,7 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
+  ReferenceLine,
 } from 'recharts';
 import { format, parseISO } from 'date-fns';
 import { EquityCurvePoint } from '../../types/index.js';
@@ -40,12 +41,24 @@ const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?:
 };
 
 export default function EquityCurve({ data }: Props) {
-  const isPositive = data.length > 0 && data[data.length - 1].cumulative >= 0;
+  const lastValue = data.length > 0 ? data[data.length - 1].cumulative : 0;
+  const isPositive = lastValue >= 0;
   const lineColor = isPositive ? '#f59e0b' : '#ef4444';
+  const fillId = isPositive ? 'equityGradientPos' : 'equityGradientNeg';
 
   return (
     <ResponsiveContainer width="100%" height={220}>
-      <AreaChart data={data} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
+      <AreaChart data={data} margin={{ top: 10, right: 10, left: 10, bottom: 5 }}>
+        <defs>
+          <linearGradient id="equityGradientPos" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.20} />
+            <stop offset="100%" stopColor="#f59e0b" stopOpacity={0.01} />
+          </linearGradient>
+          <linearGradient id="equityGradientNeg" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#ef4444" stopOpacity={0.15} />
+            <stop offset="100%" stopColor="#ef4444" stopOpacity={0.01} />
+          </linearGradient>
+        </defs>
         <CartesianGrid strokeDasharray="1 4" stroke="rgba(255,255,255,0.04)" vertical={false} />
         <XAxis
           dataKey="date"
@@ -64,14 +77,15 @@ export default function EquityCurve({ data }: Props) {
           tickLine={false}
         />
         <Tooltip content={<CustomTooltip />} />
+        <ReferenceLine y={0} stroke="rgba(255,255,255,0.12)" strokeDasharray="3 3" />
         <Area
-          type="linear"
+          type="monotone"
           dataKey="cumulative"
           stroke={lineColor}
-          strokeWidth={1.5}
-          fill="none"
+          strokeWidth={2}
+          fill={`url(#${fillId})`}
           dot={false}
-          activeDot={{ r: 3, fill: lineColor, strokeWidth: 0 }}
+          activeDot={{ r: 4, fill: lineColor, strokeWidth: 0 }}
         />
       </AreaChart>
     </ResponsiveContainer>

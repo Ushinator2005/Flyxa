@@ -5,6 +5,7 @@ import LoadingSpinner from '../components/common/LoadingSpinner.js';
 import { useTrades } from '../hooks/useTrades.js';
 import { useAppSettings } from '../contexts/AppSettingsContext.js';
 import { Trade } from '../types/index.js';
+import useFlyxaStore from '../store/flyxaStore.js';
 
 type InsightType = 'risk' | 'pattern' | 'psychology' | 'edge';
 type TagTone = 'positive' | 'negative' | 'neutral';
@@ -27,7 +28,7 @@ type WeeklyInsight = {
   actionLabel: string;
 };
 
-type ProcessBreakdownItem = { label: string; value: number };
+type ProcessBreakdownItem = { label: string; value: number; noData?: boolean; note?: string };
 type ConfluenceHighlight = { label: string; trades: number; winRate: number; netPnl: number; avgPnl: number };
 
 type WeeklyDebriefData = {
@@ -170,8 +171,10 @@ function formatPeriodRange(start: Date, end: Date): string {
 
 function parseTradeDate(trade?: Partial<Trade> | null): Date | null {
   if (!trade) return null;
-  if (trade.trade_date) {
-    const parsed = new Date(`${trade.trade_date}T00:00:00`);
+  // ApiTrade uses trade_date; StoreTrade uses date
+  const dateStr = trade.trade_date || (trade as unknown as { date?: string }).date;
+  if (dateStr) {
+    const parsed = new Date(`${dateStr}T00:00:00`);
     if (!Number.isNaN(parsed.getTime())) return parsed;
   }
   if (trade.created_at) {
@@ -186,9 +189,12 @@ function parseTradeDate(trade?: Partial<Trade> | null): Date | null {
 
 function parseTradeDateTime(trade?: Partial<Trade> | null): Date | null {
   if (!trade) return null;
-  if (trade.trade_date) {
-    const time = trade.trade_time?.length === 5 ? `${trade.trade_time}:00` : (trade.trade_time || '00:00:00');
-    const parsed = new Date(`${trade.trade_date}T${time}`);
+  // ApiTrade uses trade_date/trade_time; StoreTrade uses date/time
+  const dateStr = trade.trade_date || (trade as unknown as { date?: string }).date;
+  const timeStr = trade.trade_time || (trade as unknown as { time?: string }).time;
+  if (dateStr) {
+    const t = timeStr?.length === 5 ? `${timeStr}:00` : (timeStr || '00:00:00');
+    const parsed = new Date(`${dateStr}T${t}`);
     if (!Number.isNaN(parsed.getTime())) return parsed;
   }
   if (trade.created_at) {
@@ -200,8 +206,10 @@ function parseTradeDateTime(trade?: Partial<Trade> | null): Date | null {
 
 function tradeMinutes(trade?: Partial<Trade> | null): number | null {
   if (!trade) return null;
-  if (!trade.trade_time) return null;
-  const [h, m] = trade.trade_time.split(':').map(Number);
+  // ApiTrade uses trade_time; StoreTrade uses time
+  const timeStr = trade.trade_time || (trade as unknown as { time?: string }).time;
+  if (!timeStr) return null;
+  const [h, m] = timeStr.split(':').map(Number);
   if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
   return (h * 60) + m;
 }
@@ -209,11 +217,6 @@ function tradeMinutes(trade?: Partial<Trade> | null): number | null {
 function tradeSessionKey(trade?: Partial<Trade> | null) {
   const date = parseTradeDate(trade);
   return date ? date.toISOString().slice(0, 10) : '';
-}
-
-function formatWeekRange(start: Date, end: Date) {
-  const fmt = (date: Date) => date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  return `${fmt(start)} - ${fmt(end)}, ${end.getFullYear()}`;
 }
 
 function formatCurrency(value: number) {
@@ -315,56 +318,104 @@ function processBreakdown(trades: Trade[]) {
         { label: 'Plan adherence', value: 0 },
         { label: 'Size discipline', value: 0 },
         { label: 'Entry patience', value: 0 },
-        { label: 'Post-loss mgmt', value: 0 },
-      ],
+        { label: 'Post-loss mgmt', value: 0, noData: true, note: 'No trades logged' },
+      ] as ProcessBreakdownItem[],
       score: 0,
     };
   }
 
+  // ── Plan Adherence ─────────────────────────────────────────────────────────
+  // Raw score = % of logged trades that followed the plan.
+  // Coverage multiplier = fraction of trades that actually have the field logged.
+  // A trader who only logs 30% of trades can score at most 30 — selective logging
+  // cannot be gamed into a high score.
   const tradesWithPlanLogged = trades.filter(t => typeof t.followed_plan === 'boolean');
-  const plan = tradesWithPlanLogged.length
-    ? Math.round(pct(tradesWithPlanLogged.filter(t => t.followed_plan === true).length, tradesWithPlanLogged.length))
+  const coverage = tradesWithPlanLogged.length / trades.length;
+  const rawPlan = tradesWithPlanLogged.length > 0
+    ? pct(tradesWithPlanLogged.filter(t => t.followed_plan === true).length, tradesWithPlanLogged.length)
     : 0;
+  const plan = Math.round(rawPlan * coverage);
+
+  // ── Size Discipline ────────────────────────────────────────────────────────
+  // Mean Absolute Deviation from the median size, normalised by the median.
+  // 0% deviation → 100 score. 100% average deviation → 0 score.
   const sizes = trades.map(t => Math.max(1, t.contract_size));
   const sortedSizes = [...sizes].sort((a, b) => a - b);
   const mid = Math.floor(sortedSizes.length / 2);
-  const median = sortedSizes.length % 2 === 0 ? (sortedSizes[mid - 1] + sortedSizes[mid]) / 2 : sortedSizes[mid];
+  const median = sortedSizes.length % 2 === 0
+    ? (sortedSizes[mid - 1] + sortedSizes[mid]) / 2
+    : sortedSizes[mid];
   const deviation = avg(sizes.map(s => Math.abs(s - median) / Math.max(1, median)));
-  const size = Math.round(Math.max(0, Math.min(100, 100 - (deviation * 100))));
+  const size = Math.round(Math.max(0, Math.min(100, 100 - deviation * 100)));
 
-  const early = trades.filter(t => {
+  // ── Entry Patience ─────────────────────────────────────────────────────────
+  // Penalises entries in the first 15 min of the US session open (9:30–9:45).
+  // The original 5-min window (9:30–9:35) almost never triggered — essentially
+  // a free 25 points. 15 minutes matches the standard "wait for opening range"
+  // advice and will actually differentiate behaviour.
+  const rushed = trades.filter(t => {
     const minutes = tradeMinutes(t);
-    return minutes !== null && minutes < 600;
+    return minutes !== null && minutes >= 570 && minutes < 585; // 9:30–9:45
   }).length;
-  const patience = Math.round(Math.max(0, Math.min(100, 100 - pct(early, trades.length))));
+  const patience = Math.round(Math.max(0, Math.min(100, 100 - pct(rushed, trades.length))));
 
-  const ordered = [...trades].sort((a, b) => (parseTradeDateTime(a)?.getTime() ?? 0) - (parseTradeDateTime(b)?.getTime() ?? 0));
+  // ── Post-loss Management ───────────────────────────────────────────────────
+  // Evaluates the trade immediately after each intra-day loss:
+  //   sizeOk  — didn't increase size (revenge sizing flag)
+  //   waitOk  — waited at least 15 min before re-entering
+  //   planOk  — followed plan on re-entry (0.5 neutral when not logged,
+  //              so the score doesn't depend on whether that field was filled in)
+  // Cross-session pairs (e.g. last trade Mon → first trade Tue) are excluded —
+  // a 16-hour gap is not a meaningful "post-loss cooldown" signal.
+  // When there are zero intra-day losses, the metric is N/A and excluded
+  // from the composite rather than defaulting to an arbitrary 70.
+  const ordered = [...trades].sort(
+    (a, b) => (parseTradeDateTime(a)?.getTime() ?? 0) - (parseTradeDateTime(b)?.getTime() ?? 0)
+  );
   let opportunities = 0;
   let postLossTotal = 0;
   for (let i = 1; i < ordered.length; i += 1) {
     const prev = ordered[i - 1];
     const curr = ordered[i];
     if (prev.pnl >= 0) continue;
+    const prevDt = parseTradeDateTime(prev);
+    const currDt = parseTradeDateTime(curr);
+    // Skip cross-day pairs
+    if (!prevDt || !currDt || prevDt.toDateString() !== currDt.toDateString()) continue;
     opportunities += 1;
-    const minsBetween = ((parseTradeDateTime(curr)?.getTime() ?? 0) - (parseTradeDateTime(prev)?.getTime() ?? 0)) / (1000 * 60);
-    const sizeOk = curr.contract_size <= prev.contract_size ? 1 : 0;
-    const waitOk = minsBetween >= 15 ? 1 : 0;
-    const checks = [sizeOk, waitOk];
-    if (typeof curr.followed_plan === 'boolean') {
-      checks.push(curr.followed_plan ? 1 : 0);
-    }
-    postLossTotal += (avg(checks) * 100);
+    const minsBetween = (currDt.getTime() - prevDt.getTime()) / 60_000;
+    const sizeOk  = curr.contract_size <= prev.contract_size ? 1 : 0;
+    const waitOk  = minsBetween >= 15 ? 1 : 0;
+    // Always 3 checks — plan gets 0.5 (neutral) when unlogged
+    const planOk  = typeof curr.followed_plan === 'boolean' ? (curr.followed_plan ? 1 : 0) : 0.5;
+    postLossTotal += ((sizeOk + waitOk + planOk) / 3) * 100;
   }
-  const postLoss = opportunities ? Math.round(postLossTotal / opportunities) : 70;
-  const score = Math.round((plan * 0.35) + (size * 0.2) + (patience * 0.25) + (postLoss * 0.2));
+  const postLossRaw  = opportunities > 0 ? Math.round(postLossTotal / opportunities) : null;
+  const hasPostLoss  = postLossRaw !== null;
+
+  // ── Composite Score ────────────────────────────────────────────────────────
+  // When post-loss has no data, its 20% weight is redistributed proportionally
+  // across the other three dimensions so the score still sums to 100.
+  // Weights without post-loss: plan 35/80, size 20/80, patience 25/80.
+  let score: number;
+  if (hasPostLoss) {
+    score = Math.round(plan * 0.35 + size * 0.20 + patience * 0.25 + postLossRaw! * 0.20);
+  } else {
+    score = Math.round(plan * (35 / 80) + size * (20 / 80) + patience * (25 / 80));
+  }
 
   return {
     items: [
-      { label: 'Plan adherence', value: plan },
+      { label: 'Plan adherence', value: plan, note: coverage < 1 ? `${Math.round(coverage * 100)}% of trades logged` : undefined },
       { label: 'Size discipline', value: size },
       { label: 'Entry patience', value: patience },
-      { label: 'Post-loss mgmt', value: postLoss },
-    ],
+      {
+        label: 'Post-loss mgmt',
+        value: hasPostLoss ? postLossRaw! : 0,
+        noData: !hasPostLoss,
+        note: !hasPostLoss ? 'No intra-day losses' : undefined,
+      },
+    ] as ProcessBreakdownItem[],
     score,
   };
 }
@@ -417,6 +468,63 @@ function renderBodyWithHighlights(body: string, keyPhrases: string[]) {
   ));
 }
 
+
+function formatMins(m: number): string {
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+}
+
+interface TimeBucket {
+  start: number;
+  end: number;
+  label: string;
+  trades: Trade[];
+}
+
+/** Splits timed trades into the smallest uniform buckets that yield ≥ 2 non-empty groups. */
+function buildAdaptiveTimeBuckets(timedTrades: Trade[]): {
+  buckets: TimeBucket[];
+  bucketSize: number;
+  minTime: number;
+  maxTime: number;
+  spread: number;
+} | null {
+  if (!timedTrades.length) return null;
+  const allMins = timedTrades
+    .map(t => tradeMinutes(t))
+    .filter((m): m is number => m !== null);
+  if (!allMins.length) return null;
+
+  const minTime = Math.min(...allMins);
+  const maxTime = Math.max(...allMins);
+  const spread = maxTime - minTime;
+
+  // Smallest granularity that produces >= 2 distinct non-empty buckets
+  const candidateSizes = [5, 10, 15, 30];
+  let bucketSize = 30;
+  for (const size of candidateSizes) {
+    const keys = new Set(allMins.map(m => Math.floor(m / size) * size));
+    if (keys.size >= 2) { bucketSize = size; break; }
+  }
+
+  const bucketStart = Math.floor(minTime / bucketSize) * bucketSize;
+  const bucketEnd = (Math.floor(maxTime / bucketSize) + 1) * bucketSize;
+  const buckets: TimeBucket[] = [];
+
+  for (let t = bucketStart; t < bucketEnd; t += bucketSize) {
+    const inBucket = timedTrades.filter(tr => {
+      const m = tradeMinutes(tr);
+      return m !== null && m >= t && m < t + bucketSize;
+    });
+    buckets.push({
+      start: t,
+      end: t + bucketSize,
+      label: `${formatMins(t)}–${formatMins(t + bucketSize)}`,
+      trades: inBucket,
+    });
+  }
+
+  return { buckets, bucketSize, minTime, maxTime, spread };
+}
 
 function buildData(trades: Trade[], tf: TimeFrame = '1W'): WeeklyDebriefData {
   const pw = getPeriodWindow(tf);
@@ -503,17 +611,9 @@ function buildData(trades: Trade[], tf: TimeFrame = '1W'): WeeklyDebriefData {
     .slice(0, 2)
     .map(([symbol]) => symbol);
 
-  const earlyTrades = periodTrades.filter(t => {
-    const minutes = tradeMinutes(t);
-    return minutes !== null && minutes < 600;
-  });
-  const lateTrades = periodTrades.filter(t => {
-    const minutes = tradeMinutes(t);
-    return minutes !== null && minutes >= 600;
-  });
-  const earlySummary = summarize(earlyTrades);
-  const lateSummary = summarize(lateTrades);
-  const earlySessions = new Set(earlyTrades.map(tradeSessionKey).filter(Boolean)).size;
+  // Adaptive time-window analysis — no fixed 10:00 boundary
+  const timedTrades = periodTrades.filter(t => tradeMinutes(t) !== null);
+  const timeWindow = buildAdaptiveTimeBuckets(timedTrades);
 
   const symbolGroups = new Map<string, Trade[]>();
   periodTrades.forEach(trade => {
@@ -532,7 +632,13 @@ function buildData(trades: Trade[], tf: TimeFrame = '1W'): WeeklyDebriefData {
   const rankedStates = Array.from(stateGroups.entries())
     .map(([state, entries]) => ({ state, summary: summarize(entries) }))
     .sort((a, b) => a.summary.netPnl - b.summary.netPnl);
-  const meaningfulStates = rankedStates.filter(s => (s.state as string) !== 'Unspecified');
+  // Require a minimum per-state sample before including in comparison.
+  // One "Anxious" trade that lost $300 does not establish a pattern.
+  const PSYCH_MIN = tf === '1W' ? 2 : tf === '1M' ? 3 : 5;
+  const meaningfulStates = rankedStates.filter(s =>
+    (s.state as string) !== 'Unspecified' &&
+    (stateGroups.get(s.state as string)?.length ?? 0) >= PSYCH_MIN
+  );
   const hasEnoughPsychData = meaningfulStates.length >= 2;
   const psychWeakest = meaningfulStates[0];
   const psychStrongest = meaningfulStates[meaningfulStates.length - 1];
@@ -584,105 +690,248 @@ function buildData(trades: Trade[], tf: TimeFrame = '1W'): WeeklyDebriefData {
     .filter(item => item.netPnl < 0)
     .sort((a, b) => a.netPnl - b.netPnl)[0];
 
-  const weakestProcess = [...periodProcess.items].sort((a, b) => a.value - b.value)[0];
+  // Exclude noData items — a post-loss score of 0 from "no losses" is not a real weakness.
+  const weakestProcess = [...periodProcess.items]
+    .filter(item => !item.noData)
+    .sort((a, b) => a.value - b.value)[0];
   const question = weakestProcess?.label === 'Entry patience'
     ? `Which entries ${periodLabel} were taken too early, and what confirmation were you still waiting for?`
     : weakestProcess?.label === 'Post-loss mgmt'
       ? 'After your losing trades, where did you reset well and where did you press too quickly?'
       : weakestProcess?.label === 'Size discipline'
         ? 'Where did your size deviate from plan, and what triggered it?'
-        : weakestConfluence
+        : weakestConfluence && weakestConfluence.trades >= (tf === '1W' ? 3 : tf === '1M' ? 5 : tf === '3M' ? 8 : 10)
           ? `How can you tighten or avoid "${weakestConfluence.label}" when it has cost ${formatSignedCurrency(weakestConfluence.netPnl)} ${periodLabel}?`
           : 'Which losing trades came from plan drift, and what rule would have prevented them?';
 
-  const insights: WeeklyInsight[] = [
-    {
-      type: (() => {
-        if (!earlyTrades.length) return 'edge' as const;
-        if (earlySummary.netPnl < 0) return 'risk' as const;
-        const hasLate = lateTrades.length > 0;
-        if (hasLate && earlySummary.avgPnl < lateSummary.avgPnl) return 'risk' as const;
-        return 'pattern' as const;
-      })(),
-      badge: (() => {
-        if (!earlyTrades.length) return 'Open Hour';
-        if (earlySummary.netPnl < 0) return 'Risk Flag';
-        if (lateTrades.length > 0 && earlySummary.avgPnl >= lateSummary.avgPnl) return 'Session Note';
-        return 'Risk Flag';
-      })(),
-      frequency: earlyTrades.length ? `${earlyTrades.length} trades before 10:00 · ${earlySessions} sessions` : `No early-session entries ${periodLabel}`,
-      title: (() => {
-        if (!earlyTrades.length) return `Open-hour risk stayed controlled ${periodLabel}`;
-        if (earlySummary.netPnl < 0) return 'Pre-10:00 entries are bleeding your P&L — stop trading the open';
-        if (lateTrades.length > 0 && earlySummary.avgPnl > lateSummary.avgPnl) return 'Your pre-10:00 edge outperformed late session — worth monitoring';
-        if (lateTrades.length > 0 && earlySummary.avgPnl < lateSummary.avgPnl) return 'Open-hour entries are underperforming your late-session edge';
-        return `${earlyTrades.length} open-hour entries — no clear session drag detected`;
-      })(),
-      body: (() => {
-        if (!earlyTrades.length) return 'No trades were logged before 10:00, removing your highest-risk overtrading window.';
-        const earlyAvg = earlySummary.avgPnl;
-        const lateAvg = lateSummary.avgPnl;
-        const hasLate = lateTrades.length > 0;
-        if (earlySummary.netPnl < 0) {
-          return `${earlyTrades.length} trades before 10:00 cost you ${formatSignedCurrency(Math.abs(earlySummary.netPnl))}${hasLate ? `, while your after-10:00 avg was ${formatSignedCurrency(lateAvg)}. The open is clearly your weakest window — stop entering until 10:00.` : '. No after-10:00 trades to compare.'}`;
-        }
-        if (!hasLate) {
-          return `All ${earlyTrades.length} of your trades were before 10:00, totalling ${formatSignedCurrency(earlySummary.netPnl)} (${formatSignedCurrency(earlyAvg)}/trade avg). No late-session trades to compare against.`;
-        }
-        if (earlyAvg >= lateAvg) {
-          return `Pre-10:00 avg was ${formatSignedCurrency(earlyAvg)} vs ${formatSignedCurrency(lateAvg)} after 10:00 — your early entries actually outperformed ${periodLabel}. That's unusual. Confirm whether these were genuinely high-quality setups or lucky noise before making this a habit.`;
-        }
-        return `${earlyTrades.length} trades before 10:00 averaged ${formatSignedCurrency(earlyAvg)}, underperforming your after-10:00 avg of ${formatSignedCurrency(lateAvg)}. Your edge is stronger later in the session — delay first entries.`;
-      })(),
-      keyPhrases: earlyTrades.length
-        ? [String(earlyTrades.length), 'before 10:00', formatSignedCurrency(earlySummary.netPnl), formatSignedCurrency(earlySummary.avgPnl)]
-        : ['before 10:00', 'highest-risk overtrading window'],
-      tags: earlyTrades.length
-        ? [
-            { label: `${formatSignedCurrency(earlySummary.netPnl)} pre-10:00`, tone: earlySummary.netPnl >= 0 ? 'positive' : 'negative' },
-            { label: `${earlyTrades.length} open-hour trades`, tone: 'neutral' },
-            ...(lateTrades.length > 0 ? [{ label: `${formatSignedCurrency(lateSummary.avgPnl)} avg after 10:00`, tone: lateSummary.avgPnl > 0 ? 'positive' as const : lateSummary.avgPnl < 0 ? 'negative' as const : 'neutral' as const }] : []),
-          ]
-        : [
-            { label: '0 pre-10:00 trades', tone: 'positive' },
-            { label: 'Risk window controlled', tone: 'neutral' },
-          ],
-      actionLabel: 'Add to pre-session rules ->',
-    },
-    {
+  // ── Adaptive time-window insight ────────────────────────────────────────────
+  // Derives the actual trading window from data and compares sub-periods within it,
+  // instead of using a fixed 10:00 boundary that is meaningless for open traders.
+  const timeInsight: WeeklyInsight = (() => {
+    const noData: WeeklyInsight = {
       type: 'pattern',
-      badge: 'Recurring Pattern',
-      frequency: topSymbol ? `${topSymbolName} appeared in ${topSymbol[1].length} trades` : 'Not enough symbol data',
-      title: topSymbol ? `${topSymbolName} is your dominant recurring instrument ${periodLabel}` : 'No recurring symbol pattern detected',
-      body: topSymbol
-        ? (() => {
-            const netPnl = topSymbolSummary.netPnl;
-            const count = topSymbol[1].length;
-            const wr = Math.round(topSymbolSummary.winRate);
-            const avgPnl = netPnl / Math.max(1, count);
-            const isBreakeven = Math.abs(netPnl) < 25 && count >= 2;
-            const pnlPhrase = isBreakeven
-              ? `essentially breakeven at ${formatSignedCurrency(netPnl)} total — no edge showing across ${count} trade${count !== 1 ? 's' : ''}`
-              : `returned ${formatSignedCurrency(netPnl)} net across ${count} trade${count !== 1 ? 's' : ''} (${formatSignedCurrency(avgPnl)}/trade avg)`;
-            const addendum = wr < 45 && netPnl < 0
-              ? ` This instrument is costing you — either the setup has broken down or your execution is off. Consider pausing ${topSymbolName} until the edge is validated.`
-              : wr >= 60 && netPnl > 50
-                ? ` Edge is confirming on ${topSymbolName}. Keep conditions tight and risk consistent.`
-                : '';
-            return `${topSymbolName}: ${wr}% win rate, ${pnlPhrase}.${addendum}`;
-          })()
-        : 'Log more symbol-tagged trades to activate recurring pattern detection.',
-      keyPhrases: topSymbol
-        ? [topSymbolName, formatSignedCurrency(topSymbolSummary.netPnl), `${Math.round(topSymbolSummary.winRate)}%`, `${topSymbol[1].length} trades`]
-        : ['symbol-tagged trades', 'pattern detection'],
-      tags: topSymbol
-        ? [
-            { label: `${formatSignedCurrency(topSymbolSummary.netPnl)} on ${topSymbolName}`, tone: topSymbolSummary.netPnl >= 0 ? 'positive' : 'negative' },
-            { label: `${Math.round(topSymbolSummary.winRate)}% win rate`, tone: topSymbolSummary.winRate >= 50 ? 'positive' : 'negative' },
-          ]
-        : [{ label: 'Need more samples', tone: 'neutral' }],
-      actionLabel: 'Promote to pattern library ->',
-    },
+      badge: 'Session Note',
+      frequency: 'No entry times logged',
+      title: 'Log entry times to unlock time-of-day analysis',
+      body: 'Add a trade time to your entries to see which windows of the session are helping or hurting your P&L.',
+      keyPhrases: ['entry times', 'time-of-day'],
+      tags: [{ label: 'No time data', tone: 'neutral' }],
+      actionLabel: 'Add to trade template ->',
+    };
+
+    // Truly no time data: trades exist but none have times logged
+    if (!timeWindow) return noData;
+
+    // Too few trades for sub-window comparison — but DO NOT say "no entry times logged"
+    if (timedTrades.length < 3) {
+      const summary = summarize(timedTrades);
+      const needed = 3 - timedTrades.length;
+      return {
+        type: 'pattern',
+        badge: 'Session Note',
+        frequency: `${timedTrades.length} trade${timedTrades.length !== 1 ? 's' : ''} with time data this period`,
+        title: `${needed} more trade${needed !== 1 ? 's' : ''} needed to unlock time-of-day analysis`,
+        body: timedTrades.length === 0
+          ? 'Add a trade time to your entries to see which windows of the session are helping or hurting your P&L.'
+          : `You have ${timedTrades.length} timed trade${timedTrades.length !== 1 ? 's' : ''} this period — net ${formatSignedCurrency(summary.netPnl)}. Log ${needed} more with entry times to enable sub-window comparison.`,
+        keyPhrases: ['entry times', 'time-of-day'],
+        tags: [
+          { label: `${timedTrades.length}/3 trades`, tone: 'neutral' },
+          ...(timedTrades.length > 0 ? [{ label: `${formatSignedCurrency(summary.netPnl)} so far`, tone: (summary.netPnl >= 0 ? 'positive' : 'negative') as TagTone }] : []),
+        ],
+        actionLabel: 'Keep logging ->',
+      };
+    }
+
+    const { buckets, minTime, maxTime, spread } = timeWindow;
+    const windowLabel = `${formatMins(minTime)}–${formatMins(maxTime)}`;
+    const tradingSessions = new Set(timedTrades.map(tradeSessionKey).filter(Boolean)).size;
+    const significantBuckets = buckets.filter(b => b.trades.length >= 2);
+
+    // All trades cluster in one narrow window — not enough variance for comparison
+    if (significantBuckets.length < 2) {
+      const summary = summarize(timedTrades);
+      const windowDesc = spread <= 5 ? 'single-candle' : `${spread}-minute`;
+      return {
+        type: summary.netPnl >= 0 ? 'edge' as const : 'pattern' as const,
+        badge: 'Session Note',
+        frequency: `${timedTrades.length} trades · ${windowLabel} · ${tradingSessions} sessions`,
+        title: `Entries tightly clustered in the ${windowLabel} window`,
+        body: `All ${timedTrades.length} timed trades landed in a ${windowDesc} window around ${windowLabel} across ${tradingSessions} session${tradingSessions !== 1 ? 's' : ''} — net ${formatSignedCurrency(summary.netPnl)}, avg ${formatSignedCurrency(summary.avgPnl)}/trade. Consistent entry timing shows discipline. Log more sessions across varying times to unlock sub-window comparison.`,
+        keyPhrases: [windowLabel, formatSignedCurrency(summary.netPnl)],
+        tags: [
+          { label: windowLabel, tone: 'neutral' },
+          { label: `${formatSignedCurrency(summary.netPnl)} total`, tone: summary.netPnl >= 0 ? 'positive' : 'negative' },
+          { label: `${formatSignedCurrency(summary.avgPnl)} avg/trade`, tone: summary.avgPnl >= 0 ? 'positive' : 'negative' },
+        ],
+        actionLabel: 'Add to pre-session rules ->',
+      };
+    }
+
+    // Multiple windows — rank by avg P&L to find worst and best sub-period
+    const bucketStats = significantBuckets.map(b => ({ ...b, stats: summarize(b.trades) }));
+    const ranked = [...bucketStats].sort((a, b) => a.stats.avgPnl - b.stats.avgPnl);
+    const worst = ranked[0];
+    const best = ranked[ranked.length - 1];
+    const avgGap = best.stats.avgPnl - worst.stats.avgPnl;
+    const worstIsNegative = worst.stats.netPnl < 0;
+    const isSignificant = Math.abs(worst.stats.netPnl) > 50 || avgGap > 75;
+
+    if (worstIsNegative && isSignificant) {
+      return {
+        type: 'risk' as const,
+        badge: 'Risk Flag',
+        frequency: `${worst.trades.length} trades in ${worst.label} · ${tradingSessions} sessions`,
+        title: `Your ${worst.label} entries are your weakest window — cut them`,
+        body: `${worst.trades.length} trade${worst.trades.length !== 1 ? 's' : ''} in the ${worst.label} window averaged ${formatSignedCurrency(worst.stats.avgPnl)}/trade (${formatSignedCurrency(worst.stats.netPnl)} total, ${Math.round(worst.stats.winRate)}% win rate). Your ${best.label} window averaged ${formatSignedCurrency(best.stats.avgPnl)}/trade — a ${formatSignedCurrency(avgGap)} gap per trade. Skipping ${worst.label} entries is your highest-leverage rule right now.`,
+        keyPhrases: [worst.label, best.label, formatSignedCurrency(worst.stats.netPnl)],
+        tags: [
+          { label: `${formatSignedCurrency(worst.stats.netPnl)} in ${worst.label}`, tone: 'negative' },
+          { label: `${worst.trades.length} flagged trades`, tone: 'neutral' },
+          { label: `${formatSignedCurrency(best.stats.avgPnl)} avg in ${best.label}`, tone: best.stats.avgPnl >= 0 ? 'positive' : 'neutral' },
+        ],
+        actionLabel: 'Add to pre-session rules ->',
+      };
+    }
+
+    // No clearly negative window — show the distribution
+    const overallSummary = summarize(timedTrades);
+    return {
+      type: 'pattern' as const,
+      badge: 'Session Note',
+      frequency: `${timedTrades.length} timed trades · ${windowLabel} · ${tradingSessions} sessions`,
+      title: `Best window: ${best.label} — no major drag detected in ${windowLabel}`,
+      body: `Across ${timedTrades.length} timed trades in the ${windowLabel} range, your strongest window is ${best.label} at ${formatSignedCurrency(best.stats.avgPnl)}/trade avg${worstIsNegative ? `, with ${worst.label} your softest spot at ${formatSignedCurrency(worst.stats.avgPnl)}/trade. Keep monitoring — patterns sharpen as sample size grows.` : `. Overall avg ${formatSignedCurrency(overallSummary.avgPnl)}/trade — consistent performance across your session.`}`,
+      keyPhrases: [best.label, windowLabel, formatSignedCurrency(overallSummary.avgPnl)],
+      tags: [
+        { label: `${formatSignedCurrency(overallSummary.netPnl)} net`, tone: overallSummary.netPnl >= 0 ? 'positive' : 'negative' },
+        { label: `Best: ${best.label}`, tone: 'positive' },
+        ...(worstIsNegative ? [{ label: `Watch: ${worst.label}`, tone: 'negative' as const }] : []),
+      ],
+      actionLabel: 'Add to pre-session rules ->',
+    };
+  })();
+
+  const insights: WeeklyInsight[] = ([
+    timeInsight,
+    (() => {
+      if (!topSymbol) {
+        return {
+          type: 'pattern' as const,
+          badge: 'Instrument Review',
+          frequency: 'Not enough symbol data',
+          title: 'No recurring symbol pattern detected',
+          body: 'Log more symbol-tagged trades to activate instrument performance tracking.',
+          keyPhrases: ['symbol-tagged trades', 'pattern detection'],
+          tags: [{ label: 'Need more samples', tone: 'neutral' as TagTone }],
+          actionLabel: 'Promote to pattern library ->',
+        };
+      }
+
+      const uniqueSymbols = symbolGroups.size;
+      const count = topSymbol[1].length;
+      const wr = Math.round(topSymbolSummary.winRate);
+      const netPnl = topSymbolSummary.netPnl;
+      const avgPnl = netPnl / Math.max(1, count);
+      const isBreakeven = Math.abs(netPnl) < 25 && count >= 2;
+
+      const pnlPhrase = isBreakeven
+        ? `breakeven at ${formatSignedCurrency(netPnl)} across ${count} trade${count !== 1 ? 's' : ''}`
+        : `${formatSignedCurrency(netPnl)} net across ${count} trade${count !== 1 ? 's' : ''} (${formatSignedCurrency(avgPnl)}/trade avg)`;
+
+      // Minimum sample before drawing conclusions — scales with the timeframe
+      const MIN_SAMPLE = tf === '1W' ? 3 : tf === '1M' ? 5 : tf === '3M' ? 8 : 10;
+
+      // Single-instrument trader — "dominant" is meaningless, give a pure edge review instead
+      if (uniqueSymbols <= 1) {
+        // Not enough data — don't fire strong conclusions from a handful of trades
+        if (count < MIN_SAMPLE) {
+          const needed = MIN_SAMPLE - count;
+          return {
+            type: 'pattern' as InsightType,
+            badge: 'Instrument Review',
+            frequency: `${count} ${topSymbolName} trade${count !== 1 ? 's' : ''} this period`,
+            title: `${needed} more trade${needed !== 1 ? 's' : ''} needed to assess ${topSymbolName} edge`,
+            body: `${count} trade${count !== 1 ? 's' : ''} isn't enough to draw conclusions. Log at least ${MIN_SAMPLE} ${topSymbolName} trades in this period before reading into win rate or P&L.`,
+            keyPhrases: [topSymbolName, `${MIN_SAMPLE} trades`],
+            tags: [
+              { label: `${count}/${MIN_SAMPLE} trades`, tone: 'neutral' as TagTone },
+              { label: `${formatSignedCurrency(netPnl)} so far`, tone: (netPnl >= 0 ? 'positive' : 'negative') as TagTone },
+            ],
+            actionLabel: 'Keep logging ->',
+          };
+        }
+        const edgeStatus = wr >= 55 && netPnl > 0
+          ? `Edge is confirming on ${topSymbolName}. Keep conditions tight and risk consistent.`
+          : wr < 45 && netPnl < 0
+            ? `Win rate and P&L are both pointing the wrong way. Review your ${topSymbolName} setups — either the edge has shifted or execution is breaking down.`
+            : isBreakeven
+              ? `No clear edge showing yet on ${topSymbolName}. Focus on setup quality over trade frequency.`
+              : `Mixed signals on ${topSymbolName} — monitor over the next ${Math.max(5, count)} trades before drawing conclusions.`;
+        return {
+          type: (wr < 45 && netPnl < 0 ? 'risk' : netPnl > 0 ? 'edge' : 'pattern') as InsightType,
+          badge: 'Instrument Review',
+          frequency: `${count} ${topSymbolName} trade${count !== 1 ? 's' : ''} · ${wr}% win rate`,
+          title: `${topSymbolName} edge check — ${wr >= 55 && netPnl > 0 ? 'holding up' : wr < 45 && netPnl < 0 ? 'needs review' : 'mixed signals'}`,
+          body: `${topSymbolName}: ${wr}% win rate, ${pnlPhrase}. ${edgeStatus}`,
+          keyPhrases: [topSymbolName, formatSignedCurrency(netPnl), `${wr}%`],
+          tags: [
+            { label: `${formatSignedCurrency(netPnl)} net`, tone: (netPnl >= 0 ? 'positive' : 'negative') as TagTone },
+            { label: `${wr}% win rate`, tone: (wr >= 50 ? 'positive' : 'negative') as TagTone },
+            { label: `${count} trades`, tone: 'neutral' as TagTone },
+          ],
+          actionLabel: 'Review setups ->',
+        };
+      }
+
+      // Multiple instruments — surface the worst underperformer if it's clearly negative,
+      // otherwise show the leader with distribution context
+      const symbolStats = Array.from(symbolGroups.entries()).map(([sym, symTrades]) => ({
+        sym, symTrades, stats: summarize(symTrades),
+      }));
+      const worstSymbol = [...symbolStats].sort((a, b) => a.stats.netPnl - b.stats.netPnl)[0];
+      const worstWr = Math.round(worstSymbol.stats.winRate);
+      const worstIsDragging = worstSymbol.stats.netPnl < -50 && worstWr < 45 && worstSymbol.symTrades.length >= MIN_SAMPLE;
+
+      if (worstIsDragging && worstSymbol.sym !== topSymbolName) {
+        const worstAvg = worstSymbol.stats.netPnl / Math.max(1, worstSymbol.symTrades.length);
+        return {
+          type: 'risk' as const,
+          badge: 'Instrument Drag',
+          frequency: `${worstSymbol.sym} · ${worstSymbol.symTrades.length} trades · ${worstWr}% win rate`,
+          title: `${worstSymbol.sym} is your worst-performing instrument — consider a pause`,
+          body: `${worstSymbol.sym}: ${worstWr}% win rate, ${formatSignedCurrency(worstSymbol.stats.netPnl)} net across ${worstSymbol.symTrades.length} trade${worstSymbol.symTrades.length !== 1 ? 's' : ''} (${formatSignedCurrency(worstAvg)}/trade avg). Your other instruments are performing better. Pausing ${worstSymbol.sym} until the edge is validated is your highest-leverage move.`,
+          keyPhrases: [worstSymbol.sym, formatSignedCurrency(worstSymbol.stats.netPnl), `${worstWr}%`],
+          tags: [
+            { label: `${formatSignedCurrency(worstSymbol.stats.netPnl)} on ${worstSymbol.sym}`, tone: 'negative' as TagTone },
+            { label: `${worstSymbol.symTrades.length} flagged trades`, tone: 'neutral' as TagTone },
+            { label: `${uniqueSymbols} instruments traded`, tone: 'neutral' as TagTone },
+          ],
+          actionLabel: 'Pause this instrument ->',
+        };
+      }
+
+      // Top performer is worth highlighting
+      const addendum = wr >= 60 && netPnl > 50
+        ? ` Edge is confirming on ${topSymbolName}. Keep conditions tight and risk consistent.`
+        : wr < 45 && netPnl < 0
+          ? ` Despite being your most-traded instrument, ${topSymbolName} is underperforming. Review setups before sizing up.`
+          : '';
+      return {
+        type: (netPnl >= 0 ? 'edge' : 'pattern') as InsightType,
+        badge: 'Recurring Pattern',
+        frequency: `${topSymbolName} · ${count} of ${periodTrades.length} trades · ${uniqueSymbols} instruments`,
+        title: `${topSymbolName} leads your ${periodLabel} trade distribution`,
+        body: `${topSymbolName}: ${wr}% win rate, ${pnlPhrase}.${addendum}`,
+        keyPhrases: [topSymbolName, formatSignedCurrency(netPnl), `${wr}%`],
+        tags: [
+          { label: `${formatSignedCurrency(netPnl)} on ${topSymbolName}`, tone: (netPnl >= 0 ? 'positive' : 'negative') as TagTone },
+          { label: `${wr}% win rate`, tone: (wr >= 50 ? 'positive' : 'negative') as TagTone },
+          { label: `${uniqueSymbols} instruments`, tone: 'neutral' as TagTone },
+        ],
+        actionLabel: 'Promote to pattern library ->',
+      };
+    })(),
     ...(hasEnoughPsychData && psychWeakest && psychStrongest ? [{
       type: 'psychology' as const,
       badge: 'Psychology',
@@ -692,7 +941,7 @@ function buildData(trades: Trade[], tf: TimeFrame = '1W'): WeeklyDebriefData {
         const gap = Math.abs(psychStrongest.summary.avgPnl - psychWeakest.summary.avgPnl);
         const hardStop = gap > 30
           ? ` That ${formatSignedCurrency(gap)} gap per trade is not noise — you should not be entering trades when you feel "${psychWeakest.state}".`
-          : ` Track this over more sessions to confirm if "${psychWeakest.state}" needs a hard no-trade rule.`;
+          : ` Track this across more sessions — if the gap holds, this emotional state warrants a pre-session gate, not just a note.`;
         return `"${psychWeakest.state}" averaged ${formatSignedCurrency(psychWeakest.summary.avgPnl)} vs "${psychStrongest.state}" at ${formatSignedCurrency(psychStrongest.summary.avgPnl)} ${periodLabel}.${hardStop}`;
       })(),
       keyPhrases: [`"${psychWeakest.state}"`, formatSignedCurrency(psychWeakest.summary.avgPnl), `"${psychStrongest.state}"`, formatSignedCurrency(psychStrongest.summary.avgPnl)],
@@ -702,60 +951,230 @@ function buildData(trades: Trade[], tf: TimeFrame = '1W'): WeeklyDebriefData {
       ],
       actionLabel: 'Create emotional reset rule ->',
     }] : []),
-    {
-      type: 'edge',
-      badge: 'Edge Confirmed',
-      frequency: bestSession ? `${bestSession.session} led ${periodLabel}` : `No clear session edge ${periodLabel}`,
-      title: bestSession ? `${bestSession.session} is your strongest edge window ${periodLabel}` : 'Session edge needs more data',
-      body: bestSession
-        ? `${bestSession.session} delivered ${formatSignedCurrency(bestSession.summary.netPnl)} at ${Math.round(bestSession.summary.winRate)}% over ${bestSession.entries.length} trades.`
-        : 'Keep logging session tags to reveal your strongest time-window edge.',
-      keyPhrases: bestSession
-        ? [bestSession.session, formatSignedCurrency(bestSession.summary.netPnl), `${Math.round(bestSession.summary.winRate)}%`, `${bestSession.entries.length} trades`]
-        : ['session tags', 'time-window edge'],
-      tags: bestSession
-        ? [
-            { label: `${formatSignedCurrency(bestSession.summary.netPnl)} net`, tone: bestSession.summary.netPnl >= 0 ? 'positive' : 'negative' },
-            { label: `${Math.round(bestSession.summary.winRate)}% win rate`, tone: bestSession.summary.winRate >= 50 ? 'positive' : 'negative' },
-            { label: `${bestSession.entries.length} trades`, tone: 'neutral' },
-          ]
-        : [{ label: 'Need session samples', tone: 'neutral' }],
-      actionLabel: 'Add to pre-session brief ->',
-    },
-  ];
+    (() => {
+      if (!bestSession) {
+        return {
+          type: 'pattern' as const,
+          badge: 'Session Review',
+          frequency: `No clear session edge ${periodLabel}`,
+          title: 'Session edge needs more data',
+          body: 'Keep logging session tags to reveal your strongest time-window edge.',
+          keyPhrases: ['session tags', 'time-window edge'],
+          tags: [{ label: 'Need session samples', tone: 'neutral' as TagTone }],
+          actionLabel: 'Add to pre-session brief ->',
+        };
+      }
+
+      const uniqueSessions = sessionGroups.size;
+      const { session, entries, summary } = bestSession;
+      const wr = Math.round(summary.winRate);
+      const count = entries.length;
+
+      const SESSION_MIN = tf === '1W' ? 3 : tf === '1M' ? 5 : tf === '3M' ? 8 : 10;
+
+      // Single-session trader — session comparison is meaningless.
+      // Instead show a day-of-week breakdown, which is genuinely non-redundant.
+      if (uniqueSessions <= 1) {
+        const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const dayGroups = new Map<string, Trade[]>();
+        periodTrades.forEach(trade => {
+          const date = parseTradeDate(trade);
+          if (!date) return;
+          const day = DAYS[date.getDay()];
+          dayGroups.set(day, [...(dayGroups.get(day) ?? []), trade]);
+        });
+        const dayStats = Array.from(dayGroups.entries())
+          .map(([day, ts]) => ({ day, stats: summarize(ts), count: ts.length }))
+          .filter(d => d.count >= 2) // need at least 2 trades per day to be meaningful
+          .sort((a, b) => b.stats.avgPnl - a.stats.avgPnl);
+
+        // Need at least 2 days with 2+ trades to say anything useful
+        if (dayStats.length >= 2) {
+          const best = dayStats[0];
+          const worst = dayStats[dayStats.length - 1];
+          const gap = best.stats.avgPnl - worst.stats.avgPnl;
+          const worstIsNegative = worst.stats.netPnl < 0;
+          const isSignificant = Math.abs(gap) > 50 || (worstIsNegative && Math.abs(worst.stats.netPnl) > 100);
+          if (isSignificant) {
+            return {
+              type: (worstIsNegative ? 'risk' : 'edge') as InsightType,
+              badge: worstIsNegative ? 'Day Pattern' : 'Day Pattern',
+              frequency: `${periodTrades.length} trades across ${dayStats.length} days`,
+              title: worstIsNegative
+                ? `${worst.day} is your weakest trading day — consider sitting it out`
+                : `${best.day} is your strongest day — lean into it`,
+              body: `${best.day}: ${Math.round(best.stats.winRate)}% win rate, ${formatSignedCurrency(best.stats.avgPnl)}/trade avg (${best.count} trades). ${worst.day}: ${Math.round(worst.stats.winRate)}% win rate, ${formatSignedCurrency(worst.stats.avgPnl)}/trade avg (${worst.count} trades). ${formatSignedCurrency(gap)} avg gap between your best and worst day.${worstIsNegative ? ` Skipping ${worst.day} entirely is a simple rule with immediate P&L impact.` : ''}`,
+              keyPhrases: [best.day, worst.day, formatSignedCurrency(gap)],
+              tags: [
+                { label: `${best.day}: ${formatSignedCurrency(best.stats.avgPnl)} avg`, tone: (best.stats.avgPnl >= 0 ? 'positive' : 'negative') as TagTone },
+                { label: `${worst.day}: ${formatSignedCurrency(worst.stats.avgPnl)} avg`, tone: (worst.stats.avgPnl >= 0 ? 'positive' : 'negative') as TagTone },
+              ],
+              actionLabel: 'Add to pre-session rules ->',
+            };
+          }
+        }
+
+        // Not enough day-of-week data — suppress this insight entirely
+        // (stats card already shows the P&L; repeating it here adds nothing)
+        return null;
+      }
+
+      // Multiple sessions — actual comparison is meaningful
+      const sessionRanked = Array.from(sessionGroups.entries())
+        .map(([s, ts]) => ({ session: s, entries: ts, summary: summarize(ts) }))
+        .sort((a, b) => a.summary.netPnl - b.summary.netPnl);
+      const worstSess = sessionRanked[0];
+      const worstWr = Math.round(worstSess.summary.winRate);
+      const worstIsDragging = worstSess.summary.netPnl < -50 && worstWr < 45 && worstSess.entries.length >= SESSION_MIN;
+
+      // If worst session is clearly dragging, surface that instead of the best
+      if (worstIsDragging && worstSess.session !== session) {
+        return {
+          type: 'risk' as const,
+          badge: 'Session Drag',
+          frequency: `${worstSess.session} · ${worstSess.entries.length} trades · ${worstWr}% win rate`,
+          title: `${worstSess.session} session is your weakest window — consider skipping it`,
+          body: `${worstSess.session}: ${worstWr}% win rate, ${formatSignedCurrency(worstSess.summary.netPnl)} net across ${worstSess.entries.length} trade${worstSess.entries.length !== 1 ? 's' : ''}. Your ${session} session is significantly stronger at ${wr}% win rate. Cutting ${worstSess.session} trades is your highest-leverage rule right now.`,
+          keyPhrases: [worstSess.session, session, formatSignedCurrency(worstSess.summary.netPnl)],
+          tags: [
+            { label: `${formatSignedCurrency(worstSess.summary.netPnl)} in ${worstSess.session}`, tone: 'negative' as TagTone },
+            { label: `${formatSignedCurrency(summary.netPnl)} in ${session}`, tone: (summary.netPnl >= 0 ? 'positive' : 'neutral') as TagTone },
+            { label: `${uniqueSessions} sessions`, tone: 'neutral' as TagTone },
+          ],
+          actionLabel: 'Add session filter rule ->',
+        };
+      }
+
+      // Best session is meaningful — only call it "Edge Confirmed" if it's actually positive
+      const isConfirmed = summary.netPnl > 0 && wr >= 50;
+      return {
+        type: (isConfirmed ? 'edge' : 'pattern') as InsightType,
+        badge: isConfirmed ? 'Edge Confirmed' : 'Session Review',
+        frequency: `${session} led ${periodLabel} · ${uniqueSessions} sessions traded`,
+        title: isConfirmed
+          ? `${session} is your strongest edge window ${periodLabel}`
+          : `${session} leads by volume but edge isn't confirmed yet`,
+        body: `${session}: ${wr}% win rate, ${formatSignedCurrency(summary.netPnl)} net across ${count} trade${count !== 1 ? 's' : ''} (${formatSignedCurrency(summary.netPnl / Math.max(1, count))}/trade avg). ${isConfirmed ? `Clear session edge — prioritise ${session} setups and let the other sessions come to you.` : `Win rate and/or P&L needs to improve before this qualifies as a confirmed edge.`}`,
+        keyPhrases: [session, formatSignedCurrency(summary.netPnl), `${wr}%`],
+        tags: [
+          { label: `${formatSignedCurrency(summary.netPnl)} net`, tone: (summary.netPnl >= 0 ? 'positive' : 'negative') as TagTone },
+          { label: `${wr}% win rate`, tone: (wr >= 50 ? 'positive' : 'negative') as TagTone },
+          { label: `${uniqueSessions} sessions`, tone: 'neutral' as TagTone },
+        ],
+        actionLabel: 'Add to pre-session brief ->',
+      };
+    })(),
+  ] as (WeeklyInsight | null)[]).filter((x): x is WeeklyInsight => x !== null);
 
   if (topConfluence) {
-    insights.push({
-      type: topConfluence.netPnl >= 0 ? 'edge' : 'risk',
-      badge: 'Confluence Signal',
-      frequency: `${topConfluence.trades} trades logged with "${topConfluence.label}"`,
-      title: topConfluence.netPnl >= 0
-        ? `"${topConfluence.label}" is your highest-conviction confluence ${periodLabel}`
-        : `"${topConfluence.label}" needs review before reuse`,
-      body: `"${topConfluence.label}" returned ${formatSignedCurrency(topConfluence.netPnl)} total (${formatSignedCurrency(topConfluence.avgPnl)} avg) with ${Math.round(topConfluence.winRate)}% win rate.`,
-      keyPhrases: [
-        `"${topConfluence.label}"`,
-        formatSignedCurrency(topConfluence.netPnl),
-        formatSignedCurrency(topConfluence.avgPnl),
-        `${Math.round(topConfluence.winRate)}%`,
-      ],
-      tags: [
-        { label: `${topConfluence.trades} tagged trades`, tone: 'neutral' },
-        { label: `${Math.round(topConfluence.winRate)}% win rate`, tone: topConfluence.winRate >= 50 ? 'positive' : 'negative' },
-        { label: `${formatSignedCurrency(topConfluence.netPnl)} net`, tone: topConfluence.netPnl >= 0 ? 'positive' : 'negative' },
-      ],
-      actionLabel: 'Refine this confluence checklist ->',
-    });
+    // Minimum trades needed before a confluence result is statistically meaningful.
+    // With too few observations, win rate and net P&L are dominated by single-trade noise.
+    const MIN_CONFLUENCE = tf === '1W' ? 3 : tf === '1M' ? 5 : tf === '3M' ? 8 : 10;
+    const confluenceSampleValid = topConfluence.trades >= MIN_CONFLUENCE;
+
+    if (!confluenceSampleValid) {
+      // Not enough data — report honestly rather than flagging good/bad
+      insights.push({
+        type: 'pattern',
+        badge: 'Confluence Signal',
+        frequency: `${topConfluence.trades} trade${topConfluence.trades !== 1 ? 's' : ''} logged with "${topConfluence.label}"`,
+        title: `"${topConfluence.label}" — too early to read`,
+        body: `${topConfluence.trades} trade${topConfluence.trades !== 1 ? 's' : ''} is not a large enough sample to draw any conclusions. A single outcome can swing win rate from 0% to 100% and P&L by hundreds. Log at least ${MIN_CONFLUENCE} trades tagged "${topConfluence.label}" before treating any signal here as real.`,
+        keyPhrases: [`"${topConfluence.label}"`, `${MIN_CONFLUENCE} trades`],
+        tags: [
+          { label: `${topConfluence.trades}/${MIN_CONFLUENCE} min trades`, tone: 'neutral' },
+          { label: 'Insufficient sample', tone: 'neutral' },
+        ],
+        actionLabel: 'Review this confluence in pattern library ->',
+      });
+    } else {
+      // Enough data — classify the signal properly
+      const strongEdge = topConfluence.winRate >= 55 && topConfluence.netPnl > 0;
+      const clearRisk  = topConfluence.winRate < 45 && topConfluence.netPnl < 0;
+      insights.push({
+        type: strongEdge ? 'edge' : clearRisk ? 'risk' : 'pattern',
+        badge: 'Confluence Signal',
+        frequency: `${topConfluence.trades} trades logged with "${topConfluence.label}"`,
+        title: strongEdge
+          ? `"${topConfluence.label}" is your highest-conviction confluence ${periodLabel}`
+          : clearRisk
+            ? `"${topConfluence.label}" is underperforming — review before reuse`
+            : `"${topConfluence.label}" shows mixed results ${periodLabel}`,
+        body: `Across ${topConfluence.trades} trades, "${topConfluence.label}" returned ${formatSignedCurrency(topConfluence.netPnl)} total (${formatSignedCurrency(topConfluence.avgPnl)} avg) with ${Math.round(topConfluence.winRate)}% win rate.`,
+        keyPhrases: [
+          `"${topConfluence.label}"`,
+          formatSignedCurrency(topConfluence.netPnl),
+          formatSignedCurrency(topConfluence.avgPnl),
+          `${Math.round(topConfluence.winRate)}%`,
+        ],
+        tags: [
+          { label: `${topConfluence.trades} tagged trades`, tone: 'neutral' },
+          { label: `${Math.round(topConfluence.winRate)}% win rate`, tone: topConfluence.winRate >= 50 ? 'positive' : 'negative' },
+          { label: `${formatSignedCurrency(topConfluence.netPnl)} net`, tone: topConfluence.netPnl >= 0 ? 'positive' : 'negative' },
+        ],
+        actionLabel: 'Review this confluence in pattern library ->',
+      });
+    }
   }
 
   const focusItems: string[] = [];
   const byLabel = new Map(periodProcess.items.map(item => [item.label, item.value]));
-  if ((byLabel.get('Entry patience') ?? 0) < 70) focusItems.push('Delay first entry until setup structure is confirmed after 10:00.');
-  if ((byLabel.get('Post-loss mgmt') ?? 0) < 65) focusItems.push('After a loss, wait 15 minutes and reduce size on the next trade.');
-  if ((byLabel.get('Plan adherence') ?? 0) < 75) focusItems.push('Run a quick plan checklist before each entry to prevent drift.');
-  if ((byLabel.get('Size discipline') ?? 0) < 75) focusItems.push('Keep contract size near baseline to reduce variance spikes.');
-  if (weakestConfluence) focusItems.push(`Reduce low-quality "${weakestConfluence.label}" entries until the setup is validated again.`);
-  while (focusItems.length < 3) focusItems.push('Keep journaling every trade with notes and emotional context for sharper AI signals.');
+
+  // Entry patience — compute early vs confirmed entry P&L if enough data
+  const entryScore = byLabel.get('Entry patience') ?? 0;
+  if (entryScore < 70) {
+    const earlyEntries = periodTrades.filter(t => {
+      if (!t.trade_time) return false;
+      const [hStr, mStr] = t.trade_time.split(':');
+      const h = Number(hStr); const m = Number(mStr ?? 0);
+      return h < 9 || (h === 9 && m < 45);
+    });
+    const confirmedEntries = periodTrades.filter(t => {
+      if (!t.trade_time) return false;
+      const [hStr, mStr] = t.trade_time.split(':');
+      const h = Number(hStr); const m = Number(mStr ?? 0);
+      return h > 9 || (h === 9 && m >= 45);
+    });
+    const earlyAvg = earlyEntries.length ? earlyEntries.reduce((s, t) => s + Number(t.pnl ?? 0), 0) / earlyEntries.length : null;
+    const confirmedAvg = confirmedEntries.length ? confirmedEntries.reduce((s, t) => s + Number(t.pnl ?? 0), 0) / confirmedEntries.length : null;
+    if (earlyAvg !== null && confirmedAvg !== null && earlyEntries.length >= 2 && confirmedEntries.length >= 2) {
+      const gap = Math.abs(confirmedAvg - earlyAvg);
+      focusItems.push(`Entry patience scored ${entryScore}/100. Your ${earlyEntries.length} early entries averaged ${formatSignedCurrency(earlyAvg)} per trade compared to ${formatSignedCurrency(confirmedAvg)} for entries placed after the opening window settled — a ${formatSignedCurrency(gap)} gap per trade. That difference is the measurable cost of anticipating rather than confirming.`);
+    } else {
+      focusItems.push(`Entry patience is at ${entryScore}/100 — entries are being placed before the opening structure has formed. Define the specific price action condition that needs to appear at each setup type before the order goes in, and treat anything that doesn't meet it as a pass, not a delayed entry.`);
+    }
+  }
+
+  // Post-loss management
+  const postLossItem = periodProcess.items.find(i => i.label === 'Post-loss mgmt');
+  if (postLossItem && !postLossItem.noData && postLossItem.value < 65) {
+    const lossCount = periodTrades.filter(t => Number(t.pnl ?? 0) < 0).length;
+    focusItems.push(`Post-loss management scored ${postLossItem.value}/100 across ${lossCount} losing trade${lossCount !== 1 ? 's' : ''} this period. The data suggests re-entries are happening too quickly after losses — before sizing has reset or before the reactive state has cleared. Compound losses, where one bad trade leads immediately into another, are almost always a pacing problem, not a setup problem.`);
+  }
+
+  // Plan adherence
+  const planScore = byLabel.get('Plan adherence') ?? 0;
+  if (planScore < 75) {
+    const violations = periodTrades.filter(t => t.followed_plan === false);
+    const violPnl = violations.reduce((s, t) => s + Number(t.pnl ?? 0), 0);
+    if (violations.length >= 2) {
+      focusItems.push(`Plan adherence is at ${planScore}/100. ${violations.length} of ${periodTrades.length} trades deviated from the stated plan and those ${violations.length} totalled ${formatSignedCurrency(violPnl)}. Drift almost never looks like ignoring the plan — it looks like entering a trade that's close enough and rationalising the missing conditions. The conditions that get skipped are the ones that mattered.`);
+    } else {
+      focusItems.push(`Plan adherence is at ${planScore}/100. The most common form of drift is entering a trade that partially meets criteria and rationalising the gap — the trade feels valid in the moment but the missing condition was load-bearing. Before each entry, state what specifically needs to be true, and if any one condition isn't present, that's the signal to pass.`);
+    }
+  }
+
+  // Size discipline
+  const sizeScore = byLabel.get('Size discipline') ?? 0;
+  if (sizeScore < 75) {
+    focusItems.push(`Size discipline scored ${sizeScore}/100. Discretionary size changes typically happen when conviction is high — but confidence peaks right before a setup fails as often as right before it works. At ${Math.round(periodSummary.winRate)}% win rate this period, consistency in sizing does more for your P&L than trying to optimise which trades get more size.`);
+  }
+
+  // Weakest confluence
+  const MIN_CONFLUENCE_FOCUS = tf === '1W' ? 3 : tf === '1M' ? 5 : tf === '3M' ? 8 : 10;
+  if (weakestConfluence && weakestConfluence.trades >= MIN_CONFLUENCE_FOCUS) {
+    focusItems.push(`"${weakestConfluence.label}" has appeared in ${weakestConfluence.trades} trades at ${Math.round(weakestConfluence.winRate)}% win rate and ${formatSignedCurrency(weakestConfluence.netPnl)} net — averaging ${formatSignedCurrency(weakestConfluence.avgPnl)} per trade. The confluence is subtracting from your edge rather than adding to it. Until the sample shows a consistent positive result, treat it as a secondary filter, not a standalone trigger.`);
+  }
 
   const nextSunday = (() => {
     const day = periodEnd.getDay();
@@ -796,6 +1215,8 @@ export default function FlyxaAI() {
   const [respondOpen, setRespondOpen] = useState(false);
   const [respondText, setRespondText] = useState('');
   const [timeframe, setTimeframe] = useState<TimeFrame>('1W');
+  const aiReflections = useFlyxaStore(state => state.aiReflections);
+  const addAiReflection = useFlyxaStore(state => state.addAiReflection);
 
   const accountTrades = useMemo(
     () => filterTradesBySelectedAccount(trades),
@@ -880,7 +1301,7 @@ export default function FlyxaAI() {
   }, [weeklyWindow.weeklyTrades]);
   const netRNumeric = Number.parseFloat(weeklyDebriefData.stats.netR.value.replace(/[^\d.+-]/g, '')) || 0;
   const weakestProcess = useMemo(
-    () => [...weeklyDebriefData.processBreakdown].sort((a, b) => a.value - b.value)[0],
+    () => [...weeklyDebriefData.processBreakdown].filter(item => !item.noData).sort((a, b) => a.value - b.value)[0],
     [weeklyDebriefData.processBreakdown]
   );
   const violationsByWeakestMetric = Math.max(
@@ -909,6 +1330,23 @@ export default function FlyxaAI() {
   ];
 
   const displayedInsights = weeklyDebriefData.insights.slice(0, 4);
+  const recentReflections = aiReflections.slice(0, 3);
+
+  function saveReflection() {
+    const answer = respondText.trim();
+    if (!answer) return;
+    const period = getPeriodWindow(timeframe);
+    addAiReflection({
+      id: crypto.randomUUID(),
+      question: weeklyDebriefData.question,
+      answer,
+      timeframe,
+      periodLabel: period.headerLabel,
+      createdAt: new Date().toISOString(),
+    });
+    setRespondOpen(false);
+    setRespondText('');
+  }
 
   const sparkline = useMemo(() => {
     const width = 168;
@@ -1000,25 +1438,47 @@ export default function FlyxaAI() {
   }, [weeklyWindow.weeklyTrades]);
 
   const weekGrade = boundedScore >= 90 ? 'A' : boundedScore >= 75 ? 'B' : boundedScore >= 60 ? 'C' : 'D';
-  const nextGrade = weekGrade === 'A' ? null : weekGrade === 'B' ? 'A' : weekGrade === 'C' ? 'B' : 'C';
   const nextThreshold = weekGrade === 'A' ? null : weekGrade === 'B' ? 90 : weekGrade === 'C' ? 75 : 60;
   const gradeHint = nextThreshold === null
-    ? 'You are in the top band. Maintain consistency across all four process metrics.'
-    : `${weakestProcess?.label ?? 'Execution quality'} is the fastest lever. Raise it by about ${Math.max(1, nextThreshold - boundedScore)} points to reach grade ${nextGrade}.`;
+    ? `Process score at ${boundedScore}/100 — all four metrics are holding. The focus now is protecting these conditions rather than changing anything that's working.`
+    : `${weakestProcess?.label ?? 'Execution quality'} is scoring ${weakestProcess?.value ?? boundedScore}/100 — the biggest single drag on the overall grade. Closing that specific gap is worth more than adding trades.`;
 
   const actionItems = useMemo(() => {
     const items: string[] = [];
-    if (weakestProcess?.label === 'Entry patience') items.push('Delay first entries until your setup confirms after the open instead of anticipating the move.');
-    if (weakestProcess?.label === 'Post-loss mgmt') items.push('After any loss, enforce a 15-minute reset and drop one size tier before the next entry.');
-    if (weakestProcess?.label === 'Size discipline') items.push('Keep position size fixed to baseline and block discretionary size increases.');
-    if (weakestProcess?.label === 'Plan adherence') items.push('Run a pre-entry checklist and skip any trade that misses even one planned condition.');
-    const riskInsight = displayedInsights.find(insight => insight.type === 'risk');
-    if (riskInsight) items.push(`Convert "${riskInsight.title}" into a hard no-trade rule when that condition appears.`);
-    const edgeInsight = displayedInsights.find(insight => insight.type === 'edge');
-    if (edgeInsight) items.push(`Prioritize the ${edgeInsight.badge.toLowerCase()} context first and keep risk fixed while it is working.`);
+    const wt = weeklyWindow.weeklyTrades;
+    const wp = weakestProcess;
+
+    if (wp?.label === 'Entry patience') {
+      items.push(`Entry patience at ${wp.value}/100 — the setup is there but the timing is costing edge. The gap between anticipating a move and waiting for it to confirm is where this score lives. Until there's a specific condition defined for each setup that triggers the entry, you're relying on feel rather than criteria.`);
+    } else if (wp?.label === 'Post-loss mgmt') {
+      const lossCount = wt.filter(t => Number(t.pnl ?? 0) < 0).length;
+      items.push(`Post-loss management at ${wp.value}/100 across ${lossCount} losing trade${lossCount !== 1 ? 's' : ''} this week. The first loss is rarely the problem — it's what happens in the 30 minutes after it. Re-entering before you've reset the emotional state or the position sizing is where the real damage gets done. A loss doesn't clear itself by winning the next trade.`);
+    } else if (wp?.label === 'Size discipline') {
+      items.push(`Size discipline at ${wp.value}/100. If the conditions for sizing up aren't defined in advance and objective, the decisions are being made on confidence — and confidence tends to peak right before a setup fails just as often as right before it works. The edge in sizing comes from criteria, not from feel.`);
+    } else if (wp?.label === 'Plan adherence') {
+      const violations = wt.filter(t => t.followed_plan === false);
+      const violPnl = violations.reduce((s, t) => s + Number(t.pnl ?? 0), 0);
+      if (violations.length > 0) {
+        items.push(`Plan adherence at ${wp.value}/100 — ${violations.length} trade${violations.length !== 1 ? 's' : ''} off-plan this week totalling ${formatSignedCurrency(violPnl)}. Every off-plan trade that produces a win makes the next deviation easier to justify. Every one that loses adds to the actual cost. The data has made its argument.`);
+      } else {
+        items.push(`Plan adherence at ${wp.value}/100 — the gap is in coverage rather than outright violations. Trades logged without plan data count against the score because they can't be verified. Filling in the followed_plan field consistently is what gives this metric its signal.`);
+      }
+    }
+
+    const riskInsight = displayedInsights.find(i => i.type === 'risk');
+    if (riskInsight) {
+      const firstSentence = riskInsight.body.split(/[.!?]/)[0];
+      items.push(`${firstSentence}. That's not a hypothesis — it's the active risk pattern in the data this period.`);
+    }
+    const edgeInsight = displayedInsights.find(i => i.type === 'edge');
+    if (edgeInsight) {
+      const firstSentence = edgeInsight.body.split(/[.!?]/)[0];
+      items.push(`${firstSentence}. That's the working edge right now — it deserves priority in terms of preparation and setup selection.`);
+    }
+
     dedupedFocusItems.forEach(item => items.push(item));
     return Array.from(new Set(items)).slice(0, 3);
-  }, [dedupedFocusItems, displayedInsights, weakestProcess?.label]);
+  }, [dedupedFocusItems, displayedInsights, weakestProcess, weeklyWindow.weeklyTrades]);
 
   if (loading) {
     return (
@@ -1232,12 +1692,29 @@ export default function FlyxaAI() {
                           type="button"
                           className="rounded-[4px] px-3 py-1 text-[11px]"
                           style={{ backgroundColor: 'rgba(245,158,11,0.15)', color: colors.acc, border: '1px solid rgba(245,158,11,0.3)' }}
-                          onClick={() => { setRespondOpen(false); setRespondText(''); }}
+                          onClick={saveReflection}
                         >
                           Save reflection
                         </button>
                       </div>
                     )}
+                  </div>
+                )}
+                {recentReflections.length > 0 && (
+                  <div className="mt-3 rounded-[8px] border px-[14px] py-3" style={{ borderColor: colors.b0, backgroundColor: colors.d1 }}>
+                    <p className="text-[9.5px] uppercase tracking-[0.12em]" style={{ color: colors.t2 }}>Saved reflections</p>
+                    <div className="mt-2 space-y-2">
+                      {recentReflections.map(reflection => (
+                        <div key={reflection.id} className="border-l-2 pl-3" style={{ borderLeftColor: colors.acc }}>
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="truncate text-[11px]" style={{ color: colors.t2 }}>{reflection.periodLabel} · {new Date(reflection.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</p>
+                            <span className="text-[10px]" style={{ color: colors.t2, fontFamily: colors.mono }}>{reflection.timeframe}</span>
+                          </div>
+                          <p className="mt-1 text-[11.5px] leading-relaxed" style={{ color: colors.t1 }}>{reflection.question}</p>
+                          <p className="mt-1 text-[12.5px] leading-relaxed" style={{ color: colors.t0 }}>{reflection.answer}</p>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </section>
@@ -1300,6 +1777,7 @@ export default function FlyxaAI() {
                                 if (label.includes('pre-session')) navigate('/flyxa-ai/pre-session');
                                 else if (label.includes('pattern library') || label.includes('confluence')) navigate('/flyxa-ai/patterns');
                                 else if (label.includes('emotional') || label.includes('emotion')) navigate('/flyxa-ai/emotional-fingerprint');
+                                else if (label.includes('keep logging')) navigate('/scanner');
                                 else navigate('/journal');
                               }}
                             >
@@ -1356,15 +1834,24 @@ export default function FlyxaAI() {
             <p style={tinyMetaLabelStyle}>Process breakdown</p>
             <div className="mt-2.5 space-y-2.5">
               {weeklyDebriefData.processBreakdown.map(item => {
-                const color = breakdownColor(item.value);
+                const color = item.noData ? colors.t2 : breakdownColor(item.value);
                 return (
                   <div key={item.label}>
-                    <div className="mb-1 flex items-center justify-between">
-                      <span className="text-[11.5px]" style={{ color: colors.t1 }}>{item.label}</span>
-                      <span className="text-[11.5px] font-bold" style={{ color, fontFamily: colors.mono }}>{item.value}%</span>
+                    <div className="mb-1 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="text-[11.5px]" style={{ color: colors.t1 }}>{item.label}</span>
+                        {item.note && (
+                          <span className="text-[10px]" style={{ color: colors.t2 }}>· {item.note}</span>
+                        )}
+                      </div>
+                      <span className="text-[11.5px] font-bold shrink-0" style={{ color, fontFamily: colors.mono }}>
+                        {item.noData ? 'N/A' : `${item.value}%`}
+                      </span>
                     </div>
                     <div className="h-[2px] rounded-[2px]" style={{ backgroundColor: colors.d4 }}>
-                      <div className="h-[2px] rounded-[2px]" style={{ width: `${item.value}%`, backgroundColor: color }} />
+                      {!item.noData && (
+                        <div className="h-[2px] rounded-[2px]" style={{ width: `${item.value}%`, backgroundColor: color }} />
+                      )}
                     </div>
                   </div>
                 );

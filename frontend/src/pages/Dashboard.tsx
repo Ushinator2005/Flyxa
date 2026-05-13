@@ -9,7 +9,7 @@ import {
 } from 'recharts';
 import { format } from 'date-fns';
 import { useTrades } from '../hooks/useTrades.js';
-import { useAppSettings, ALL_ACCOUNTS_ID } from '../contexts/AppSettingsContext.js';
+import { useAppSettings, ALL_ACCOUNTS_ID, DEFAULT_ACCOUNT_ID } from '../contexts/AppSettingsContext.js';
 import { useHighImpactAlerts } from '../hooks/useHighImpactAlerts.js';
 import {
   buildAnalyticsSummary,
@@ -56,6 +56,37 @@ const fmtSignedCompactUSD = (v: number) => {
   }).format(Math.abs(v)).replace('K', 'k');
   return `${v >= 0 ? '+' : '-'}${formatted}`;
 };
+
+function wallTimeToUtcMs(dateSlice: string, timeHHMM: string, tz: string): number | null {
+  const local = new Date(`${dateSlice}T${timeHHMM}:00`);
+  if (Number.isNaN(local.getTime())) return null;
+
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(local);
+    const get = (type: string) => Number(parts.find(part => part.type === type)?.value ?? 0);
+    const zonedAsUtc = Date.UTC(
+      get('year'),
+      get('month') - 1,
+      get('day'),
+      get('hour'),
+      get('minute'),
+      get('second'),
+    );
+    const offsetMs = zonedAsUtc - local.getTime();
+    return local.getTime() - offsetMs;
+  } catch {
+    return null;
+  }
+}
 
 function winRateBadge(winRate: number): string {
   const diff = Math.round(winRate - 50);
@@ -221,6 +252,7 @@ export default function Dashboard() {
   // Read today's high-impact calendar events from the local cache.
   interface CachedCalEvent { event: string; date: string; time: string; impact: string; country?: string; actual?: string; forecast?: string; previous?: string; }
   const [todayHighImpact, setTodayHighImpact] = useState<CachedCalEvent[]>([]);
+  const [calendarTimeZone, setCalendarTimeZone] = useState(preferences?.timezone ?? 'America/New_York');
   useEffect(() => {
     function load() {
       try {
@@ -230,6 +262,7 @@ export default function Dashboard() {
         if (!Array.isArray(parsed.events)) { setTodayHighImpact([]); return; }
         // Dates in the cache are in the calendar's display timezone — match using that same timezone.
         const tz = parsed.timeZone ?? 'America/New_York';
+        setCalendarTimeZone(tz);
         const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
         const get = (t: string) => parts.find(p => p.type === t)?.value ?? '00';
         const todayInTz = `${get('year')}-${get('month')}-${get('day')}`;
@@ -284,6 +317,10 @@ export default function Dashboard() {
   const winRingData = wins + losses > 0
     ? [{ v: wins, c: GREEN }, { v: losses, c: 'rgba(255,255,255,0.06)' }]
     : [{ v: 1, c: 'rgba(255,255,255,0.06)' }];
+  const GAUGE_ARC = Math.PI * 40;
+  const gaugeScored = wins + losses;
+  const gaugeWinArc  = gaugeScored > 0 ? (wins   / gaugeScored) * GAUGE_ARC : 0;
+  const gaugeLossArc = gaugeScored > 0 ? (losses / gaugeScored) * GAUGE_ARC : 0;
 
   const todayPnL    = todayTrades.reduce((s, t) => s + t.pnl, 0);
   const selectedAcct = selectedAccountId !== ALL_ACCOUNTS_ID
@@ -297,7 +334,7 @@ export default function Dashboard() {
     const params = new URLSearchParams();
     if (trade.trade_date) params.set('date', trade.trade_date);
     params.set('tradeId', trade.id);
-    navigate(`/trade-scanner?${params.toString()}`);
+    navigate(`/scanner?${params.toString()}`);
   }
 
   if (loading) {
@@ -343,14 +380,14 @@ export default function Dashboard() {
                 onBlur={e =>  { e.currentTarget.style.borderColor = BORDER; }}
               >
                 <option value={ALL_ACCOUNTS_ID}>All Accounts</option>
-                {accounts.map(a => (
+                {accounts.filter(a => a.id !== DEFAULT_ACCOUNT_ID).map(a => (
                   <option key={a.id} value={a.id}>{a.name}</option>
                 ))}
               </select>
               <span style={{ pointerEvents: 'none', position: 'absolute', right: 9, top: '50%', transform: 'translateY(-50%)', fontSize: 9, color: T3 }}>▼</span>
             </div>
             <button
-              onClick={() => navigate('/trade-scanner')}
+              onClick={() => navigate('/scanner')}
               style={{
                 height: 34, padding: '0 14px',
                 background: '#f59e0b', border: 'none', borderRadius: 5,
@@ -377,14 +414,41 @@ export default function Dashboard() {
             badgeTone={todayTrades.length === 0 ? 'neutral' : todayPnL >= 0 ? 'positive' : 'negative'}
             valueTone={summary.netPnL > 0 ? 'positive' : summary.netPnL < 0 ? 'negative' : 'neutral'}
           />
-          <StatCard
-            color={COBALT}
-            label="Win Rate"
-            value={fmtPct(summary.winRate)}
-            badgeLabel={summary.totalTrades > 0 ? winRateBadge(summary.winRate) : 'No closed trades'}
-            badgeTone={summary.totalTrades === 0 ? 'neutral' : summary.winRate >= 50 ? 'positive' : 'negative'}
-            valueTone="neutral"
-          />
+          {/* Win Rate card with gauge */}
+          <div style={{ background: S1, border: `1px solid ${BORDER}`, borderRadius: 8, overflow: 'hidden', position: 'relative' }}>
+            <div style={{ height: 2, background: `linear-gradient(90deg, ${COBALT}, transparent)` }} />
+            <div style={{ padding: '14px 16px 16px' }}>
+              <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: T2, margin: '0 0 12px' }}>Win Rate</p>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                <div>
+                  <p style={{ fontSize: 26, fontWeight: 500, fontFamily: MONO, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.03em', fontFeatureSettings: "'zero' 1", lineHeight: 1, marginBottom: 10, color: T1 }}>
+                    {fmtPct(summary.winRate)}
+                  </p>
+                  <DeltaBadge label={summary.totalTrades > 0 ? winRateBadge(summary.winRate) : 'No closed trades'} tone={summary.totalTrades === 0 ? 'neutral' : summary.winRate >= 50 ? 'positive' : 'negative'} />
+                </div>
+                <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                  <svg viewBox="0 0 96 54" width="92" height="52">
+                    <path d="M 8 50 A 40 40 0 0 1 88 50" fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="7" strokeLinecap="round" />
+                    {gaugeScored > 0 && gaugeWinArc > 0 && (
+                      <path d="M 8 50 A 40 40 0 0 1 88 50" fill="none"
+                        stroke={GREEN} strokeWidth="7" strokeLinecap="round"
+                        strokeDasharray={`${gaugeWinArc} ${GAUGE_ARC}`}
+                        strokeDashoffset={0}
+                      />
+                    )}
+                    {gaugeScored > 0 && gaugeLossArc > 0 && (
+                      <path d="M 8 50 A 40 40 0 0 1 88 50" fill="none"
+                        stroke={RED} strokeWidth="7" strokeLinecap="round"
+                        strokeDasharray={`${gaugeLossArc} ${GAUGE_ARC}`}
+                        strokeDashoffset={-gaugeWinArc}
+                      />
+                    )}
+                  </svg>
+                  <span style={{ fontSize: 10, fontFamily: MONO, color: T3 }}>{wins}W · {losses}L</span>
+                </div>
+              </div>
+            </div>
+          </div>
           <StatCard
             color={GREEN}
             label="Avg R:R"
@@ -520,7 +584,7 @@ export default function Dashboard() {
                             <td style={{ padding: '9px 14px', fontFamily: MONO, fontVariantNumeric: 'tabular-nums', fontSize: 12, color: T2 }}>
                               {rrVal !== null ? fmtRR(rrVal) : '—'}
                             </td>
-                            <td style={{ padding: '9px 14px', textAlign: 'right', fontFamily: MONO, fontVariantNumeric: 'tabular-nums', fontSize: 12, fontWeight: 600, color: trade.pnl > 0 ? GREEN : trade.pnl < 0 ? RED : AMBER }}>
+                            <td style={{ padding: '9px 14px', textAlign: 'right', fontFamily: MONO, fontVariantNumeric: 'tabular-nums', fontSize: 12, fontWeight: 400, color: trade.pnl > 0 ? GREEN : trade.pnl < 0 ? RED : AMBER }}>
                               {fmtUSD(trade.pnl)}
                             </td>
                             <td style={{ padding: '9px 14px', textAlign: 'right' }}>
@@ -706,22 +770,42 @@ export default function Dashboard() {
             </Card>
 
             {/* High-impact economic events today */}
-            <Card style={{ padding: 16, flexShrink: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                <p style={{ fontSize: 12, fontWeight: 600, color: T1, margin: 0 }}>High Impact Today</p>
-                <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '2px 6px', borderRadius: 3, color: RED, background: RED_DIM, border: `1px solid ${RED_DIM}` }}>USD</span>
+            <Card style={{ padding: 16, flexShrink: 0, border: `1px solid rgba(248,113,113,0.25)`, boxShadow: '0 0 18px rgba(248,113,113,0.07)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: RED, boxShadow: `0 0 6px ${RED}`, flexShrink: 0 }} />
+                  <p style={{ fontSize: 13, fontWeight: 700, color: T1, margin: 0 }}>High Impact Today</p>
+                </div>
+                <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '2px 6px', borderRadius: 3, color: RED, background: RED_DIM, border: `1px solid rgba(248,113,113,0.3)` }}>USD</span>
               </div>
               {todayHighImpact.length === 0 ? (
                 <p style={{ fontSize: 11, color: T3, margin: 0, padding: '6px 0' }}>No high-impact events today.</p>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {todayHighImpact.map((ev, i) => {
                     const released = Boolean(ev.actual);
+                    const eventTimeMs = wallTimeToUtcMs(ev.date, ev.time, calendarTimeZone);
+                    const hasPassed = eventTimeMs !== null && eventTimeMs <= Date.now();
                     return (
-                      <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '7px 8px', borderRadius: 5, background: released ? 'transparent' : 'rgba(248,113,113,0.06)', borderLeft: `3px solid ${released ? 'rgba(255,255,255,0.08)' : RED}` }}>
-                        <span style={{ fontSize: 10, fontFamily: MONO, color: T3, flexShrink: 0, paddingTop: 1, minWidth: 36 }}>{ev.time}</span>
+                      <div key={i} style={{ position: 'relative', display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 10px', borderRadius: 6, background: hasPassed || released ? 'rgba(255,255,255,0.03)' : 'rgba(248,113,113,0.10)', borderLeft: `3px solid ${hasPassed || released ? 'rgba(255,255,255,0.12)' : RED}` }}>
+                        {hasPassed && (
+                          <span
+                            aria-hidden="true"
+                            style={{
+                              position: 'absolute',
+                              left: 8,
+                              right: 8,
+                              top: '50%',
+                              height: 1,
+                              background: '#fff',
+                              opacity: 0.75,
+                              pointerEvents: 'none',
+                            }}
+                          />
+                        )}
+                        <span style={{ fontSize: 12, fontFamily: MONO, color: released ? T2 : T1, fontWeight: 500, flexShrink: 0, paddingTop: 1, minWidth: 40 }}>{ev.time}</span>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 11, fontWeight: 500, color: released ? T2 : T1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.event}</div>
+                          <div style={{ fontSize: 12, fontWeight: released ? 500 : 600, color: released ? T2 : T1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.event}</div>
                           {released ? (
                             <div style={{ fontSize: 10, color: T3, marginTop: 2 }}>
                               <span style={{ color: ev.actual && ev.forecast && ev.actual >= ev.forecast ? GREEN : RED, fontFamily: MONO, fontWeight: 600 }}>{ev.actual}</span>

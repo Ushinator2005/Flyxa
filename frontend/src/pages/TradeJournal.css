@@ -603,6 +603,7 @@
   align-items: center;
   gap: 12px;
   cursor: pointer;
+  position: relative;
   transition: background 0.14s ease, border-color 0.14s ease, transform 0.14s ease, box-shadow 0.14s ease;
 }
 
@@ -1348,9 +1349,21 @@
 /* active trade card */
 .tj-trade-card.active {
   background: var(--surface-2);
+  border-color: var(--amber);
   border-left-color: var(--amber);
-  border-color: rgba(59, 130, 246, 0.28);
-  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.28);
+  border-left-width: 5px;
+  box-shadow:
+    inset 0 0 0 1px rgba(245, 158, 11, 0.68),
+    0 0 0 1px rgba(245, 158, 11, 0.22);
+}
+
+.tj-trade-card.active::after {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border: 1px solid rgba(245, 158, 11, 0.34);
+  border-radius: 3px;
+  pointer-events: none;
 }
 
 .tj-pl-card {

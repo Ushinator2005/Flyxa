@@ -2,7 +2,7 @@ import { Settings, ChevronDown } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import ThemeToggle from '../common/ThemeToggle.js';
-import { ALL_ACCOUNTS_ID, useAppSettings } from '../../contexts/AppSettingsContext.js';
+import { ALL_ACCOUNTS_ID, DEFAULT_ACCOUNT_ID, useAppSettings } from '../../contexts/AppSettingsContext.js';
 import MarketClock from './MarketClock.js';
 
 function accountStatusColor(status: string): string {
@@ -17,7 +17,6 @@ function accountStatusColor(status: string): string {
 const pageNames: Record<string, string> = {
   '/': 'Dashboard',
   '/scanner': 'Trade Scanner',
-  '/trade-scanner': 'Trade Scanner',
   '/coach': 'Flyxa AI',
   '/flyxa-ai': 'Flyxa AI',
   '/flyxa-ai/patterns': 'Pattern library',
@@ -154,7 +153,7 @@ export default function Header() {
                 {selectedAccountId === ALL_ACCOUNTS_ID && <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--amber)' }}>✓</span>}
               </button>
 
-              {accounts.map(account => (
+              {accounts.filter(account => account.id !== DEFAULT_ACCOUNT_ID).map(account => (
                 <button
                   key={account.id}
                   type="button"

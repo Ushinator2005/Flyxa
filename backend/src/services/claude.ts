@@ -31,7 +31,7 @@ const MANUAL_READING_PROCESS = `Read the chart in this exact order:
    - PINK (light red/rose) zone = stop loss risk area
 
 3. CRITICAL — Identify the three price levels attached to the P&L box boundaries:
-   - GREY pill/box label on the right-side price axis = entry price. On the right axis you will see several colored pill-shaped labels: a GREEN one (live price — ignore it), a RED one (stop loss), and a GREY one (entry). The GREY pill label is at the boundary between the pink and teal zones. Read the number printed inside that grey pill exactly — it is the entry price. Do not read axis gridline text, do not interpolate between gridlines. The grey pill label is the same style as the red and green pills, just grey colored.
+   - Configured entry-color pill/box label on the right-side price axis = entry price. On the right axis you may see several labels: a GREEN one (live price — ignore it), a RED one (stop loss), black/white horizontal-line labels (ignore them), and an entry label using the user's scanner entry-zone color. Read the number printed inside the configured entry-color pill exactly — it is the entry price. If no configured-color entry pill is visible, a grey TradingView entry pill is an acceptable fallback. Do not read axis gridline text, do not use black/white key-level labels, and do not interpolate between gridlines.
    - RED label on the right-side price axis = stop loss (the OUTERMOST far edge of the pink zone — the edge furthest from entry, NOT any intermediate level inside the pink zone).
    - The TAKE PROFIT is the OUTERMOST far edge of the teal zone (the edge furthest from entry).
 
@@ -109,8 +109,14 @@ interface ScannerContext {
   box_left_ratio?: number;
   box_right_ratio?: number;
   entry_line_ratio?: number;
+  entry_label_candidate_ratio?: number;
   stop_line_ratio?: number;
   target_line_ratio?: number;
+  scanner_colors?: {
+    entryZone?: { hex?: string };
+    supplyStopZone?: { hex?: string };
+    targetDemandZone?: { hex?: string };
+  };
   red_box?: {
     xMin: number;
     xMax: number;
@@ -561,6 +567,7 @@ function formatScannerContext(scannerContext?: ScannerContext): string {
 ${directionDirective}
 - direction_hint: ${scannerContext.direction_hint ?? 'unknown'}
 - entry_line_ratio: ${scannerContext.entry_line_ratio ?? 'unknown'}
+- entry_label_candidate_ratio: ${scannerContext.entry_label_candidate_ratio ?? 'unknown'}
 - stop_line_ratio: ${scannerContext.stop_line_ratio ?? 'unknown'}
 - target_line_ratio: ${scannerContext.target_line_ratio ?? 'unknown'}
 - box_left_ratio: ${scannerContext.box_left_ratio ?? 'unknown'}
@@ -583,6 +590,8 @@ function describeImageLabel(label: string): string {
       return 'a zoomed crop of the right-side price labels; use this for the exact entry, stop, and target numbers';
     case 'entry-label-focus':
       return 'a tight crop centered on the entry price label; use this as the primary source for entry_price';
+    case 'entry-color-label-focus':
+      return 'an alternate tight crop around the configured entry-color price pill; prefer it over black or white line labels for entry_price';
     case 'stop-label-focus':
       return 'a tight crop centered on the stop-loss label; use this as the primary source for sl_price';
     case 'target-label-focus':
@@ -894,15 +903,18 @@ function buildPriceExtractionPrompt(scannerContext?: ScannerContext): string {
   );
 
   const pct = (r: number) => (r * 100).toFixed(1);
+  const entryColor = scannerContext?.scanner_colors?.entryZone?.hex ?? '#E67E22';
 
   const geometrySection = hasGeometry ? `
 PIXEL GEOMETRY (from pre-scan analysis — use these to locate each label):
 - Entry price label: ${pct(scannerContext!.entry_line_ratio!)}% from the TOP of the full chart image
+${scannerContext!.entry_label_candidate_ratio != null ? `- Configured entry-color pill candidate: ${pct(scannerContext!.entry_label_candidate_ratio)}% from the TOP of the full chart image` : ''}
 - Stop price label:  ${pct(scannerContext!.stop_line_ratio!)}% from the TOP of the full chart image
 - Target price label:${pct(scannerContext!.target_line_ratio!)}% from the TOP of the full chart image
 - Trade direction hint: ${scannerContext!.direction_hint ?? 'unknown'}
+- User configured entry-zone color: ${entryColor}
 
-The dedicated label crops (entry-label-focus, stop-label-focus, target-label-focus)
+The dedicated label crops (entry-label-focus, entry-color-label-focus when present, stop-label-focus, target-label-focus)
 have been 2× upscaled with nearest-neighbour interpolation so digits are crisp.
 ` : `
 No geometry hints available. Read all visible price labels from the price axis.
@@ -922,14 +934,16 @@ STEP 2 — Examine the trade-box-focus image.
   Identify the coloured boxes (red = SL zone, teal/green = TP zone).
   Note where each box begins and ends relative to the price axis.
 
-AUTHORITY RULE: The dedicated crops (entry-label-focus, stop-label-focus, target-label-focus) are
+AUTHORITY RULE: The dedicated crops (entry-label-focus, entry-color-label-focus when present, stop-label-focus, target-label-focus) are
   the ONLY authoritative source for each price. Read the digits in THAT crop for THAT field only.
   Never substitute a value from the general price axis or from any other crop into a different field.
+  If entry-color-label-focus clearly shows the configured entry-color position pill, it overrides entry-label-focus for entry_price.
 
 STEP 3 — For the ENTRY price:
-  Look at the entry-label-focus crop. It is centred on the entry level.
+  Look at the entry-label-focus crop. If entry-color-label-focus is attached, examine it too.
   Read every digit left to right. Do not guess. Do not round.
-  Cross-check: the entry price should be at the BOUNDARY between the red and green boxes.
+  Cross-check: the entry price should be the TradingView position label using the configured entry-zone color (${entryColor}). If this crop contains a black/white horizontal-line label and a separate configured-color or grey position label is visible elsewhere, do NOT use the black/white value as entry_price.
+  IMPORTANT: Black or white right-axis labels such as horizontal key levels are not entry labels. The configured entry-color pill wins; grey is only a fallback.
 
 STEP 4 — For the STOP-LOSS price:
   Look at the stop-label-focus crop. It is centred on the stop level.
@@ -1227,7 +1241,8 @@ Timeframe rules:
 - Do not infer timeframe from the x-axis, candle spacing, zoom level, or trade duration
 
 Never estimate price labels. Read the exact numbers shown on the right axis labels.
-If entry-label-focus, stop-label-focus, or target-label-focus are attached, use those as the primary source for the exact prices.
+If entry-label-focus, entry-color-label-focus, stop-label-focus, or target-label-focus are attached, use those as the primary source for the exact prices.
+If entry-color-label-focus clearly contains the configured entry-color TradingView entry pill, it is the source of truth for entry_price. Grey is only a fallback.
 If entry time is not clearly readable, return null for entry_time and low or null confidence.
 
 Return ONLY a raw JSON object with these exact keys:
@@ -2048,7 +2063,7 @@ function buildConsensusTradeAnalysis(
 async function upscaleLabelCrops(
   images: ChartImageInput[]
 ): Promise<ChartImageInput[]> {
-  const LABEL_CROP_NAMES = new Set(['entry-label-focus', 'stop-label-focus', 'target-label-focus']);
+  const LABEL_CROP_NAMES = new Set(['entry-label-focus', 'entry-color-label-focus', 'stop-label-focus', 'target-label-focus']);
 
   return Promise.all(images.map(async (img) => {
     if (!LABEL_CROP_NAMES.has(img.label)) return img;

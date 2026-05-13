@@ -2,6 +2,7 @@ import { useLocation, Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar.js';
 import Header from './Header.js';
 import RiskWarningBanner from '../risk/RiskWarningBanner.js';
+import SessionStatusBar from './SessionStatusBar.js';
 import FlyxaChatWidget from '../common/FlyxaChatWidget.js';
 import { useRisk } from '../../contexts/RiskContext.js';
 
@@ -23,6 +24,7 @@ export default function Layout() {
       <Sidebar />
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
         <Header />
+        <SessionStatusBar />
         {riskLevel !== 'normal' && dailyStatus && (
           <RiskWarningBanner riskLevel={riskLevel} dailyStatus={dailyStatus} />
         )}

@@ -180,91 +180,87 @@
   }
 
   .market-clock {
-    display: inline-flex;
+    display: flex;
     align-items: center;
-    gap: 8px;
-    height: 36px;
     max-width: min(430px, 42vw);
     margin: 0 16px 0 auto;
-    padding: 0 12px;
-    border: 1px solid rgba(245, 158, 11, 0.48);
+    padding: 0;
+    border: 1px solid #1c2128;
     border-radius: 6px;
-    background:
-      linear-gradient(90deg, rgba(245, 158, 11, 0.22), rgba(245, 158, 11, 0.065) 48%, rgba(255, 255, 255, 0.035)),
-      var(--app-panel-strong);
-    color: var(--app-text-muted);
-    box-shadow:
-      0 0 0 1px rgba(245, 158, 11, 0.08),
-      0 8px 24px rgba(245, 158, 11, 0.12),
-      inset 3px 0 0 rgba(245, 158, 11, 0.95);
+    color: #6b7280;
     white-space: nowrap;
     overflow: hidden;
   }
 
-  .market-clock--open {
-    border-color: rgba(52, 211, 153, 0.5);
-    background:
-      linear-gradient(90deg, rgba(52, 211, 153, 0.2), rgba(52, 211, 153, 0.06) 48%, rgba(255, 255, 255, 0.035)),
-      var(--app-panel-strong);
-    box-shadow:
-      0 0 0 1px rgba(52, 211, 153, 0.08),
-      0 8px 24px rgba(52, 211, 153, 0.13),
-      inset 3px 0 0 rgba(52, 211, 153, 0.95);
+  .market-clock__segment {
+    display: flex;
+    align-items: center;
+    min-height: 30px;
+    padding: 6px 12px;
+  }
+
+  .market-clock__segment--clock {
+    gap: 7px;
+    min-width: 118px;
+    border-right: 1px solid #1c2128;
+    background: var(--app-panel);
+  }
+
+  .market-clock__segment--countdown {
+    gap: 8px;
+    background: rgba(255, 138, 26, 0.08);
+  }
+
+  .market-clock--open .market-clock__segment--countdown {
+    background: rgba(34, 197, 94, 0.08);
   }
 
   .market-clock__pulse {
-    width: 7px;
-    height: 7px;
+    width: 5px;
+    height: 5px;
     flex: 0 0 auto;
     border-radius: 999px;
-    background: var(--amber);
-    box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.16);
+    background: #ff8a1a;
   }
 
   .market-clock--open .market-clock__pulse {
-    background: var(--green);
-    box-shadow: 0 0 0 4px rgba(52, 211, 153, 0.16);
+    background: #22c55e;
   }
 
   .market-clock__icon {
     display: inline-flex;
     flex: 0 0 auto;
-    color: var(--amber);
-  }
-
-  .market-clock--open .market-clock__icon {
-    color: var(--green);
-  }
-
-  .market-clock__time,
-  .market-clock__detail {
-    font-family: var(--font-mono);
-    font-size: 12px;
-    font-weight: 500;
-    font-variant-numeric: tabular-nums;
-    color: var(--app-text);
+    color: #6b7280;
   }
 
   .market-clock__time {
-    min-width: 88px;
-  }
-
-  .market-clock__divider {
-    width: 1px;
-    height: 14px;
-    flex: 0 0 auto;
-    background: var(--app-border);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+    color: #6b7280;
   }
 
   .market-clock__status {
-    min-width: 62px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    font-size: 11px;
-    font-weight: 600;
+    font-size: 10px;
+    font-weight: 500;
+    line-height: 1;
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: var(--app-text-muted);
+    color: #9ca3af;
+  }
+
+  .market-clock__detail {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: #ff8a1a;
+  }
+
+  .market-clock--open .market-clock__detail {
+    color: #22c55e;
   }
 
   @media (max-width: 1020px) {
@@ -272,8 +268,7 @@
       max-width: 220px;
     }
 
-    .market-clock__time,
-    .market-clock__divider {
+    .market-clock__segment--clock {
       display: none;
     }
   }

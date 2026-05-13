@@ -14,14 +14,14 @@ import {
   Upload,
   X,
 } from 'lucide-react';
-import { useAppSettings } from '../contexts/AppSettingsContext.js';
+import { DEFAULT_ACCOUNT_ID, useAppSettings } from '../contexts/AppSettingsContext.js';
 import { useAuth } from '../contexts/AuthContext.js';
 import useFlyxaStore from '../store/flyxaStore.js';
 import type { JournalEntry as StoreJournalEntry } from '../store/types.js';
 import { pushToast } from '../store/toastStore.js';
 import { useTrades } from '../hooks/useTrades.js';
 import { lookupContract } from '../constants/futuresContracts.js';
-import { buildScannerAssets, inferSymbolFromFileName, normalizeResolvedSymbol } from '../utils/tradeScannerPipeline.js';
+import { buildScannerAssets, inferSymbolFromFileName, inferTradeDateFromFileName, normalizeResolvedSymbol } from '../utils/tradeScannerPipeline.js';
 import { scanChart } from '../utils/scanChart.js';
 import { uploadScreenshot } from '../utils/uploadScreenshot.js';
 import { flushSupabaseStoreNow } from '../store/supabaseStorage.js';
@@ -757,9 +757,12 @@ function AccountSelectorBlock({ trade, onMutate }: { trade: JournalTrade; onMuta
         }}
       >
         <option value="">— Select account —</option>
-        {accounts.filter(account => account.status !== 'Blown').map(account => (
+        {accounts.filter(account =>
+          account.id !== DEFAULT_ACCOUNT_ID &&
+          (account.status !== 'Blown' || account.id === trade.accountId)
+        ).map(account => (
           <option key={account.id} value={account.id}>
-            {account.name}
+            {account.name}{account.status === 'Blown' ? ' (Blown)' : ''}
           </option>
         ))}
       </select>
@@ -2020,7 +2023,7 @@ export default function TradeJournal() {
 
     setScanError('');
     setIsScanning(true);
-    const tradeDate = selectedEntry?.date ?? getTodayIso();
+    const tradeDate = inferTradeDateFromFileName(file.name) ?? selectedEntry?.date ?? getTodayIso();
     const tradeTime = getNowTime();
     let scanSucceeded = false;
 
@@ -2475,7 +2478,12 @@ export default function TradeJournal() {
                       </span>
                     </div>
                   ) : (
-                    <div key={trade.id} className={`tj-trade-card ${trade.result}${activeTradeId === trade.id ? ' active' : ''}`} onClick={() => setActiveTradeId(trade.id)}>
+                    <div
+                      key={trade.id}
+                      className={`tj-trade-card ${trade.result}${activeTradeId === trade.id ? ' active' : ''}`}
+                      onClick={() => setActiveTradeId(trade.id)}
+                      aria-current={activeTradeId === trade.id ? 'true' : undefined}
+                    >
                       {(() => {
                         const s = computeProcessScore(trade);
                         const letter = scoreToGradeLetter(s);
@@ -2623,9 +2631,11 @@ export default function TradeJournal() {
             <div className="tj-empty-wrap">
               <div className={`tj-empty-card ${isDragging ? 'drag' : ''}`}>
                 <span className="tj-empty-badge"><Upload size={20} /></span>
-                <p className="tj-empty-title">Start your first Trade Journal entry</p>
+                <p className="tj-empty-title">drop a chart screenshot</p>
                 <p className="tj-empty-text">
-                  Drop a chart to scan with Flyxa AI or create a blank day and fill entries manually.
+                  Flyxa reads your <span style={{ color: 'var(--amber)' }}>entry</span>, <span style={{ color: 'var(--amber)' }}>SL</span>, <span style={{ color: 'var(--amber)' }}>TP</span>, and <span style={{ color: 'var(--amber)' }}>exit</span>
+                  <br />
+                  automatically in seconds
                 </p>
                 {scanError && <p className="tj-empty-text tj-empty-error">{scanError}</p>}
                 {isScanning && (

@@ -5,6 +5,7 @@ import LoadingSpinner from '../components/common/LoadingSpinner.js';
 import { useAppSettings } from '../contexts/AppSettingsContext.js';
 import { useRisk } from '../contexts/RiskContext.js';
 import { useTrades } from '../hooks/useTrades.js';
+import { riskApi } from '../services/api.js';
 import { RiskSettings, Trade } from '../types/index.js';
 import { PatternItem } from './FlyxaAIPatterns.js';
 import useFlyxaStore from '../store/flyxaStore.js';
@@ -46,16 +47,31 @@ const CARD_BORDER = `1px solid ${C.b0}`;
 const emotions = ['Frustrated', 'Anxious', 'Neutral', 'Focused', 'Confident'] as const;
 const biasOptions: BiasValue[] = ['Bull', 'Bear', 'Neutral'];
 
+const preTradeReminderItems = [
+  'The goal is not to trade. The goal is to protect capital and execute only when the setup is clean.',
+  'No screenshot, plan, or confirmation means no trade.',
+  'A missed trade is acceptable. A forced trade is not.',
+  'After a loss, the next decision must be slower, smaller, and cleaner.',
+];
+
+const oathChecklistItems: ChecklistItem[] = [
+  { id: 'oath-plan-only', label: 'I will only trade a setup that matches my plan' },
+  { id: 'oath-no-revenge', label: 'I will not trade to recover, prove, or force a green day' },
+  { id: 'oath-risk-stop', label: 'I will respect my max loss, max trades, and size limits' },
+  { id: 'oath-no-trade-valid', label: 'I accept that no trade is a successful session outcome' },
+  { id: 'oath-journal-honestly', label: 'I will record the trade honestly after it closes' },
+];
+
 const mentalChecklistItems: ChecklistItem[] = [
-  { id: 'mental-sleep', label: 'Slept at least 6 hours' },
+  { id: 'mental-sleep', label: 'My mind is clear enough to follow rules' },
   { id: 'mental-emotion', label: 'Pre-open emotion logged', autoFromEmotion: true },
-  { id: 'mental-recover', label: 'Not trading to recover yesterday' },
-  { id: 'mental-distractions', label: 'No distractions for next 3 hours' },
+  { id: 'mental-recover', label: 'I am not carrying yesterday into today' },
+  { id: 'mental-distractions', label: 'My trading window is free from distractions' },
 ];
 
 const baseTechnicalChecklistItems: ChecklistItem[] = [
-  { id: 'technical-overnight-levels', label: 'Reviewed overnight levels' },
-  { id: 'technical-platform-ready', label: 'Platform connected + charts set' },
+  { id: 'technical-overnight-levels', label: 'Key levels, liquidity, and invalidation are marked' },
+  { id: 'technical-platform-ready', label: 'Platform, account, contracts, and order settings are checked' },
 ];
 
 
@@ -74,26 +90,13 @@ function parseTradeDate(trade: Trade): Date | null {
   return null;
 }
 
-function tradeR(trade: Trade): number {
-  const riskPoints = Math.abs(trade.entry_price - trade.sl_price);
-  if (riskPoints > 0) {
-    const size = trade.contract_size > 0 ? trade.contract_size : 1;
-    const pointValue = trade.point_value > 0 ? trade.point_value : 1;
-    const riskCash = riskPoints * size * pointValue;
-    if (riskCash > 0) return trade.pnl / riskCash;
-  }
-  if (trade.pnl > 0) return 1;
-  if (trade.pnl < 0) return -1;
-  return 0;
-}
-
-function formatSignedR(value: number, digits = 1) {
-  return `${value >= 0 ? '+' : '-'}${Math.abs(value).toFixed(digits)}R`;
-}
-
 function formatCurrency(value: number) {
   const sign = value < 0 ? '-' : '';
   return `${sign}$${Math.abs(value).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+}
+
+function formatSignedCurrency(value: number) {
+  return `${value >= 0 ? '+' : '-'}${formatCurrency(Math.abs(value))}`;
 }
 
 function parseRiskSettingsFromStorage(): Partial<RiskSettings> {
@@ -238,7 +241,7 @@ export default function FlyxaAIPreSession() {
   const navigate = useNavigate();
   const { trades, loading } = useTrades();
   const { filterTradesBySelectedAccount } = useAppSettings();
-  const { settings } = useRisk();
+  const { settings, refreshSettings } = useRisk();
 
   const storedPreSession = useFlyxaStore(state => state.preSession);
   const setPreSessionAction = useFlyxaStore(state => state.setPreSession);
@@ -249,6 +252,16 @@ export default function FlyxaAIPreSession() {
   const [bias, setBias] = useState<BiasState>(() => (storedPreSession?.bias as BiasState ?? { ES: 'Neutral', NQ: 'Neutral' }));
   const [checklistState, setChecklistState] = useState<ChecklistState>(() => (storedPreSession?.checklistState as ChecklistState ?? {}));
   const [storedRiskSettings] = useState(() => parseRiskSettingsFromStorage());
+  const [riskEditOpen, setRiskEditOpen] = useState(false);
+  const [riskSaving, setRiskSaving] = useState(false);
+  const [riskSaveError, setRiskSaveError] = useState('');
+  const [riskDraft, setRiskDraft] = useState({
+    daily_loss_limit: '',
+    max_trades_per_day: '',
+    max_contracts_per_trade: '',
+    account_size: '',
+    risk_percentage: '',
+  });
 
   useEffect(() => {
     const interval = window.setInterval(() => setNow(new Date()), 30_000);
@@ -272,11 +285,11 @@ export default function FlyxaAIPreSession() {
     const latestDate = Array.from(grouped.keys()).sort((a, b) => b.localeCompare(a))[0];
     if (!latestDate) return null;
     const latestTrades = grouped.get(latestDate) || [];
-    const netR = latestTrades.reduce((sum, trade) => sum + tradeR(trade), 0);
+    const netPnl = latestTrades.reduce((sum, trade) => sum + trade.pnl, 0);
     return {
       date: latestDate,
       tradeCount: latestTrades.length,
-      netR,
+      netPnl,
     };
   }, [accountTrades]);
 
@@ -326,8 +339,58 @@ export default function FlyxaAIPreSession() {
       target,
       maxContracts: maxContractsValue,
       riskPct: riskPctValue,
+      accountSize: accountSizeValue,
     };
   }, [settings, storedRiskSettings]);
+
+  const openRiskEditor = () => {
+    setRiskDraft({
+      daily_loss_limit: String(Math.round(riskLimits.maxDailyLoss)),
+      max_trades_per_day: String(riskLimits.maxTrades),
+      max_contracts_per_trade: String(riskLimits.maxContracts),
+      account_size: String(Math.round(riskLimits.accountSize)),
+      risk_percentage: String(riskLimits.riskPct),
+    });
+    setRiskSaveError('');
+    setRiskEditOpen(true);
+  };
+
+  const updateRiskDraft = (field: keyof typeof riskDraft, value: string) => {
+    setRiskDraft(current => ({ ...current, [field]: value }));
+  };
+
+  const saveRiskLimits = async () => {
+    const next = {
+      daily_loss_limit: Number(riskDraft.daily_loss_limit),
+      max_trades_per_day: Number(riskDraft.max_trades_per_day),
+      max_contracts_per_trade: Number(riskDraft.max_contracts_per_trade),
+      account_size: Number(riskDraft.account_size),
+      risk_percentage: Number(riskDraft.risk_percentage),
+    };
+
+    if (
+      !Number.isFinite(next.daily_loss_limit) || next.daily_loss_limit <= 0 ||
+      !Number.isFinite(next.max_trades_per_day) || next.max_trades_per_day <= 0 ||
+      !Number.isFinite(next.max_contracts_per_trade) || next.max_contracts_per_trade <= 0 ||
+      !Number.isFinite(next.account_size) || next.account_size <= 0 ||
+      !Number.isFinite(next.risk_percentage) || next.risk_percentage <= 0
+    ) {
+      setRiskSaveError('Enter positive numbers for every risk limit.');
+      return;
+    }
+
+    setRiskSaving(true);
+    setRiskSaveError('');
+    try {
+      await riskApi.updateSettings(next);
+      await refreshSettings();
+      setRiskEditOpen(false);
+    } catch {
+      setRiskSaveError('Could not save risk limits. Try again.');
+    } finally {
+      setRiskSaving(false);
+    }
+  };
 
   const activePatterns = useMemo(
     () => [] as PatternItem[],
@@ -371,11 +434,11 @@ export default function FlyxaAIPreSession() {
             source: `${recentBehavior.revengeTagged} recent revenge-tagged trade${recentBehavior.revengeTagged === 1 ? '' : 's'}`,
           }]
         : []),
-      ...(lastSession && lastSession.netR < 0
+      ...(lastSession && lastSession.netPnl < 0
         ? [{
             id: 'mental-first-loss-pause',
             label: 'After the first red trade, pause before placing the next order',
-            source: `Last session ${formatSignedR(lastSession.netR)}`,
+            source: `Last session ${formatSignedCurrency(lastSession.netPnl)}`,
           }]
         : []),
     ],
@@ -422,7 +485,7 @@ export default function FlyxaAIPreSession() {
   const emotionLogged = emotion.trim().length > 0;
 
   const checklistTotals = useMemo(() => {
-    const rows = [...mentalChecklistWithAdaptiveItems, ...technicalChecklistItems];
+    const rows = [...oathChecklistItems, ...mentalChecklistWithAdaptiveItems, ...technicalChecklistItems];
     const completed = rows.filter(item => (
       item.autoFromEmotion ? emotionLogged : Boolean(checklistState[item.id])
     )).length;
@@ -463,9 +526,9 @@ export default function FlyxaAIPreSession() {
       score -= 14;
       reasons.push('Recent revenge-tagged behavior deserves an explicit reset rule.');
     }
-    if (lastSession && lastSession.netR < -1) {
+    if (lastSession && lastSession.netPnl < 0) {
       score -= 10;
-      reasons.push(`Last session closed at ${formatSignedR(lastSession.netR)}.`);
+      reasons.push(`Last session closed at ${formatSignedCurrency(lastSession.netPnl)}.`);
     }
 
     const normalizedScore = Math.max(0, Math.min(100, score));
@@ -544,7 +607,7 @@ export default function FlyxaAIPreSession() {
         sessionPlan,
       },
     });
-    navigate('/');
+    navigate('/journal');
   };
 
   if (loading) {
@@ -566,7 +629,7 @@ export default function FlyxaAIPreSession() {
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <p className="text-[9.5px] uppercase tracking-[0.12em]" style={{ color: C.t2 }}>Flyxa AI</p>
-                  <h1 className="mt-2 text-[24px] font-bold tracking-[-0.02em]" style={{ color: C.t0 }}>{greeting}</h1>
+                  <h1 className="mt-2 text-[24px] font-bold tracking-[-0.02em]" style={{ color: C.t0 }}>Pre-session oath</h1>
                   <p className="mt-1 text-[12px]" style={{ color: C.t2 }}>{subtitle}</p>
                 </div>
                 <div className="rounded-[8px] px-3 py-2 text-right" style={{ backgroundColor: C.d2, border: CARD_BORDER }}>
@@ -578,7 +641,7 @@ export default function FlyxaAIPreSession() {
                   </p>
                   <p className="mt-1 text-[12px]" style={{ color: C.t1 }}>
                     {lastSession
-                      ? `Last session ${formatSignedR(lastSession.netR)} (${lastSession.tradeCount} trades)`
+                      ? `Last session ${formatSignedCurrency(lastSession.netPnl)} (${lastSession.tradeCount} trades)`
                       : 'Last session result unavailable'}
                   </p>
                 </div>
@@ -670,6 +733,60 @@ export default function FlyxaAIPreSession() {
 
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                <section
+                  className="rounded-[8px] p-5 xl:col-span-2"
+                  style={{
+                    backgroundColor: C.d2,
+                    border: `1px solid rgba(245,158,11,0.32)`,
+                  }}
+                >
+                  <div className="grid gap-5 xl:grid-cols-[minmax(0,0.78fr)_minmax(0,1.22fr)]">
+                    <div>
+                      <p style={SECTION_LABEL_STYLE}>Before you trade</p>
+                      <p className="mt-3 text-[13px] leading-[1.8]" style={{ color: C.t1 }}>
+                        {greeting}. This is the line between planned execution and emotional clicking. If any part of this feels false today, size down or stand down.
+                      </p>
+                      <div className="mt-5 space-y-2.5">
+                        {preTradeReminderItems.map((item, index) => (
+                          <div key={item} className="flex gap-3 rounded-[6px] border px-3.5 py-3" style={{ borderColor: C.b0, backgroundColor: C.d3 }}>
+                            <span className="font-mono text-[12px]" style={{ color: C.acc }}>{String(index + 1).padStart(2, '0')}</span>
+                            <p className="text-[13px] leading-[1.65]" style={{ color: C.t0 }}>{item}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="rounded-[8px] border p-4" style={{ borderColor: C.b0, backgroundColor: C.d3 }}>
+                      <div className="flex items-center justify-between gap-3">
+                        <p style={SECTION_LABEL_STYLE}>Trader oath</p>
+                        <span className="rounded-[4px] border px-2.5 py-1.5 font-mono text-[11px]" style={{ borderColor: C.b0, color: C.t1 }}>
+                          {oathChecklistItems.filter(item => Boolean(checklistState[item.id])).length}/{oathChecklistItems.length}
+                        </span>
+                      </div>
+                      <div className="mt-4 space-y-3">
+                        {oathChecklistItems.map(item => {
+                          const checked = Boolean(checklistState[item.id]);
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => toggleChecklist(item)}
+                              className="flex w-full items-start gap-3 rounded-[6px] border px-3.5 py-3 text-left"
+                              style={{
+                                borderColor: checked ? 'rgba(245,158,11,0.34)' : C.b0,
+                                backgroundColor: checked ? 'rgba(245,158,11,0.08)' : C.d2,
+                              }}
+                            >
+                              {customCheckbox(checked)}
+                              <p className="text-[13px] leading-[1.55]" style={{ color: checked ? C.t0 : C.t1 }}>{item.label}</p>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
                 <section className="rounded-[8px] p-4" style={{ backgroundColor: C.d2, border: CARD_BORDER }}>
                   <p style={SECTION_LABEL_STYLE}>How are you feeling?</p>
                   <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-5">
@@ -704,7 +821,17 @@ export default function FlyxaAIPreSession() {
                 </section>
 
                 <section className="rounded-[8px] p-4" style={{ backgroundColor: C.d2, border: CARD_BORDER }}>
-                  <p style={SECTION_LABEL_STYLE}>Today&apos;s risk limits</p>
+                  <div className="flex items-center justify-between gap-3">
+                    <p style={SECTION_LABEL_STYLE}>Today&apos;s risk limits</p>
+                    <button
+                      type="button"
+                      onClick={riskEditOpen ? () => setRiskEditOpen(false) : openRiskEditor}
+                      className="rounded-[4px] border px-2 py-1 text-[11px]"
+                      style={{ borderColor: C.b1, backgroundColor: C.d3, color: riskEditOpen ? C.t1 : C.acc }}
+                    >
+                      {riskEditOpen ? 'Cancel' : 'Edit'}
+                    </button>
+                  </div>
                   <div className="mt-3 grid grid-cols-2 gap-3">
                     <div className="rounded-[6px] border px-3 py-2" style={{ borderColor: C.b0, backgroundColor: C.d3 }}>
                       <p className="text-[12px] font-semibold" style={{ color: C.red }}>{formatCurrency(-riskLimits.maxDailyLoss)}</p>
@@ -715,14 +842,56 @@ export default function FlyxaAIPreSession() {
                       <p className="mt-1 text-[11px]" style={{ color: C.t2 }}>Max trades</p>
                     </div>
                     <div className="rounded-[6px] border px-3 py-2" style={{ borderColor: C.b0, backgroundColor: C.d3 }}>
-                      <p className="text-[12px] font-semibold" style={{ color: C.t0 }}>{formatCurrency(riskLimits.riskPerTrade)} ({riskLimits.riskPct.toFixed(1)}%)</p>
-                      <p className="mt-1 text-[11px]" style={{ color: C.t2 }}>Risk per trade</p>
+                      <p className="text-[12px] font-semibold" style={{ color: C.t0 }}>{riskLimits.maxContracts}</p>
+                      <p className="mt-1 text-[11px]" style={{ color: C.t2 }}>Max contracts</p>
                     </div>
                     <div className="rounded-[6px] border px-3 py-2" style={{ borderColor: C.b0, backgroundColor: C.d3 }}>
                       <p className="text-[12px] font-semibold" style={{ color: C.grn }}>{formatCurrency(riskLimits.target)}</p>
                       <p className="mt-1 text-[11px]" style={{ color: C.t2 }}>Session target</p>
                     </div>
                   </div>
+                  {riskEditOpen && (
+                    <div className="mt-3 rounded-[8px] border p-3" style={{ borderColor: C.b0, backgroundColor: C.d3 }}>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        {[
+                          ['daily_loss_limit', 'Max daily loss', '$'],
+                          ['max_trades_per_day', 'Max trades', ''],
+                          ['max_contracts_per_trade', 'Max contracts', ''],
+                          ['account_size', 'Account size', '$'],
+                          ['risk_percentage', 'Risk per trade %', '%'],
+                        ].map(([field, label, suffix]) => (
+                          <label key={field} className="text-[11px]" style={{ color: C.t2 }}>
+                            {label}
+                            <div className="mt-1 flex items-center rounded-[5px] border px-2" style={{ borderColor: C.b0, backgroundColor: C.d2 }}>
+                              {suffix === '$' && <span style={{ color: C.t2 }}>$</span>}
+                              <input
+                                type="number"
+                                min="0"
+                                step={field === 'risk_percentage' ? '0.1' : '1'}
+                                value={riskDraft[field as keyof typeof riskDraft]}
+                                onChange={event => updateRiskDraft(field as keyof typeof riskDraft, event.target.value)}
+                                className="min-w-0 flex-1 bg-transparent py-1.5 text-[12px] outline-none"
+                                style={{ color: C.t0 }}
+                              />
+                              {suffix === '%' && <span style={{ color: C.t2 }}>%</span>}
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                      {riskSaveError && <p className="mt-2 text-[11px]" style={{ color: C.red }}>{riskSaveError}</p>}
+                      <div className="mt-3 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={saveRiskLimits}
+                          disabled={riskSaving}
+                          className="rounded-[5px] border px-3 py-1.5 text-[11px] font-medium disabled:opacity-60"
+                          style={{ borderColor: 'rgba(245,158,11,0.35)', backgroundColor: 'rgba(245,158,11,0.12)', color: C.acc }}
+                        >
+                          {riskSaving ? 'Saving...' : 'Save risk limits'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </section>
 
                 <section className="rounded-[8px] p-4" style={{ backgroundColor: C.d2, border: CARD_BORDER }}>
@@ -764,6 +933,15 @@ export default function FlyxaAIPreSession() {
                         <div className="mt-1 flex gap-2">
                           {biasOptions.map(option => {
                             const selected = bias[instrument] === option;
+                            const isBull = option === 'Bull';
+                            const isBear = option === 'Bear';
+                            const selectedColor = isBull ? C.grn : isBear ? C.red : C.acc;
+                            const selectedBg = isBull
+                              ? 'rgba(34,214,138,0.12)'
+                              : isBear
+                                ? 'rgba(240,82,82,0.12)'
+                                : 'rgba(245,158,11,0.10)';
+                            const label = option === 'Bull' ? 'Bullish' : option === 'Bear' ? 'Bearish' : 'Neutral';
                             return (
                               <button
                                 key={`${instrument}-${option}`}
@@ -771,12 +949,12 @@ export default function FlyxaAIPreSession() {
                                 onClick={() => setBiasAndPersist(instrument, option)}
                                 className="rounded-[4px] border px-3 py-1 text-[11px]"
                                 style={{
-                                  borderColor: selected ? C.acc : C.b0,
-                                  backgroundColor: selected ? 'rgba(245,158,11,0.10)' : C.d3,
-                                  color: selected ? C.acc : C.t1,
+                                  borderColor: selected ? selectedColor : C.b0,
+                                  backgroundColor: selected ? selectedBg : C.d3,
+                                  color: selected ? selectedColor : C.t1,
                                 }}
                               >
-                                {option}
+                                {label}
                               </button>
                             );
                           })}
@@ -859,6 +1037,9 @@ export default function FlyxaAIPreSession() {
                 </section>
 
                 <section className="rounded-[8px] p-4 xl:col-span-2" style={{ backgroundColor: C.d2, border: CARD_BORDER }}>
+                  <p className="mb-3 text-[12px] leading-[1.6]" style={{ color: C.t1 }}>
+                    Starting the session confirms this oath is complete enough to trade with discipline. If it is not, use the dashboard instead of the order buttons.
+                  </p>
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
@@ -866,7 +1047,7 @@ export default function FlyxaAIPreSession() {
                       className="rounded-[6px] border px-4 py-2 text-[12px] font-semibold"
                       style={{ borderColor: C.acc, backgroundColor: C.acc, color: '#0e0d0d' }}
                     >
-                      Start session — I&apos;m ready to trade
+                      I accept the oath — start session
                     </button>
                     <button
                       type="button"

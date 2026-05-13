@@ -566,12 +566,42 @@ export default function Analytics() {
           }
           valueClassName={metrics.netPnL >= 0 ? 'text-emerald-400' : 'text-red-400'}
         />
-        <MetricCard
-          label="Win Rate"
-          value={`${metrics.winRate.toFixed(0)}%`}
-          subtitle={`${metrics.wins.length}W / ${metrics.losses.length}L`}
-          valueClassName="text-[var(--app-text)]"
-        />
+        {/* Win Rate card with gauge */}
+        <div className="min-h-[112px] rounded-lg border border-[var(--app-border)] bg-[var(--app-panel)] px-4 py-3">
+          <p className="text-[10px] uppercase tracking-[0.1em] text-[var(--app-text-subtle)]">Win Rate</p>
+          <div className="mt-2 flex items-center justify-between gap-2">
+            <div>
+              <p className="text-[22px] font-semibold leading-tight text-[var(--app-text)]">{`${metrics.winRate.toFixed(0)}%`}</p>
+              <p className="mt-2 text-xs text-[var(--app-text-muted)]">{`${metrics.wins.length}W / ${metrics.losses.length}L`}</p>
+            </div>
+            <div className="flex flex-shrink-0 flex-col items-center gap-1">
+              {(() => {
+                const T = Math.PI * 40;
+                const sc = metrics.wins.length + metrics.losses.length;
+                const wArc = sc > 0 ? (metrics.wins.length / sc) * T : 0;
+                const lArc = sc > 0 ? (metrics.losses.length / sc) * T : 0;
+                return (
+                  <svg viewBox="0 0 96 54" width="92" height="52">
+                    <path d="M 8 50 A 40 40 0 0 1 88 50" fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="7" strokeLinecap="round" />
+                    {sc > 0 && wArc > 0 && (
+                      <path d="M 8 50 A 40 40 0 0 1 88 50" fill="none"
+                        stroke={DASHBOARD_GREEN} strokeWidth="7" strokeLinecap="round"
+                        strokeDasharray={`${wArc} ${T}`} strokeDashoffset={0}
+                      />
+                    )}
+                    {sc > 0 && lArc > 0 && (
+                      <path d="M 8 50 A 40 40 0 0 1 88 50" fill="none"
+                        stroke={DASHBOARD_RED} strokeWidth="7" strokeLinecap="round"
+                        strokeDasharray={`${lArc} ${T}`} strokeDashoffset={-wArc}
+                      />
+                    )}
+                  </svg>
+                );
+              })()}
+              <span className="font-mono text-[10px] text-[var(--app-text-subtle)]">{metrics.wins.length} · {metrics.losses.length}</span>
+            </div>
+          </div>
+        </div>
         <MetricCard
           label="Profit Factor"
           value={metrics.profitFactor >= 999 ? '∞' : metrics.profitFactor.toFixed(2)}

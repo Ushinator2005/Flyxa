@@ -176,14 +176,17 @@ export default function MarketClock({ displayTimezone }: MarketClockProps) {
 
   return (
     <div className={`market-clock market-clock--${marketState.tone}`} title="US regular session: 9:30 AM to 4:00 PM New York time">
-      <span className="market-clock__pulse" aria-hidden="true" />
-      <span className="market-clock__icon" aria-hidden="true">
-        <Clock3 size={14} />
+      <span className="market-clock__segment market-clock__segment--clock">
+        <span className="market-clock__icon" aria-hidden="true">
+          <Clock3 size={13} />
+        </span>
+        <span className="market-clock__time">{displayTime}</span>
       </span>
-      <span className="market-clock__time">{displayTime}</span>
-      <span className="market-clock__divider" aria-hidden="true" />
-      <span className="market-clock__status">{marketState.status}</span>
-      <span className="market-clock__detail">{marketState.detail}</span>
+      <span className="market-clock__segment market-clock__segment--countdown">
+        <span className="market-clock__pulse" aria-hidden="true" />
+        <span className="market-clock__status">{marketState.tone === 'open' ? 'MARKET OPEN' : 'OPENS IN'}</span>
+        <span className="market-clock__detail">{marketState.detail}</span>
+      </span>
     </div>
   );
 }

@@ -1146,7 +1146,7 @@ export default function Settings() {
 
           {/* Account rows */}
           <div>
-            {accounts.map(account => (
+            {accounts.filter(account => account.id !== DEFAULT_ACCOUNT_ID).map(account => (
               <div key={account.id}>
                 <div
                   style={{

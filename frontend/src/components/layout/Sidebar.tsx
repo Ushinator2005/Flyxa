@@ -6,7 +6,7 @@ import {
   Settings, LogOut, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Plus, CreditCard, ScanLine, Newspaper, ClipboardCheck,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext.js';
-import { useAppSettings } from '../../contexts/AppSettingsContext.js';
+import { DEFAULT_ACCOUNT_ID, useAppSettings } from '../../contexts/AppSettingsContext.js';
 
 const AMBER      = '#f59e0b';
 const AMBER_DIM  = 'rgba(245,158,11,0.10)';
@@ -86,6 +86,7 @@ function SidebarContent({ onNavClick, collapsed }: { onNavClick?: () => void; co
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
   const { accounts, selectedAccountId, setSelectedAccountId } = useAppSettings();
+  const visibleAccounts = accounts.filter(a => a.id !== DEFAULT_ACCOUNT_ID);
   const selectedAcct = accounts.find(a => a.id === selectedAccountId);
   const [accountsCollapsed, setAccountsCollapsed] = useState(() => {
     if (typeof window === 'undefined') return false;
@@ -160,7 +161,7 @@ function SidebarContent({ onNavClick, collapsed }: { onNavClick?: () => void; co
         </div>
 
         {/* Accounts */}
-        {accounts.length > 0 && (
+        {visibleAccounts.length > 0 && (
           <div>
             {collapsed ? (
               <button
@@ -224,7 +225,7 @@ function SidebarContent({ onNavClick, collapsed }: { onNavClick?: () => void; co
             )}
             {collapsed ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'center' }}>
-                {!accountsCollapsed && accounts.map(acct => {
+                {!accountsCollapsed && visibleAccounts.map(acct => {
                   const sel = selectedAccountId === acct.id;
                   return (
                     <button
@@ -258,7 +259,7 @@ function SidebarContent({ onNavClick, collapsed }: { onNavClick?: () => void; co
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                {!accountsCollapsed && accounts.map(acct => {
+                {!accountsCollapsed && visibleAccounts.map(acct => {
                   const sel = selectedAccountId === acct.id;
                   return (
                     <button

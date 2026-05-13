@@ -4,7 +4,7 @@ import { CalendarDays, Clock3, Expand, ImagePlus, Sparkles, Wand2, X, Upload } f
 import TradeForm from './TradeForm.js';
 import { Trade } from '../../types/index.js';
 import { lookupContract } from '../../constants/futuresContracts.js';
-import { useAppSettings } from '../../contexts/AppSettingsContext.js';
+import { DEFAULT_ACCOUNT_ID, useAppSettings } from '../../contexts/AppSettingsContext.js';
 import { scanChart } from '../../utils/scanChart.js';
 
 const DRAFT_KEY = 'tw_scanner_draft';
@@ -36,6 +36,43 @@ function inferSymbolFromFileName(fileName: string): string | null {
   return match ? match[1] : null;
 }
 
+function isValidDateParts(year: number, month: number, day: number): boolean {
+  if (year < 2000 || year > 2100 || month < 1 || month > 12 || day < 1 || day > 31) {
+    return false;
+  }
+
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year
+    && date.getUTCMonth() === month - 1
+    && date.getUTCDate() === day;
+}
+
+function formatDateParts(year: number, month: number, day: number): string | null {
+  if (!isValidDateParts(year, month, day)) return null;
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function inferTradeDateFromFileName(fileName: string): string | null {
+  const baseName = fileName.replace(/\.[^.]+$/, '');
+  const yearFirst = baseName.match(/(?:^|[^0-9])((?:20)\d{2})[-_. ]?([01]?\d)[-_. ]?([0-3]?\d)(?=[^0-9]|$)/);
+  if (yearFirst) {
+    const parsed = formatDateParts(Number(yearFirst[1]), Number(yearFirst[2]), Number(yearFirst[3]));
+    if (parsed) return parsed;
+  }
+
+  const dayOrMonthFirst = baseName.match(/(?:^|[^0-9])([0-3]?\d)[-_. ]([0-3]?\d)[-_. ]((?:20)\d{2})(?=[^0-9]|$)/);
+  if (dayOrMonthFirst) {
+    const first = Number(dayOrMonthFirst[1]);
+    const second = Number(dayOrMonthFirst[2]);
+    const year = Number(dayOrMonthFirst[3]);
+    const dayFirst = formatDateParts(year, second, first);
+    if (dayFirst) return dayFirst;
+    return formatDateParts(year, first, second);
+  }
+
+  return null;
+}
+
 interface CropPreset {
   name: string;
   x: number;
@@ -59,6 +96,7 @@ interface ScannerContext {
   box_left_ratio?: number;
   box_right_ratio?: number;
   entry_line_ratio?: number;
+  entry_label_candidate_ratio?: number;
   stop_line_ratio?: number;
   target_line_ratio?: number;
   red_box?: Omit<ComponentBounds, 'count'>;
@@ -318,6 +356,9 @@ function detectTradeBoxContext(image: HTMLImageElement): ScannerContext | null {
     stopLineRatio = redBox.yMin / height;
     targetLineRatio = greenBox.yMax / height;
   }
+  const entryLabelCandidateRatio = directionHint === 'Short'
+    ? greenBox.yMax / height
+    : entryLineRatio;
 
   return {
     direction_hint: directionHint,
@@ -326,6 +367,7 @@ function detectTradeBoxContext(image: HTMLImageElement): ScannerContext | null {
     box_left_ratio: boxLeftRatio,
     box_right_ratio: boxRightRatio,
     entry_line_ratio: entryLineRatio,
+    entry_label_candidate_ratio: entryLabelCandidateRatio,
     stop_line_ratio: stopLineRatio,
     target_line_ratio: targetLineRatio,
     red_box: toRatioBounds(redBox, width, height),
@@ -350,6 +392,13 @@ function buildDynamicFocusCrops(scannerContext: ScannerContext | null): CropPres
   const entryLine = scannerContext.entry_line_ratio ?? (top + boxHeight / 2);
   const stopLine = scannerContext.stop_line_ratio ?? top;
   const targetLine = scannerContext.target_line_ratio ?? bottom;
+  const entryLabelCandidateLine = scannerContext.entry_label_candidate_ratio
+    ?? (scannerContext.direction_hint === 'Short'
+      ? scannerContext.green_box?.yMax
+      : scannerContext.entry_line_ratio);
+  const includeEntryCandidateCrop = typeof entryLabelCandidateLine === 'number'
+    && Number.isFinite(entryLabelCandidateLine)
+    && Math.abs(entryLabelCandidateLine - entryLine) > 0.018;
   const labelCrop = (name: string, yCenter: number): CropPreset => ({
     name,
     x: clampRatio(chartRight - chartWidth * 0.17, chartLeft, 0.9),
@@ -395,6 +444,7 @@ function buildDynamicFocusCrops(scannerContext: ScannerContext | null): CropPres
       height: 1.00,
     },
     labelCrop('entry-label-focus', entryLine),
+    ...(includeEntryCandidateCrop && typeof entryLabelCandidateLine === 'number' ? [labelCrop('entry-color-label-focus', entryLabelCandidateLine)] : []),
     labelCrop('stop-label-focus', stopLine),
     labelCrop('target-label-focus', targetLine),
   ];
@@ -674,8 +724,12 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
     reader.readAsDataURL(file);
 
     try {
-      const scanDate = currentDate || getFallbackScanDate();
+      const fileTradeDate = !editTrade ? inferTradeDateFromFileName(file.name) : null;
+      const scanDate = fileTradeDate || currentDate || getFallbackScanDate();
       const scanTime = currentTime || getFallbackScanTime();
+      if (fileTradeDate) {
+        setCurrentDate(fileTradeDate);
+      }
       const { focusImages, scannerContext: rawContext, uploadImage } = await buildScannerAssets(file);
       const colors = preferences.scannerColors;
       const enrichedContext: Record<string, unknown> = {
@@ -711,10 +765,13 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
       const mapped: Partial<Trade> = {
         ...baseTrade,
         accountId: tradeAccountId || getDefaultTradeAccountId(),
-        trade_date: currentDate || undefined,
+        trade_date: fileTradeDate || currentDate || undefined,
         trade_time: currentTime || undefined,
         contract_size: Math.max(1, Number(formData?.contract_size ?? prefillTrade?.contract_size ?? editTrade?.contract_size ?? 1)),
       };
+      if (fileTradeDate) {
+        fields.add('trade_date');
+      }
       const resolvedSymbol = normalizeResolvedSymbol(extracted.symbol) ?? inferSymbolFromFileName(file.name);
       if (resolvedSymbol) {
         mapped.symbol = resolvedSymbol;
@@ -1056,7 +1113,7 @@ export default function ScreenshotImportModal({ isOpen, onClose, onSave, editTra
                       value={tradeAccountId}
                       onChange={e => setTradeAccountId(e.target.value)}
                     >
-                      {accounts.map(account => (
+                      {accounts.filter(account => account.id !== DEFAULT_ACCOUNT_ID).map(account => (
                         <option
                           key={account.id}
                           value={account.id}
