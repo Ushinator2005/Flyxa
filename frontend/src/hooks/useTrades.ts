@@ -193,12 +193,16 @@ export function useTrades() {
 
   const trades = useMemo(() => {
     const deleted = new Set(deletedTradeIds);
-    const allTrades = entries
+    // No account pre-filter here. Account filtering is handled exclusively by
+    // filterTradesBySelectedAccount (AppSettingsContext) which reads from
+    // selectedAccountId — the UI source of truth. Pre-filtering here caused a
+    // race condition where the Zustand store could rehydrate activeAccountId
+    // from Supabase AFTER the context effect had already set it to null,
+    // making the dashboard show zero trades on load even with "All Accounts" selected.
+    return entries
       .flatMap((entry) => entry.trades.map(toApiTrade))
       .filter((trade) => !deleted.has(trade.id));
-    if (!activeAccountId) return allTrades;
-    return allTrades.filter((trade) => (trade.accountId ?? trade.account_id ?? DEFAULT_ACCOUNT_ID) === activeAccountId);
-  }, [activeAccountId, deletedTradeIds, entries]);
+  }, [deletedTradeIds, entries]);
 
   const fetchTrades = useCallback(async () => {
     return;

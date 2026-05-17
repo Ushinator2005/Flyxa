@@ -332,7 +332,9 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
     const accountCandidate = trade.accountId || trade.account_id
       || (trade as unknown as { account?: string }).account
       || (trade.id ? tradeAccounts[trade.id] : undefined);
-    if (accountCandidate && validAccountIds.has(accountCandidate)) {
+    // DEFAULT_ACCOUNT_ID is a placeholder for "no account assigned" — treat it the same as
+    // missing so these trades fall through to defaultTradeAccountId (the user's real primary account).
+    if (accountCandidate && accountCandidate !== DEFAULT_ACCOUNT_ID && validAccountIds.has(accountCandidate)) {
       return accountCandidate;
     }
 
