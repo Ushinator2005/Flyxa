@@ -91,7 +91,7 @@ function wallTimeToUtcMs(dateSlice: string, timeHHMM: string, tz: string): numbe
 function winRateBadge(winRate: number): string {
   const diff = Math.round(winRate - 50);
   if (diff === 0) return 'At target';
-  return `${Math.abs(diff)} pts ${diff > 0 ? 'above' : 'below'} target`;
+  return `${Math.abs(diff)}% ${diff > 0 ? 'above' : 'below'} target`;
 }
 
 // ── Sub-components ───────────────────────────────────────────────
